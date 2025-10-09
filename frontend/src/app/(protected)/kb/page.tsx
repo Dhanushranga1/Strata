@@ -1,0 +1,574 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
+import { apiGet, apiPost } from "@/lib/api";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { 
+  BookOpen,
+  Upload, 
+  Search,
+  FileText,
+  Database,
+  BarChart3,
+  AlertCircle,
+  CheckCircle,
+  Loader2,
+  X
+} from "lucide-react";
+import { PageShell } from '@/ui/motion/PageShell';
+import { m } from 'framer-motion';
+import { v } from '@/ui/motion/variants';
+
+// Types based on backend kb.py
+interface KBStats {
+  documents: number;
+  chunks: number;
+}
+
+interface SearchResult {
+  faiss_id: number;
+  score: number;
+  document_id?: string;
+  chunk_id?: string;
+  text_preview?: string;
+}
+
+interface IngestResponse {
+  document_id: string;
+  chunks_ingested: number;
+  vectors_added: number;
+}
+
+interface DocumentItem {
+  id: string;
+  title: string;
+  source_type: string;
+  chunk_count: number;
+  created_at: string;
+}
+
+export default function KnowledgeBasePage() {
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<KBStats | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<{type: 'success' | 'error', message: string} | null>(null);
+  
+  // Upload form states
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [rawText, setRawText] = useState("");
+  const [filename, setFilename] = useState("");
+  
+  // Document management states
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentsFilter, setDocumentsFilter] = useState("");
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      console.log('📚 KB: Starting authentication check...');
+      try {
+        // Use Supabase session for authentication
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        
+        console.log('🔑 KB: Token from Supabase session:', token ? 'EXISTS' : 'NOT_FOUND');
+        
+        if (!token) {
+          console.log('❌ KB: No session found, redirecting to login');
+          router.push('/login');
+          return;
+        }
+
+        // Get user info
+        const userInfo = await apiGet('/api/me');
+        console.log('👤 KB: User info received:', userInfo);
+        setUser(userInfo);
+
+        // Load KB stats
+        await loadStats();
+
+      } catch (error) {
+        console.error('💥 KB: Authentication error:', error);
+        await supabase.auth.signOut();
+        router.push('/login');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
+  }, [router]);
+
+  const loadStats = async () => {
+    try {
+      console.log('📊 KB: Loading stats...');
+      const statsData = await apiGet<KBStats>('/api/kb/stats');
+      console.log('✅ KB: Stats loaded:', statsData);
+      setStats(statsData);
+    } catch (error) {
+      console.error('❌ KB: Failed to load stats:', error);
+    }
+  };
+
+  const loadDocuments = async () => {
+    console.log('📄 KB: Loading documents list...');
+    setDocumentsLoading(true);
+    try {
+      const docs = await apiGet<DocumentItem[]>('/api/kb/documents');
+      console.log('✅ KB: Documents loaded:', docs.length, 'documents');
+      setDocuments(docs);
+    } catch (error) {
+      console.error('❌ KB: Failed to load documents:', error);
+      setDocuments([]);
+    } finally {
+      setDocumentsLoading(false);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    
+    setSearchLoading(true);
+    try {
+      console.log('🔍 KB: Searching for:', searchQuery);
+      const results = await apiGet<SearchResult[]>(`/api/kb/search?q=${encodeURIComponent(searchQuery)}&k=5`);
+      console.log('✅ KB: Search results:', results);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('❌ KB: Search failed:', error);
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleFileUpload = async () => {
+    if (!selectedFile && !rawText.trim()) {
+      setUploadMessage({type: 'error', message: 'Please select a file or enter raw text'});
+      return;
+    }
+
+    setUploadLoading(true);
+    setUploadMessage(null);
+
+    try {
+      console.log('📤 KB: Starting upload...');
+      
+      const formData = new FormData();
+      if (selectedFile) {
+        formData.append('file', selectedFile);
+      }
+      if (rawText.trim()) {
+        formData.append('raw_text', rawText);
+      }
+      if (filename.trim()) {
+        formData.append('filename', filename);
+      }
+
+      // Use fetch directly for file upload since apiPost expects JSON
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/kb/ingest`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Upload failed: ${errorText}`);
+      }
+
+      const result: IngestResponse = await response.json();
+      console.log('✅ KB: Upload successful:', result);
+      
+      setUploadMessage({
+        type: 'success', 
+        message: `Document uploaded successfully! ${result.chunks_ingested} chunks created, ${result.vectors_added} vectors added.`
+      });
+
+      // Clear form
+      setSelectedFile(null);
+      setRawText("");
+      setFilename("");
+      
+      // Reload stats
+      await loadStats();
+
+    } catch (error) {
+      console.error('❌ KB: Upload failed:', error);
+      setUploadMessage({type: 'error', message: error instanceof Error ? error.message : 'Upload failed'});
+    } finally {
+      setUploadLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    );
+  }
+
+  // Check if user has rep access (required for KB ingestion)
+  const hasRepAccess = user?.role === 'rep' || user?.role === 'admin';
+
+  return (
+    <PageShell>
+      <div className="container mx-auto p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Knowledge Base</h1>
+            <p className="text-muted-foreground">
+              Search and manage your knowledge base documents
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            <BookOpen className="w-8 h-8 text-primary" />
+          </div>
+        </div>
+
+        {/* Stats Cards */}
+        {stats && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <m.div {...v.scaleIn}>
+              <Card className="bg-surface border">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Documents</CardTitle>
+                  <FileText className="h-4 w-4 text-muted" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stats.documents}</div>
+                </CardContent>
+              </Card>
+            </m.div>
+            
+            <m.div {...v.scaleIn} transition={{ delay: 0.1 }}>
+              <Card className="bg-surface border">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Knowledge Chunks</CardTitle>
+                  <Database className="h-4 w-4 text-muted" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{stats.chunks}</div>
+                </CardContent>
+              </Card>
+            </m.div>
+
+            <m.div {...v.scaleIn} transition={{ delay: 0.2 }}>
+              <Card className="bg-surface border">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Search Ready</CardTitle>
+                  <Search className="h-4 w-4 text-muted" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {stats.documents > 0 ? <CheckCircle className="w-6 h-6 text-success" /> : <X className="w-6 h-6 text-danger" />}
+                  </div>
+                </CardContent>
+              </Card>
+            </m.div>
+          </div>
+        )}
+
+        {/* Main Content */}
+        <Tabs defaultValue="search" className="space-y-6" onValueChange={(value) => {
+          if (value === 'manage' && hasRepAccess) {
+            loadDocuments();
+          }
+        }}>
+          <TabsList>
+            <TabsTrigger value="search">Search Knowledge Base</TabsTrigger>
+            {hasRepAccess && <TabsTrigger value="upload">Upload Documents</TabsTrigger>}
+            {hasRepAccess && <TabsTrigger value="manage">Manage Documents</TabsTrigger>}
+          </TabsList>
+
+          {/* Search Tab */}
+          <TabsContent value="search" className="space-y-6">
+            <m.div {...v.scaleIn}>
+              <Card className="bg-surface border">
+                <CardHeader>
+                  <CardTitle>Search Documents</CardTitle>
+                  <CardDescription>
+                    Search through your knowledge base to find relevant information
+                  </CardDescription>
+                </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="Enter your search query..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                    />
+                  </div>
+                  <Button onClick={handleSearch} disabled={searchLoading || !searchQuery.trim()}>
+                    {searchLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Search className="w-4 h-4 mr-2" />}
+                    Search
+                  </Button>
+                </div>
+
+                {/* Search Results */}
+                {searchResults.length > 0 && (
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold">Search Results</h3>
+                    {searchResults.map((result) => (
+                      <Card key={result.faiss_id}>
+                        <CardContent className="pt-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <Badge variant="secondary">
+                              Score: {(result.score * 100).toFixed(1)}%
+                            </Badge>
+                            {result.document_id && (
+                              <Badge variant="outline">
+                                Doc ID: {result.document_id}
+                              </Badge>
+                            )}
+                          </div>
+                          {result.text_preview && (
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                              {result.text_preview}
+                            </p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                {searchQuery && searchResults.length === 0 && !searchLoading && (
+                  <Card className="border-yellow-200 bg-yellow-50">
+                    <CardContent className="pt-4">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 text-yellow-600" />
+                        <p className="text-sm text-yellow-800">
+                          No results found for "{searchQuery}". Try different keywords or check your spelling.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </CardContent>
+              </Card>
+            </m.div>
+          </TabsContent>
+
+          {/* Upload Tab */}
+          {hasRepAccess && (
+            <TabsContent value="upload" className="space-y-6">
+              <m.div {...v.scaleIn}>
+                <Card className="bg-surface border">
+                  <CardHeader>
+                    <CardTitle>Upload Documents</CardTitle>
+                    <CardDescription>
+                      Add new documents to your knowledge base. Supports text files, PDFs, and raw text input.
+                    </CardDescription>
+                  </CardHeader>
+                <CardContent className="space-y-6">
+                  {uploadMessage && (
+                    <Card className={uploadMessage.type === 'error' ? 'border-red-200 bg-red-50' : 'border-green-200 bg-green-50'}>
+                      <CardContent className="pt-4">
+                        <div className="flex items-center gap-2">
+                          {uploadMessage.type === 'error' ? <AlertCircle className="h-4 w-4 text-red-600" /> : <CheckCircle className="h-4 w-4 text-green-600" />}
+                          <p className={`text-sm ${uploadMessage.type === 'error' ? 'text-red-800' : 'text-green-800'}`}>
+                            {uploadMessage.message}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <div className="space-y-4">
+                    {/* File Upload */}
+                    <div>
+                      <Label htmlFor="file-upload">Upload File</Label>
+                      <Input
+                        id="file-upload"
+                        type="file"
+                        accept=".txt,.pdf,.doc,.docx,.md"
+                        onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                        className="mt-1"
+                      />
+                    </div>
+
+                    {/* Raw Text Input */}
+                    <div>
+                      <Label htmlFor="raw-text">Or Enter Raw Text</Label>
+                      <Textarea
+                        id="raw-text"
+                        placeholder="Paste your text content here..."
+                        value={rawText}
+                        onChange={(e) => setRawText(e.target.value)}
+                        rows={6}
+                        className="mt-1"
+                      />
+                    </div>
+
+                    {/* Filename for raw text */}
+                    {rawText && (
+                      <div>
+                        <Label htmlFor="filename">Filename (for raw text)</Label>
+                        <Input
+                          id="filename"
+                          placeholder="e.g., manual.txt"
+                          value={filename}
+                          onChange={(e) => setFilename(e.target.value)}
+                          className="mt-1"
+                        />
+                      </div>
+                    )}
+
+                    <Button 
+                      onClick={handleFileUpload} 
+                      disabled={uploadLoading || (!selectedFile && !rawText.trim())}
+                      className="w-full"
+                    >
+                      {uploadLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Uploading...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4 mr-2" />
+                          Upload to Knowledge Base
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+                </Card>
+              </m.div>
+            </TabsContent>
+          )}
+
+          {/* Access Denied for Upload */}
+          {!hasRepAccess && (
+            <TabsContent value="upload">
+              <Card className="border-yellow-200 bg-yellow-50">
+                <CardContent className="pt-4">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-yellow-600" />
+                    <p className="text-sm text-yellow-800">
+                      You need rep or admin access to upload documents to the knowledge base.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          {/* Manage Documents Tab */}
+          {hasRepAccess && (
+            <TabsContent value="manage" className="space-y-6">
+              <m.div {...v.scaleIn}>
+                <Card className="bg-surface border">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      Document Management
+                    </CardTitle>
+                    <CardDescription>
+                      View and manage knowledge base documents
+                    </CardDescription>
+                  </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Document Search/Filter */}
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Filter documents by title..."
+                      value={documentsFilter}
+                      onChange={(e) => setDocumentsFilter(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button 
+                      onClick={loadDocuments} 
+                      disabled={documentsLoading}
+                      variant="outline"
+                    >
+                      {documentsLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        'Refresh'
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Documents Table */}
+                  {documentsLoading ? (
+                    <div className="text-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                      <p className="text-sm text-muted-foreground mt-2">Loading documents...</p>
+                    </div>
+                  ) : documents.length === 0 ? (
+                    <div className="text-center py-8">
+                      <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
+                      <p className="text-sm text-muted-foreground mt-2">No documents found</p>
+                    </div>
+                  ) : (
+                    <div className="border rounded-lg">
+                      <table className="w-full">
+                        <thead className="border-b bg-muted/50">
+                          <tr>
+                            <th className="text-left p-3 font-medium">Title</th>
+                            <th className="text-left p-3 font-medium">Type</th>
+                            <th className="text-left p-3 font-medium">Chunks</th>
+                            <th className="text-left p-3 font-medium">Created</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {documents
+                            .filter(doc => 
+                              documentsFilter === '' || 
+                              doc.title.toLowerCase().includes(documentsFilter.toLowerCase())
+                            )
+                            .map((doc) => (
+                            <tr key={doc.id} className="border-b hover:bg-muted/25">
+                              <td className="p-3">
+                                <div className="font-medium">{doc.title}</div>
+                                <div className="text-xs text-muted-foreground">ID: {doc.id}</div>
+                              </td>
+                              <td className="p-3">
+                                <Badge variant="outline">{doc.source_type}</Badge>
+                              </td>
+                              <td className="p-3 text-center">
+                                <Badge variant="secondary">{doc.chunk_count}</Badge>
+                              </td>
+                              <td className="p-3 text-sm text-muted-foreground">
+                                {new Date(doc.created_at).toLocaleDateString()}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+                </Card>
+              </m.div>
+            </TabsContent>
+          )}
+        </Tabs>
+      </div>
+    </PageShell>
+  );
+}
