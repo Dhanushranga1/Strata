@@ -1,0 +1,77 @@
+{
+  "2": {
+    "chunk_id": "4b8046e3-f7fd-4b46-ba53-020cbf411f07",
+    "document_title": "01_TP-POL-001_Refund-Billing-Policy_v3_(Effective_2025-08-01).md",
+    "text_preview": "**Title:** Refund & Billing Policy (v3)\n**Effective:** 2025-08-01 (supersedes v2 from 2024-01-01)\n**Summary:** Customers can request refunds within **45 days** of the initial charge. Immediate cancell"
+  },
+  "3": {
+    "chunk_id": "122cdc85-b38d-4239-b37c-4b212a71f4ff",
+    "document_title": "02_TP-POL-001_Refund-Billing-Policy_v2_(Effective_2024-01-01).md",
+    "text_preview": "**Title:** Refund & Billing Policy (v2)\n**Effective:** 2024-01-01 (obsolete\u2014superseded by v3)\n\n* **Refund window:** 30 days from charge.\n* **Restocking fee:** 5% processing fee on refunds.\n\n> This doc"
+  },
+  "4": {
+    "chunk_id": "f6b32ba2-b73b-4da1-a4ec-d933542b657a",
+    "document_title": "03_TP-SLA-001_Support-SLA_v2_(2025-07-15).md",
+    "text_preview": "**Title:** Support SLA (v2)\n**Effective:** 2025-07-15\n\n### First Response Targets (Business hours: Mon\u2013Fri, 08:00\u201318:00 Pacific)\n\n* **Pro:** \u2264 4 business hours\n* **Business:** \u2264 2 business hours\n* **E"
+  },
+  "5": {
+    "chunk_id": "9909651b-2a0b-4b27-97ef-66fa453ca771",
+    "document_title": "04_TP-SEC-001_Security-and-Data-Protection_v1.md",
+    "text_preview": "**Title:** Security & Data Protection\n**Effective:** 2025-06-01\n\n* **Certifications:** SOC 2 Type II (2025).\n* **Encryption:** AES-256 at rest; TLS 1.2+ in transit.\n* **Data residency:** US default; E"
+  },
+  "6": {
+    "chunk_id": "5eb1d66a-0915-4b9c-b0e9-a41f48ac4b7f",
+    "document_title": "05_TP-DAT-002_Data-Retention-Policy_v2.md",
+    "text_preview": "**Title:** Data Retention & Deletion\n**Effective:** 2024-12-15\n\n* **Chat logs:** Retained 3 years for analysis; then auto-deleted.\n* **Ticket content:** Retained throughout account lifecycle; deleted "
+  },
+  "7": {
+    "chunk_id": "3887eda7-58c7-40ec-b47a-c0557b12788b",
+    "document_title": "06_TP-USR-003_User-Roles-and-Permissions_v1.md",
+    "text_preview": "**Title:** User Roles & Permissions\n**Effective:** 2024-11-20\n\n* **Account Owner:** Full access to billing, user management, settings. One per account.\n* **Admin:** All features except billing changes"
+  },
+  "8": {
+    "chunk_id": "f4f819ce-bb20-4edb-93b4-3557e1edc533",
+    "document_title": "07_TP-WFL-004_Ticket-Workflow-Automation_v3.md",
+    "text_preview": "**Title:** Ticket Workflow & Automation\n**Effective:** 2024-10-30\n\n* **Default statuses:** New \u2192 In Progress \u2192 Pending Customer \u2192 Resolved \u2192 Closed.\n* **Auto-assignment:** Round-robin by default; keyw"
+  },
+  "9": {
+    "chunk_id": "ce04408c-948e-415b-a700-2c2ce8574442",
+    "document_title": "08_TP-ESC-005_Escalation-Matrix_v2.md",
+    "text_preview": "**Title:** Escalation Matrix & Procedures\n**Effective:** 2024-09-12\n\n**Customer-facing escalations:**\n* **Level 1:** Standard agent response (target: 4 hours).\n* **Level 2:** Senior agent or specialis"
+  },
+  "10": {
+    "chunk_id": "bd1a7a6b-181c-4fdb-9f02-c3a9b7b7c406",
+    "document_title": "09_TP-PRC-006_Pricing-Plans_v4.md",
+    "text_preview": "**Title:** Pricing & Plan Comparison\n**Effective:** 2025-01-01\n\n**Starter (Free):**\n* 5 tickets/month, 1 user, email support only\n* No AI chat, no integrations\n\n**Pro ($29/user/month):**\n* Unlimited t"
+  },
+  "11": {
+    "chunk_id": "8f61807c-55d3-4f29-bbfb-85c777dd1049",
+    "document_title": "10_TP-SUP-007_Support-Hours_v1.md",
+    "text_preview": "**Title:** Support Hours & Availability\n**Effective:** 2024-08-15\n\n**Standard support hours:**\n* **Starter/Pro:** Mon-Fri 9 AM - 6 PM PST (email only)\n* **Business:** Mon-Fri 6 AM - 9 PM PST + Sat 10 "
+  },
+  "12": {
+    "chunk_id": "82f158c8-4552-4b97-85a9-7e71aafa4574",
+    "document_title": "11_TP-KB-008_Knowledge-Base-Setup_v1.md",
+    "text_preview": "**Title:** Knowledge Base Setup Guide\n**Effective:** 2024-07-22\n\n**Getting Started:**\n1. **Upload documents:** Drag & drop PDFs, Word docs, or plain text (max 50MB per file)\n2. **Sync integrations:** "
+  },
+  "13": {
+    "chunk_id": "16d75079-f4b8-4ace-a091-5b8ce2cb2a37",
+    "document_title": "12_TP-ANN-009_Maintenance-Jan2025_v1.md",
+    "text_preview": "**Subject:** Scheduled Maintenance - January 15, 2025\n**From:** TicketPilot Operations <ops@ticketpilot.com>\n**Date:** January 10, 2025\n\nDear TicketPilot Users,\n\nWe have scheduled maintenance for **Tu"
+  },
+  "14": {
+    "chunk_id": "15764417-f5ca-48cf-9d09-468e85a4ef60",
+    "document_title": "13_NOISE_Corporate-Synergy-Doc_v1.md",
+    "text_preview": "**Title:** Random Corporate Noise Document\n**Department:** Strategic Synergy & Innovation Lab\n**Date:** December 2024\n\nThis document contains irrelevant information that should NOT be used for custome"
+  },
+  "15": {
+    "chunk_id": "15155d5a-8b6b-4898-970d-6da608db2d28",
+    "document_title": "my_resume-7.pdf",
+    "text_preview": "Dhanush Ranga Gopisetty\nEmail: dhanushrangag@gmail.com | Phone: +91-78710-16527 | Location: Chennai, India\nGitHub: https://github.com/Dhanushranga1 | LinkedIn: https://in.linkedin.com/in/dhanush-ranga"
+  },
+  "16": {
+    "chunk_id": "3daa1fc7-eb28-478c-a8d8-a2f466a39013",
+    "document_title": "my_resume-7.pdf",
+    "text_preview": "low-confidence cases to humans.\n\u2022KB ingestion (PDF/DOCX/MD/TXT -> embeddings -> FAISS); ingest/search/stats APIs for ops visibility.\n\u2022Role-based ticketing (customer/rep/admin), Rep Console queues, and"
+  }
+}
