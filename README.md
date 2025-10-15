@@ -1,6 +1,21 @@
-# TicketPilot — Phase 1 & 2 (Foundation & Knowledge Base)
+# TicketPilot — AI-Powered Customer Support
 
-A working frontend+backend with Supabase Auth, route protection, and knowledge base ingestion pipeline.
+A modern, AI-powered customer support ticketing system with RAG (Retrieval-Augmented Generation) powered by Google Gemini, built with Next.js 15 and FastAPI.
+
+## 📋 Product Audit Available
+
+**✨ NEW:** We've completed a comprehensive UX & usability audit!
+
+📁 **See [`audit/`](./audit/)** folder for:
+- Product health analysis (7/10 score)
+- 7 Quick Wins (8 hours to implement)
+- Strategic improvements roadmap
+- Implementation guides with code snippets
+- ROI analysis ($26K/year return on $3K investment)
+
+**Quick Start:** Read [`audit/VISUAL_AUDIT_SUMMARY.md`](./audit/VISUAL_AUDIT_SUMMARY.md) (5 min)
+
+---
 
 ## Project Structure
 

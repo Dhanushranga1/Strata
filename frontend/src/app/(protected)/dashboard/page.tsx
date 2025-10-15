@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { motion } from 'framer-motion'
 import { apiGet } from '@/lib/api'
 import { BentoGrid, BentoGridItem } from '@/components/ui/BentoGrid'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -284,6 +285,21 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
+            ) : stats && stats.tickets.total === 0 ? (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="text-center py-16"
+              >
+                <h1 className="text-4xl font-bold mb-4">Welcome to TicketPilot! 🎉</h1>
+                <p className="text-xl text-muted-foreground mb-8">
+                  Let&apos;s get you started with AI-powered support
+                </p>
+                <Button size="lg" onClick={() => router.push('/tickets')}>
+                  Create Your First Ticket
+                  <ArrowUpRight className="ml-2 w-5 h-5" />
+                </Button>
+              </motion.div>
             ) : stats ? (
               <BentoGrid>
                 {/* Tickets Overview */}

@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Plus, Search, Filter, Download, AlertCircle, Eye, Edit } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { toast } from 'sonner'
 import { DataTable } from '@/components/ui/DataTable'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,7 +29,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { StatusBadge } from '@/components/StatusBadge'
-import { apiGet } from '@/lib/api'
+import { apiGet, apiPost } from '@/lib/api'
 
 // Types from backend schemas
 interface TicketSummary {
@@ -130,6 +132,56 @@ function downloadCsv(rows: TicketSummary[]) {
   URL.revokeObjectURL(url);
 }
 
+// Empty State Component
+const EmptyTicketState = ({ onCreateClick }: { onCreateClick: () => void }) => (
+  <motion.div 
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    className="text-center py-16 px-4"
+  >
+    <div className="mx-auto w-24 h-24 mb-6 rounded-full bg-primary/10 flex items-center justify-center">
+      <Plus className="w-12 h-12 text-primary" />
+    </div>
+    <h2 className="text-2xl font-semibold text-foreground mb-3">
+      Welcome to TicketPilot! 👋
+    </h2>
+    <p className="text-muted-foreground max-w-md mx-auto mb-8">
+      Get instant help from our AI assistant powered by your company&apos;s knowledge base. 
+      Create your first ticket to get started.
+    </p>
+    
+    <Button 
+      size="lg" 
+      onClick={onCreateClick}
+      className="mb-8"
+    >
+      <Plus className="w-5 h-5 mr-2" />
+      Create Your First Ticket
+    </Button>
+    
+    <div className="max-w-2xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+      <Card className="p-4">
+        <div className="font-medium mb-2">📝 Be Specific</div>
+        <div className="text-muted-foreground text-xs">
+          Describe your issue clearly with relevant details
+        </div>
+      </Card>
+      <Card className="p-4">
+        <div className="font-medium mb-2">🤖 AI Helps First</div>
+        <div className="text-muted-foreground text-xs">
+          Our AI assistant will search our help docs instantly
+        </div>
+      </Card>
+      <Card className="p-4">
+        <div className="font-medium mb-2">👤 Human Backup</div>
+        <div className="text-muted-foreground text-xs">
+          If AI can&apos;t help, escalate to our support team
+        </div>
+      </Card>
+    </div>
+  </motion.div>
+);
+
 export default function TicketsPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -141,6 +193,12 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState<TicketSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [newTicket, setNewTicket] = useState({
+    title: '',
+    description: '',
+    priority: 'medium'
+  })
 
   // Load tickets from API
   useEffect(() => {
@@ -172,6 +230,42 @@ export default function TicketsPage() {
 
     loadTickets();
   }, [statusFilter, searchTerm]);
+
+  // Create ticket function
+  const createTicket = async () => {
+    if (!newTicket.title.trim() || !newTicket.description.trim()) {
+      toast.error('Please fill in both title and description');
+      return;
+    }
+
+    try {
+      setCreating(true);
+      const response = await apiPost<{ id: string }>('/api/tickets', {
+        title: newTicket.title,
+        description: newTicket.description,
+      });
+      
+      // Show success toast
+      toast.success('✅ Ticket created! Our AI is analyzing your question...', {
+        duration: 4000,
+      });
+      
+      // Reset form
+      setNewTicket({ title: '', description: '', priority: 'medium' });
+      setNewTicketOpen(false);
+      
+      // Redirect with slight delay for toast visibility
+      setTimeout(() => {
+        router.push(`/tickets/${response.id}`);
+      }, 500);
+      
+    } catch (error) {
+      toast.error('Failed to create ticket. Please try again.');
+      setError(error instanceof Error ? error.message : 'Failed to create ticket');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   // Filter tickets based on search and status (now applied to API data)
   const filteredTickets = tickets;
@@ -309,51 +403,59 @@ export default function TicketsPage() {
                 New Ticket
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
                 <DialogTitle>Create New Ticket</DialogTitle>
                 <DialogDescription>
-                  Create a new support ticket for a customer inquiry.
+                  Describe your issue below. Our AI will help find answers from our knowledge base.
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="title" className="text-right">
-                    Title
+                <div className="space-y-2">
+                  <Label htmlFor="title">
+                    Subject
                   </Label>
-                  <Input id="title" className="col-span-3" />
+                  <Input 
+                    id="title" 
+                    placeholder="Brief summary of your issue"
+                    value={newTicket.title}
+                    onChange={(e) => setNewTicket({ ...newTicket, title: e.target.value })}
+                  />
                 </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="customer" className="text-right">
-                    Customer
-                  </Label>
-                  <Input id="customer" className="col-span-3" />
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="priority" className="text-right">
-                    Priority
-                  </Label>
-                  <Select>
-                    <SelectTrigger className="col-span-3">
-                      <SelectValue placeholder="Select priority" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="description" className="text-right">
+                <div className="space-y-2">
+                  <Label htmlFor="description">
                     Description
                   </Label>
-                  <Textarea id="description" className="col-span-3" />
+                  <Textarea 
+                    id="description" 
+                    value={newTicket.description}
+                    onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })}
+                    placeholder="Describe your issue in detail. For example: 'I'm trying to reset my password, but the email link says it expired. I've tried 3 times in the last hour.'"
+                    rows={6}
+                    className="resize-none"
+                    maxLength={500}
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    {newTicket.description.length}/500 characters • More detail helps us assist you faster!
+                  </div>
                 </div>
               </div>
               <DialogFooter>
-                <Button type="submit" onClick={() => setNewTicketOpen(false)}>
-                  Create Ticket
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setNewTicketOpen(false);
+                    setNewTicket({ title: '', description: '', priority: 'medium' });
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit" 
+                  onClick={createTicket}
+                  disabled={creating || !newTicket.title.trim() || !newTicket.description.trim()}
+                >
+                  {creating ? 'Creating...' : 'Create Ticket'}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -361,28 +463,39 @@ export default function TicketsPage() {
         </div>
       </div>
 
-      {/* Data Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>All Tickets</CardTitle>
-          <CardDescription>
-            Showing {filteredTickets.length} of {totalTickets} tickets
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable
-            columns={columns}
-            data={filteredTickets}
-            actions={tableActions}
-            searchable={true}
-            searchPlaceholder="Search tickets..."
-            filterable={true}
-            sortable={true}
-            pagination={true}
-            pageSize={10}
-          />
-        </CardContent>
-      </Card>
+      {/* Data Table or Empty State */}
+      {loading ? (
+        <div className="flex justify-center py-16">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading tickets...</p>
+          </div>
+        </div>
+      ) : filteredTickets.length === 0 && !searchTerm && statusFilter === 'all' ? (
+        <EmptyTicketState onCreateClick={() => setNewTicketOpen(true)} />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>All Tickets</CardTitle>
+            <CardDescription>
+              Showing {filteredTickets.length} of {totalTickets} tickets
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataTable
+              columns={columns}
+              data={filteredTickets}
+              actions={tableActions}
+              searchable={true}
+              searchPlaceholder="Search tickets..."
+              filterable={true}
+              sortable={true}
+              pagination={true}
+              pageSize={10}
+            />
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

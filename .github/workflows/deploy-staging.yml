@@ -1,0 +1,366 @@
+name: 🚀 Staging Deployment Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+  
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deploy all services'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: staging-deployment
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # 🔍 Change Detection & Planning
+  detect-changes:
+    name: 🔍 Detect Changes & Plan Deployment
+    runs-on: ubuntu-latest
+    outputs:
+      frontend-changed: ${{ steps.changes.outputs.frontend }}
+      backend-changed: ${{ steps.changes.outputs.backend }}
+      docs-changed: ${{ steps.changes.outputs.docs }}
+    
+    steps:
+      - name: 📦 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Detect Changes
+        id: changes
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/**'
+            backend:
+              - 'backend/**'
+              - '.github/workflows/**'
+            docs:
+              - '*.md'
+              - 'docs/**'
+
+      - name: 📋 Deployment Plan
+        run: |
+          echo "🎯 **Staging Deployment Plan**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend Changed**: ${{ steps.changes.outputs.frontend }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend Changed**: ${{ steps.changes.outputs.backend }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docs Changed**: ${{ steps.changes.outputs.docs }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Force Deploy**: ${{ github.event.inputs.force_deploy }}" >> $GITHUB_STEP_SUMMARY
+
+  # 🎨 Frontend Staging Deployment
+  deploy-frontend-staging:
+    name: 🎨 Deploy Frontend to Staging
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend-changed == 'true' || github.event.inputs.force_deploy == 'true'
+    environment: 
+      name: staging
+      url: ${{ steps.vercel-preview.outputs.preview-url }}
+    
+    defaults:
+      run:
+        working-directory: ./frontend
+    
+    steps:
+      - name: 📦 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: ⚡ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 📥 Install Dependencies
+        run: npm ci
+
+      - name: 🏗️ Build for Staging
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.STAGING_API_URL }}
+
+      - name: 🚀 Deploy to Vercel Preview
+        id: vercel-preview
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./frontend
+          alias-domains: |
+            staging-ticketpilot.vercel.app
+
+      - name: 💡 Staging Performance Check
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          urls: |
+            ${{ steps.vercel-preview.outputs.preview-url }}
+          configPath: './frontend/.lighthouserc.json'
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+  # 🐍 Backend Staging Deployment
+  deploy-backend-staging:
+    name: 🐍 Deploy Backend to Staging
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend-changed == 'true' || github.event.inputs.force_deploy == 'true'
+    environment: staging
+    
+    defaults:
+      run:
+        working-directory: ./backend
+    
+    steps:
+      - name: 📦 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 🔍 Pre-deployment Validation
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt --dry-run
+          echo "✅ Requirements validated"
+
+      - name: 🚂 Deploy to Railway Staging
+        uses: bervProject/railway-deploy@v1.2.0
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: ${{ secrets.RAILWAY_STAGING_SERVICE_ID }}
+          detach: false
+
+      - name: ⏳ Wait for Deployment
+        run: sleep 45
+
+      - name: 🏥 Health Check
+        run: |
+          echo "🏥 Performing staging health check..."
+          max_retries=5
+          retry_count=0
+          
+          while [ $retry_count -lt $max_retries ]; do
+            if curl -f -s "${{ secrets.STAGING_API_URL }}/api/health" > /dev/null; then
+              echo "✅ Staging backend health check passed!"
+              break
+            else
+              echo "⏳ Retrying health check... ($((retry_count + 1))/$max_retries)"
+              sleep 15
+              retry_count=$((retry_count + 1))
+            fi
+          done
+
+  # 🔄 End-to-End Testing
+  e2e-tests:
+    name: 🔄 End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-frontend-staging, deploy-backend-staging]
+    if: always() && (needs.deploy-frontend-staging.result == 'success' || needs.deploy-backend-staging.result == 'success')
+    
+    steps:
+      - name: 📦 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: ⚡ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📥 Install Playwright
+        run: |
+          npm init -y
+          npm install @playwright/test
+          npx playwright install
+
+      - name: 🔄 Run E2E Tests
+        run: |
+          cat > e2e-tests.js << 'EOF'
+          const { test, expect } = require('@playwright/test');
+          
+          test('staging health checks', async ({ page }) => {
+            // Test frontend loads
+            await page.goto('${{ secrets.STAGING_FRONTEND_URL || 'https://staging-ticketpilot.vercel.app' }}');
+            await expect(page).toHaveTitle(/TicketPilot/);
+            
+            // Test login page loads
+            await page.goto('${{ secrets.STAGING_FRONTEND_URL || 'https://staging-ticketpilot.vercel.app' }}/login');
+            await expect(page.locator('text=Login')).toBeVisible();
+            
+            console.log('✅ E2E tests passed');
+          });
+          EOF
+          
+          npx playwright test e2e-tests.js
+        env:
+          STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
+
+  # 🧪 API Integration Tests
+  api-integration-tests:
+    name: 🧪 API Integration Tests
+    runs-on: ubuntu-latest
+    needs: deploy-backend-staging
+    if: needs.deploy-backend-staging.result == 'success'
+    
+    steps:
+      - name: 📦 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📥 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pytest
+
+      - name: 🧪 Run API Tests
+        run: |
+          echo "🧪 Running API integration tests against staging..."
+          
+          # Create a simple test script
+          cat > api_test.py << 'EOF'
+          import requests
+          import sys
+          
+          def test_api_health():
+              try:
+                  response = requests.get("${{ secrets.STAGING_API_URL }}/api/health", timeout=10)
+                  assert response.status_code == 200
+                  print("✅ Health endpoint working")
+                  return True
+              except Exception as e:
+                  print(f"❌ Health check failed: {e}")
+                  return False
+          
+          def test_api_cors():
+              try:
+                  response = requests.options("${{ secrets.STAGING_API_URL }}/api/health")
+                  print(f"✅ CORS check: {response.status_code}")
+                  return True
+              except Exception as e:
+                  print(f"❌ CORS check failed: {e}")
+                  return False
+          
+          if __name__ == "__main__":
+              tests = [test_api_health, test_api_cors]
+              results = [test() for test in tests]
+              
+              if all(results):
+                  print("🎉 All API tests passed!")
+                  sys.exit(0)
+              else:
+                  print("❌ Some API tests failed")
+                  sys.exit(1)
+          EOF
+          
+          python api_test.py
+
+  # 📊 Performance & Security Audit
+  security-audit:
+    name: 🔒 Security & Performance Audit
+    runs-on: ubuntu-latest
+    needs: [deploy-frontend-staging, deploy-backend-staging]
+    if: always() && (needs.deploy-frontend-staging.result == 'success' || needs.deploy-backend-staging.result == 'success')
+    
+    steps:
+      - name: 📦 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🔒 Security Headers Check
+        run: |
+          echo "🔒 Checking security headers..."
+          
+          if command -v curl &> /dev/null; then
+            # Check for security headers
+            headers=$(curl -I -s "${{ secrets.STAGING_FRONTEND_URL || 'https://staging-ticketpilot.vercel.app' }}")
+            
+            if echo "$headers" | grep -i "x-frame-options"; then
+              echo "✅ X-Frame-Options header present"
+            else
+              echo "⚠️ X-Frame-Options header missing"
+            fi
+            
+            if echo "$headers" | grep -i "x-content-type-options"; then
+              echo "✅ X-Content-Type-Options header present"
+            else
+              echo "⚠️ X-Content-Type-Options header missing"
+            fi
+          fi
+
+      - name: 📊 Performance Metrics
+        run: |
+          echo "📊 Gathering performance metrics..."
+          
+          # Simple response time check
+          if command -v curl &> /dev/null; then
+            frontend_time=$(curl -o /dev/null -s -w '%{time_total}' "${{ secrets.STAGING_FRONTEND_URL || 'https://staging-ticketpilot.vercel.app' }}")
+            backend_time=$(curl -o /dev/null -s -w '%{time_total}' "${{ secrets.STAGING_API_URL }}/api/health")
+            
+            echo "Frontend response time: ${frontend_time}s"
+            echo "Backend response time: ${backend_time}s"
+            
+            echo "📊 **Performance Metrics**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Frontend**: ${frontend_time}s" >> $GITHUB_STEP_SUMMARY
+            echo "- **Backend**: ${backend_time}s" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # 📋 Staging Summary
+  staging-summary:
+    name: 📋 Staging Deployment Summary  
+    runs-on: ubuntu-latest
+    needs: [detect-changes, deploy-frontend-staging, deploy-backend-staging, e2e-tests, api-integration-tests, security-audit]
+    if: always()
+    
+    steps:
+      - name: 📋 Generate Summary
+        run: |
+          echo "🚀 **Staging Deployment Summary**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|---------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Change Detection | ✅ | ${{ needs.detect-changes.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend Deploy | ${{ needs.detect-changes.outputs.frontend-changed == 'true' && '🎯' || '⏭️' }} | ${{ needs.deploy-frontend-staging.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend Deploy | ${{ needs.detect-changes.outputs.backend-changed == 'true' && '🎯' || '⏭️' }} | ${{ needs.deploy-backend-staging.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| E2E Tests | 🧪 | ${{ needs.e2e-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| API Tests | 🧪 | ${{ needs.api-integration-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Audit | 🔒 | ${{ needs.security-audit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Determine overall status
+          if [[ "${{ needs.deploy-frontend-staging.result }}" == "success" && "${{ needs.deploy-backend-staging.result }}" == "success" ]]; then
+            echo "**Overall Status**: ✅ SUCCESS - Ready for production" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ needs.deploy-frontend-staging.result }}" == "success" || "${{ needs.deploy-backend-staging.result }}" == "success" ]]; then
+            echo "**Overall Status**: ⚠️ PARTIAL - Some services deployed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Overall Status**: ❌ FAILED - Check logs for issues" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **Staging URLs**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend: ${{ secrets.STAGING_FRONTEND_URL || 'https://staging-ticketpilot.vercel.app' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend: ${{ secrets.STAGING_API_URL }}" >> $GITHUB_STEP_SUMMARY

@@ -554,7 +554,18 @@ export default function RepConsolePage() {
       })
 
       if (response.ok) {
-        toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} successful!`, { id: 'action-' + ticketId })
+        // Add specific toasts based on action
+        const toastMessages: Record<string, string> = {
+          assign: '✅ Ticket assigned to you',
+          acknowledge: '✅ Attention acknowledged',
+          escalate: '🚨 Ticket escalated to senior support',
+          status: payload.status === 'closed' ? '✅ Ticket marked as closed' : '🔄 Ticket status updated',
+          priority: `📌 Priority set to ${payload.priority}`,
+        }
+        
+        toast.success(toastMessages[action] || `✅ ${action.charAt(0).toUpperCase() + action.slice(1)} successful!`, { 
+          id: 'action-' + ticketId 
+        })
         
         // Optimistic UI update for certain actions
         if (action === 'assign') {
@@ -576,7 +587,7 @@ export default function RepConsolePage() {
         await loadCounts(true)
       } else {
         const errorText = await response.text()
-        toast.error(`${action} failed: ${errorText}`, { id: 'action-' + ticketId })
+        toast.error(`❌ Failed to ${action} ticket: ${errorText}`, { id: 'action-' + ticketId })
       }
     } catch (error) {
       console.error('Action failed:', error)

@@ -2,6 +2,7 @@ import "./globals.css";
 import { Geist, Inter } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import MotionProvider from '@/ui/motion/MotionProvider';
+import { Toaster } from 'sonner';
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <MotionProvider>
             {children}
           </MotionProvider>
+          <Toaster position="top-right" richColors />
         </ThemeProvider>
       </body>
     </html>

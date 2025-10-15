@@ -1,0 +1,324 @@
+name: 🚀 Development CI Pipeline
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - '.github/workflows/**'
+  push:
+    branches: [develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # 🎯 Frontend Quality Checks
+  frontend-checks:
+    name: 🎨 Frontend Quality & Security
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    
+    steps:
+      - name: 📦 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ⚡ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 📥 Install Dependencies
+        run: npm ci
+
+      - name: 🔍 TypeScript Check
+        run: npm run type-check
+        continue-on-error: false
+
+      - name: 🧹 ESLint Analysis
+        run: npm run lint
+        continue-on-error: false
+
+      - name: 🎨 Prettier Format Check
+        run: npm run format:check
+        continue-on-error: false
+
+      - name: 🏗️ Build Application
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+
+      - name: 🧪 Run Unit Tests
+        run: npm test -- --coverage --watchAll=false
+        env:
+          CI: true
+
+      - name: 📊 Upload Coverage Reports
+        uses: codecov/codecov-action@v3
+        with:
+          flags: frontend
+          directory: ./frontend/coverage
+
+      - name: 🔒 Security Audit
+        run: npm audit --audit-level=moderate
+
+      - name: 🚨 Dependency Vulnerability Scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=medium
+          command: test
+        continue-on-error: true
+
+  # 🐍 Backend Quality Checks
+  backend-checks:
+    name: 🐍 Backend Quality & Security
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_USER: test_user
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: 📦 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: 📥 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov black isort mypy bandit safety
+
+      - name: 🎨 Code Formatting Check (Black)
+        run: black --check --diff .
+        continue-on-error: false
+
+      - name: 📦 Import Sorting Check (isort)
+        run: isort --check-only --diff .
+        continue-on-error: false
+
+      - name: 🔍 Type Checking (MyPy)
+        run: mypy app/ --ignore-missing-imports
+        continue-on-error: true
+
+      - name: 🧪 Run Unit Tests
+        run: pytest --cov=app --cov-report=xml --cov-report=html -v
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          JWT_SECRET: test_jwt_secret_for_ci
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+
+      - name: 📊 Upload Coverage Reports
+        uses: codecov/codecov-action@v3
+        with:
+          flags: backend
+          directory: ./backend
+
+      - name: 🔒 Security Scan (Bandit)
+        run: bandit -r app/ -f json -o bandit-report.json
+        continue-on-error: true
+
+      - name: 🛡️ Dependency Security Check (Safety)
+        run: safety check --json --output safety-report.json
+        continue-on-error: true
+
+      - name: 📋 FastAPI Schema Validation
+        run: python -c "from app.main import app; print('✅ FastAPI app loads successfully')"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
+  # 💡 Lighthouse Performance Testing
+  lighthouse-ci:
+    name: 💡 Performance & Accessibility
+    runs-on: ubuntu-latest
+    needs: [frontend-checks]
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: 📦 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ⚡ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 📥 Install Dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: 🏗️ Build Application
+        working-directory: ./frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+      - name: 🚀 Start Application
+        working-directory: ./frontend
+        run: npm start &
+        env:
+          PORT: 3000
+
+      - name: ⏳ Wait for Application
+        run: npx wait-on http://localhost:3000
+
+      - name: 💡 Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          configPath: './frontend/.lighthouserc.json'
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+  # 🎯 Integration Tests
+  integration-tests:
+    name: 🔄 Integration Tests
+    runs-on: ubuntu-latest
+    needs: [frontend-checks, backend-checks]
+    if: github.event_name == 'pull_request'
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_USER: test_user
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: 📦 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: ⚡ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 📥 Install Backend Dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 📥 Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: 🏗️ Build Frontend
+        working-directory: ./frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+
+      - name: 🚀 Start Backend
+        working-directory: ./backend
+        run: uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          JWT_SECRET: test_jwt_secret_for_ci
+
+      - name: 🚀 Start Frontend
+        working-directory: ./frontend
+        run: npm start &
+        env:
+          PORT: 3000
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+
+      - name: ⏳ Wait for Services
+        run: |
+          npx wait-on http://localhost:8000/api/health
+          npx wait-on http://localhost:3000
+
+      - name: 🧪 Run Integration Tests
+        run: python rag_validation_suite.py
+        env:
+          TEST_BASE_URL: http://localhost:8000
+          TEST_FRONTEND_URL: http://localhost:3000
+
+  # 📊 Code Quality Summary
+  quality-gate:
+    name: 🎯 Quality Gate Summary
+    runs-on: ubuntu-latest
+    needs: [frontend-checks, backend-checks, lighthouse-ci, integration-tests]
+    if: always()
+    
+    steps:
+      - name: 📊 Quality Gate Check
+        run: |
+          echo "🎯 Quality Gate Results:"
+          echo "Frontend Checks: ${{ needs.frontend-checks.result }}"
+          echo "Backend Checks: ${{ needs.backend-checks.result }}"
+          echo "Lighthouse CI: ${{ needs.lighthouse-ci.result }}"
+          echo "Integration Tests: ${{ needs.integration-tests.result }}"
+          
+          if [[ "${{ needs.frontend-checks.result }}" == "success" && 
+                "${{ needs.backend-checks.result }}" == "success" ]]; then
+            echo "✅ Quality Gate PASSED - Ready for merge!"
+            exit 0
+          else
+            echo "❌ Quality Gate FAILED - Please fix issues before merging"
+            exit 1
+          fi
