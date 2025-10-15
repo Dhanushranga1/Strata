@@ -44,6 +44,9 @@ def create_ticket(payload: TicketCreate, user: User = Depends(get_current_user))
     """Create a new ticket with initial message."""
     user_role = get_user_role(user.id)
     
+    # Map admin to rep for messages (DB constraint only allows: customer, rep, ai, system)
+    message_sender_role = "rep" if user_role == "admin" else user_role
+    
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
@@ -63,7 +66,7 @@ def create_ticket(payload: TicketCreate, user: User = Depends(get_current_user))
             INSERT INTO app.messages (ticket_id, sender_id, sender_role, body)
             VALUES (%s, %s, %s, %s)
             RETURNING id, ticket_id, sender_id, sender_role, body, created_at
-        """, (ticket_id, user.id, user_role, payload.description))
+        """, (ticket_id, user.id, message_sender_role, payload.description))
         
         message_row = cursor.fetchone()
         
@@ -285,6 +288,9 @@ def post_message(ticket_id: str, payload: MessageCreate, user: User = Depends(ge
     user_is_rep = is_rep(user)
     user_role = get_user_role(user.id)
     
+    # Map admin to rep for messages (DB constraint only allows: customer, rep, ai, system)
+    message_sender_role = "rep" if user_role == "admin" else user_role
+    
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
@@ -307,7 +313,7 @@ def post_message(ticket_id: str, payload: MessageCreate, user: User = Depends(ge
             INSERT INTO app.messages (ticket_id, sender_id, sender_role, body)
             VALUES (%s, %s, %s, %s)
             RETURNING id, ticket_id, sender_id, sender_role, body, created_at
-        """, (ticket_id, user.id, user_role, payload.body))
+        """, (ticket_id, user.id, message_sender_role, payload.body))
         
         message_row = cursor.fetchone()
         
