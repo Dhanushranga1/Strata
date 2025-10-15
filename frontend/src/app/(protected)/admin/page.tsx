@@ -19,6 +19,7 @@ import {
   Activity
 } from "lucide-react";
 import { PageShell } from '@/ui/motion/PageShell';
+import { SystemHealthDashboard } from '@/components/admin/SystemHealthDashboard';
 
 interface AdminStats {
   totalUsers: number;
@@ -327,6 +328,9 @@ export default function AdminPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* System Health Dashboard - Phase 3: SI-3 */}
+        <SystemHealthDashboard />
 
         {/* Admin Sections */}
         <div className="grid gap-6 md:grid-cols-2">
