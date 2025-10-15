@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Sparkles, Eye, EyeOff } from 'lucide-react'
+import { Sparkles, Eye, EyeOff, ThumbsUp, ThumbsDown, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiGet, apiPost } from '@/lib/api'
 
@@ -83,6 +83,14 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   // System messages toggle and citation tooltip
   const [showSystemMessages, setShowSystemMessages] = useState(false)
   const [showCitationTip, setShowCitationTip] = useState(true)
+  
+  // Phase 3: Escalation and feedback state
+  const [escalating, setEscalating] = useState(false)
+  const [feedbackGiven, setFeedbackGiven] = useState<{[messageId: string]: 'positive' | 'negative'}>({})
+  const [feedbackLoading, setFeedbackLoading] = useState<{[messageId: string]: boolean}>({})
+  
+  // Get current user ID from ticket data
+  const currentUserId = ticketData?.ticket?.created_by
 
   const loadTicket = async () => {
     try {
@@ -145,6 +153,56 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
       setError(err instanceof Error ? err.message : 'Failed to get AI response')
     } finally {
       setAiLoading(false)
+    }
+  }
+
+  // Phase 3: Escalation handler
+  const handleEscalate = async () => {
+    if (!confirm('Request human assistance? A support agent will be assigned to help you.')) {
+      return
+    }
+    
+    try {
+      setEscalating(true)
+      await apiPost(`/api/rep/tickets/${params.id}/escalate`, {
+        reason: 'Customer requested human assistance'
+      })
+      
+      // Show success message (you can use a toast library here)
+      alert('✅ Your request has been escalated! A support agent will help you soon.')
+      
+      // Refresh to show updated status
+      await loadTicket()
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to escalate ticket'
+      alert(`❌ ${errorMsg}`)
+    } finally {
+      setEscalating(false)
+    }
+  }
+
+  // Phase 3: AI Feedback handler
+  const handleFeedback = async (messageId: string, feedbackType: 'positive' | 'negative') => {
+    if (feedbackGiven[messageId]) {
+      return // Already submitted feedback
+    }
+    
+    try {
+      setFeedbackLoading(prev => ({ ...prev, [messageId]: true }))
+      
+      const response = await apiPost<{ok: boolean, message: string}>('/api/ai/feedback', {
+        message_id: messageId,
+        feedback_type: feedbackType
+      })
+      
+      if (response.ok) {
+        setFeedbackGiven(prev => ({ ...prev, [messageId]: feedbackType }))
+        // Optional: Show a subtle success message
+      }
+    } catch (err) {
+      console.error('Failed to submit feedback:', err)
+    } finally {
+      setFeedbackLoading(prev => ({ ...prev, [messageId]: false }))
     }
   }
 
@@ -326,19 +384,31 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                     </span>
                   </div>
                   
-                  {/* Low confidence warning for AI messages */}
+                  {/* Low confidence warning for AI messages + Escalation button */}
                   {message.sender_role === 'ai' && message.meta?.suggest_escalation && (
                     <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                      <div className="flex">
-                        <div className="flex-shrink-0">
-                          <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                          </svg>
-                        </div>
-                        <div className="ml-3">
-                          <p className="text-sm text-yellow-800">
-                            Low confidence answer. Consider escalating this ticket for human review.
-                          </p>
+                      <div className="flex items-start justify-between">
+                        <div className="flex">
+                          <div className="flex-shrink-0">
+                            <AlertCircle className="h-5 w-5 text-yellow-600" />
+                          </div>
+                          <div className="ml-3">
+                            <p className="text-sm text-yellow-800 mb-2">
+                              Low confidence answer. Consider requesting human assistance.
+                            </p>
+                            {/* Escalation button - only show if user owns ticket and not already escalated */}
+                            {ticket.status !== 'escalated' && currentUserId === ticket.created_by && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleEscalate}
+                                disabled={escalating}
+                                className="border-yellow-300 text-yellow-800 hover:bg-yellow-100"
+                              >
+                                {escalating ? 'Escalating...' : '🙋 I Need Human Help'}
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -347,6 +417,34 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                   <div className="text-gray-700 whitespace-pre-wrap">
                     {message.body}
                   </div>
+                  
+                  {/* Phase 3: AI Feedback Buttons */}
+                  {message.sender_role === 'ai' && (
+                    <div className="flex items-center gap-2 mt-3">
+                      <span className="text-xs text-gray-500">Was this helpful?</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleFeedback(message.id, 'positive')}
+                        disabled={!!feedbackGiven[message.id] || feedbackLoading[message.id]}
+                        className={`h-8 px-2 ${feedbackGiven[message.id] === 'positive' ? 'bg-green-100 text-green-700' : ''}`}
+                      >
+                        <ThumbsUp className={`w-4 h-4 ${feedbackGiven[message.id] === 'positive' ? 'fill-current' : ''}`} />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleFeedback(message.id, 'negative')}
+                        disabled={!!feedbackGiven[message.id] || feedbackLoading[message.id]}
+                        className={`h-8 px-2 ${feedbackGiven[message.id] === 'negative' ? 'bg-red-100 text-red-700' : ''}`}
+                      >
+                        <ThumbsDown className={`w-4 h-4 ${feedbackGiven[message.id] === 'negative' ? 'fill-current' : ''}`} />
+                      </Button>
+                      {feedbackGiven[message.id] && (
+                        <span className="text-xs text-gray-500 ml-2">Thanks for your feedback!</span>
+                      )}
+                    </div>
+                  )}
                   
                   {/* AI Citations */}
                   {message.sender_role === 'ai' && message.meta?.citations?.length > 0 && (

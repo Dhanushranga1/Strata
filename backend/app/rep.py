@@ -151,19 +151,31 @@ async def escalate(
     body: EscalateRequest, 
     user: User = Depends(get_current_user)
 ):
-    """Escalate a ticket to escalated status"""
-    require_rep(user)
-    
+    """
+    Escalate a ticket to escalated status.
+    Accessible by: Rep/Admin OR the ticket creator (customer self-escalation).
+    """
     conn = await get_db_connection()
     try:
         async with conn.transaction():
-            # Check if ticket exists and is not closed
+            # Check if ticket exists and get creator
             ticket = await conn.fetchrow(
-                "SELECT id, status FROM app.tickets WHERE id = $1", ticket_id
+                "SELECT id, status, created_by FROM app.tickets WHERE id = $1", ticket_id
             )
             
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found")
+            
+            # Permission check: Allow rep/admin OR ticket creator
+            user_role = user.role or "customer"
+            is_rep_or_admin = user_role in ("rep", "admin")
+            is_ticket_creator = str(ticket['created_by']) == user.id
+            
+            if not (is_rep_or_admin or is_ticket_creator):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, 
+                    detail="Only reps, admins, or the ticket creator can escalate this ticket"
+                )
             
             if ticket['status'] == 'closed':
                 raise HTTPException(status_code=409, detail="Cannot escalate closed ticket")
@@ -178,10 +190,15 @@ async def escalate(
                 ticket_id
             )
             
-            # Create system message
-            message_body = "[system] Ticket escalated"
-            if body.reason:
-                message_body += f" • Reason: {body.reason}"
+            # Create system message (differentiate customer vs rep escalation)
+            if is_ticket_creator and not is_rep_or_admin:
+                message_body = "[system] Customer requested human assistance"
+                if body.reason:
+                    message_body += f" • Reason: {body.reason}"
+            else:
+                message_body = "[system] Ticket escalated by support team"
+                if body.reason:
+                    message_body += f" • Reason: {body.reason}"
             
             await conn.execute(
                 """

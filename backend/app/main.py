@@ -33,10 +33,12 @@ from .kb import router as kb_router
 from .tickets import router as tickets_router
 from .rep import router as rep_router
 from .admin import router as admin_router
+from .feedback import router as feedback_router
 app.include_router(kb_router)
 app.include_router(tickets_router)
 app.include_router(rep_router)
 app.include_router(admin_router)
+app.include_router(feedback_router)
 
 @app.get("/api/health")
 def health():
