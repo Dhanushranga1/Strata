@@ -106,9 +106,9 @@ export function AIResponseModal({
               <Sparkles className="h-5 w-5" />
             </div>
             <div>
-              <DialogTitle className="text-lg font-semibold">AI Suggestion</DialogTitle>
+              <DialogTitle className="text-lg font-semibold">AI-Generated Response Draft</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
-                Powered by {response.model} • Ticket #{ticketId}
+                Review this AI-suggested response before sending to the customer. You can edit or use it as-is.
               </DialogDescription>
             </div>
           </div>

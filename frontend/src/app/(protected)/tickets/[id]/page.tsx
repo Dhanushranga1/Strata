@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { motion } from 'framer-motion'
+import { Sparkles, Eye, EyeOff } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { apiGet, apiPost } from '@/lib/api'
 
 interface MessageOut {
@@ -48,6 +51,20 @@ interface ChatResponse {
   suggest_escalation: boolean
 }
 
+// Helper function to detect system messages
+const isSystemMessage = (message: MessageOut) => {
+  return message.sender_role === 'system' || message.body.startsWith('[system]');
+};
+
+// System Message Component
+const SystemMessage = ({ message }: { message: MessageOut }) => (
+  <div className="my-2 text-center">
+    <div className="inline-block px-3 py-1 rounded-full bg-muted text-muted-foreground text-xs">
+      {message.body.replace('[system]', '').trim()}
+    </div>
+  </div>
+);
+
 export default function TicketDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const [ticketData, setTicketData] = useState<TicketWithMessages | null>(null)
@@ -62,6 +79,10 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   const [aiQuery, setAiQuery] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [showCitations, setShowCitations] = useState<{[messageId: string]: boolean}>({})
+  
+  // System messages toggle and citation tooltip
+  const [showSystemMessages, setShowSystemMessages] = useState(false)
+  const [showCitationTip, setShowCitationTip] = useState(true)
 
   const loadTicket = async () => {
     try {
@@ -245,12 +266,26 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
 
       {/* Messages */}
       <div className="bg-white rounded-lg shadow mb-6">
-        <div className="p-6 border-b">
+        <div className="p-6 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">Messages</h2>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setShowSystemMessages(!showSystemMessages)}
+            className="flex items-center gap-2"
+          >
+            {showSystemMessages ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {showSystemMessages ? 'Hide' : 'Show'} System Logs
+          </Button>
         </div>
         
         <div className="divide-y divide-gray-200">
-          {messages.map((message) => (
+          {messages
+            .filter(msg => showSystemMessages || !isSystemMessage(msg))
+            .map((message) => (
+              isSystemMessage(message) ? (
+                <SystemMessage key={message.id} message={message} />
+              ) : (
             <div key={message.id} className="p-6">
               <div className="flex items-start space-x-3">
                 <div className="flex-shrink-0">
@@ -316,13 +351,33 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                   {/* AI Citations */}
                   {message.sender_role === 'ai' && message.meta?.citations?.length > 0 && (
                     <div className="mt-3">
+                      {/* Citation Education Tooltip */}
+                      {showCitationTip && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md flex items-start gap-2"
+                        >
+                          <Sparkles className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1 text-sm text-blue-900">
+                            <strong>💡 Tip:</strong> Blue numbers like [1], [2] are links to our help docs. Click to see the sources!
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowCitationTip(false)}
+                            className="text-blue-600 h-auto p-1"
+                          >
+                            Got it
+                          </Button>
+                        </motion.div>
+                      )}
+                      
                       <button
                         onClick={() => toggleCitations(message.id)}
-                        className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                        className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"
                       >
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-                        </svg>
+                        {showCitations[message.id] ? '▼' : '▶'} 
                         {showCitations[message.id] ? 'Hide' : 'Show'} Sources ({message.meta.citations.length})
                       </button>
                       
@@ -348,6 +403,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                 </div>
               </div>
             </div>
+              )
           ))}
         </div>
       </div>

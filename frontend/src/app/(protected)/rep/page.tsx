@@ -18,6 +18,7 @@ import { KBIngestModal } from '@/components/ui/KBIngestModal'
 import { buildAISuggestionQuery, prepareTicketContext } from '@/lib/ai/prompt'
 import { apiGet } from '@/lib/api'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { Clock, MessageSquare, User, AlertTriangle, ExternalLink, Upload, CheckCircle, Phone, Mail, Bot } from 'lucide-react'
 import { m } from 'framer-motion'
 import { v } from '@/ui/motion/variants'
@@ -51,6 +52,24 @@ interface User {
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000'
+
+// Utility function to calculate ticket age
+const getTicketAge = (createdAt: string): { text: string; urgent: boolean } => {
+  const now = new Date();
+  const created = new Date(createdAt);
+  const diffMs = now.getTime() - created.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffHours / 24);
+  
+  if (diffDays > 0) {
+    return { text: `${diffDays}d ago`, urgent: diffDays >= 1 };
+  } else if (diffHours > 0) {
+    return { text: `${diffHours}h ago`, urgent: diffHours >= 24 };
+  } else {
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    return { text: `${diffMins}m ago`, urgent: false };
+  }
+};
 
 // Simple skeleton loader component
 const TicketCardSkeleton = () => (
@@ -933,9 +952,15 @@ export default function RepConsolePage() {
             <TicketCardSkeleton key={`skeleton-${index}`} />
           ))
         ) : (
-          tickets.map(ticket => (
+          tickets.map(ticket => {
+            const age = getTicketAge(ticket.created_at);
+            
+            return (
             <m.div key={ticket.id} variants={v.item}>
-              <Card className="relative overflow-hidden hover:shadow-lg transition-all duration-200 bg-surface border">
+              <Card className={cn(
+                "relative overflow-hidden hover:shadow-lg transition-all duration-200 bg-surface border",
+                age.urgent && "border-l-4 border-l-red-500"
+              )}>
                 {ticket.needs_attention && (
                   <div className="absolute top-0 left-0 w-1 h-full bg-danger" />
                 )}
@@ -956,6 +981,11 @@ export default function RepConsolePage() {
                         FLAGGED
                       </Badge>
                     )}
+                    {ticket.priority === 'urgent' && (
+                      <Badge variant="destructive" className="text-xs">
+                        🔥 Urgent
+                      </Badge>
+                    )}
                   </div>
                   
                   {/* Metadata */}
@@ -972,6 +1002,17 @@ export default function RepConsolePage() {
                     <div className="flex items-center gap-1 text-muted-foreground">
                       <MessageSquare className="h-3 w-3" />
                       {ticket.message_count} messages
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      <span className={cn(age.urgent && 'text-red-600 font-medium')}>
+                        {age.text}
+                      </span>
+                      {age.urgent && (
+                        <Badge variant="destructive" className="text-xs">
+                          OVERDUE
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-1 text-muted-foreground">
                       <Clock className="h-3 w-3" />
@@ -1018,14 +1059,14 @@ export default function RepConsolePage() {
                           const remainingSeconds = Math.ceil((cooldownEnd - Date.now()) / 1000)
                           return `AI (${remainingSeconds}s)`
                         }
-                        return "AI Assist"
+                        return "Get AI Suggestion"
                       })(),
                       description: (() => {
                         const cooldownEnd = aiCooldowns[ticket.id]
                         if (cooldownEnd && cooldownEnd > Date.now()) {
                           return "Rate limited - please wait"
                         }
-                        return "Get AI suggestions"
+                        return "AI will analyze this ticket and suggest a response"
                       })(),
                       icon: Bot,
                       color: (aiCooldowns[ticket.id] && aiCooldowns[ticket.id] > Date.now()) ? "text-muted-foreground" : "text-primary",
@@ -1071,7 +1112,8 @@ export default function RepConsolePage() {
               </CardContent>
               </Card>
             </m.div>
-          ))
+          );
+          })
         )}
       </m.div>
 
