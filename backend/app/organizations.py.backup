@@ -1,0 +1,901 @@
+"""
+Organizations API Router - Phase 2, Task 2.2
+Provides REST API for organization management in multi-tenant architecture.
+
+Features:
+- Create/read/update organizations
+- Manage organization members (add, remove, change roles)
+- Role-based access control (owner, admin, rep, member)
+- Integration with Phase 1 error handling and validation
+"""
+
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+from uuid import UUID
+import logging
+import os
+import psycopg
+from psycopg.rows import dict_row
+
+from .auth import require_user
+from .exceptions import (
+    NotFoundError,
+    ForbiddenError,
+    ConflictError,
+    ValidationError as CustomValidationError,
+)
+from .validation import (
+    validate_string,
+    validate_slug,
+    generate_slug_from_name,
+    validate_uuid,
+    validate_enum,
+)
+from .logging_config import log_api_request, log_data_mutation
+
+# Setup logger
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/organizations", tags=["organizations"])
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def get_db_connection():
+    """Get database connection."""
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL not configured")
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+# ============================================================================
+# PYDANTIC SCHEMAS
+# ============================================================================
+
+
+class OrganizationCreate(BaseModel):
+    """Schema for creating a new organization"""
+
+    name: str = Field(min_length=2, max_length=100, description="Organization name")
+    slug: Optional[str] = Field(
+        None,
+        min_length=2,
+        max_length=50,
+        description="URL-friendly identifier (auto-generated if not provided)",
+    )
+    domain: Optional[str] = Field(
+        None, max_length=255, description="Custom domain (optional)"
+    )
+    settings: Optional[Dict[str, Any]] = Field(
+        default_factory=dict, description="Organization settings"
+    )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Validate organization name"""
+        return validate_string(v, min_length=2, max_length=100, field_name="name")
+
+    @field_validator("slug")
+    @classmethod
+    def validate_slug_field(cls, v: Optional[str]) -> Optional[str]:
+        """Validate organization slug"""
+        if v is not None:
+            return validate_slug(v)
+        return v
+
+
+class OrganizationUpdate(BaseModel):
+    """Schema for updating an organization"""
+
+    name: Optional[str] = Field(None, min_length=2, max_length=100)
+    domain: Optional[str] = Field(None, max_length=255)
+    settings: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        """Validate organization name"""
+        if v is not None:
+            return validate_string(v, min_length=2, max_length=100, field_name="name")
+        return v
+
+
+class OrganizationResponse(BaseModel):
+    """Schema for organization response"""
+
+    id: str
+    name: str
+    slug: str
+    domain: Optional[str]
+    settings: Dict[str, Any]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    member_count: Optional[int] = None
+    your_role: Optional[str] = None
+
+
+class OrganizationMemberAdd(BaseModel):
+    """Schema for adding a member to an organization"""
+
+    user_id: str = Field(description="User ID to add")
+    role: str = Field(
+        description="Role: owner, admin, rep, or member", pattern="^(owner|admin|rep|member)$"
+    )
+
+    @field_validator("user_id")
+    @classmethod
+    def validate_user_id(cls, v: str) -> str:
+        """Validate user ID is a valid UUID"""
+        return validate_uuid(v, field_name="user_id")
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        """Validate role"""
+        return validate_enum(v, ["owner", "admin", "rep", "member"], field_name="role")
+
+
+class OrganizationMemberUpdate(BaseModel):
+    """Schema for updating a member's role"""
+
+    role: str = Field(
+        description="New role: owner, admin, rep, or member",
+        pattern="^(owner|admin|rep|member)$",
+    )
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        """Validate role"""
+        return validate_enum(v, ["owner", "admin", "rep", "member"], field_name="role")
+
+
+class OrganizationMemberResponse(BaseModel):
+    """Schema for organization member response"""
+
+    organization_id: str
+    user_id: str
+    role: str
+    joined_at: datetime
+    invited_by: Optional[str]
+    user_email: Optional[str]
+
+
+class OrganizationListResponse(BaseModel):
+    """Schema for listing user's organizations"""
+
+    organizations: List[OrganizationResponse]
+    total: int
+
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+
+async def get_user_role_in_org(
+    supabase, user_id: str, org_id: str
+) -> Optional[str]:
+    """
+    Get user's role in an organization.
+
+    Args:
+        supabase: Supabase client
+        user_id: User UUID
+        org_id: Organization UUID
+
+    Returns:
+        Role string (owner/admin/rep/member) or None if not a member
+    """
+    result = (
+        supabase.table("organization_members")
+        .select("role")
+        .eq("organization_id", org_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    if result.data:
+        return result.data[0]["role"]
+    return None
+
+
+async def verify_org_permission(
+    supabase, user_id: str, org_id: str, required_roles: List[str]
+):
+    """
+    Verify user has required role in organization.
+
+    Args:
+        supabase: Supabase client
+        user_id: User UUID
+        org_id: Organization UUID
+        required_roles: List of acceptable roles (e.g., ["owner", "admin"])
+
+    Raises:
+        NotFoundError: Organization not found or user not a member
+        ForbiddenError: User doesn't have required role
+    """
+    role = await get_user_role_in_org(supabase, user_id, org_id)
+
+    if role is None:
+        raise NotFoundError(f"Organization not found or you are not a member")
+
+    if role not in required_roles:
+        raise ForbiddenError(
+            f"Insufficient permissions. Required: {', '.join(required_roles)}"
+        )
+
+
+async def check_slug_available(supabase, slug: str, exclude_org_id: Optional[str] = None) -> bool:
+    """
+    Check if slug is available (not taken and not reserved).
+
+    Args:
+        supabase: Supabase client
+        slug: Slug to check
+        exclude_org_id: Organization ID to exclude from check (for updates)
+
+    Returns:
+        True if available, False otherwise
+    """
+    # Check reserved slugs
+    reserved_result = (
+        supabase.table("reserved_slugs")
+        .select("slug")
+        .eq("slug", slug)
+        .execute()
+    )
+
+    if reserved_result.data:
+        return False
+
+    # Check existing organizations
+    query = supabase.table("organizations").select("id").eq("slug", slug)
+
+    if exclude_org_id:
+        query = query.neq("id", exclude_org_id)
+
+    existing_result = query.execute()
+
+    return len(existing_result.data) == 0
+
+
+# ============================================================================
+# API ENDPOINTS
+# ============================================================================
+
+
+@router.post("", response_model=OrganizationResponse, status_code=201)
+async def create_organization(
+    org_data: OrganizationCreate,
+    request: Request,
+    user_id: str = Depends(require_user),
+):
+    """
+    Create a new organization.
+
+    - User who creates the organization becomes the owner
+    - Slug is auto-generated from name if not provided
+    - Validates slug uniqueness and reserved keywords
+    """
+    supabase = get_supabase()
+
+    # Generate slug if not provided
+    slug = org_data.slug or generate_slug_from_name(org_data.name)
+
+    # Validate slug
+    slug = validate_slug(slug)
+
+    # Check slug availability
+    if not await check_slug_available(supabase, slug):
+        raise ConflictError(f"Slug '{slug}' is already taken or reserved")
+
+    try:
+        # Create organization
+        org_result = (
+            supabase.table("organizations")
+            .insert(
+                {
+                    "name": org_data.name,
+                    "slug": slug,
+                    "domain": org_data.domain,
+                    "settings": org_data.settings or {},
+                    "is_active": True,
+                }
+            )
+            .execute()
+        )
+
+        if not org_result.data:
+            raise CustomValidationError("Failed to create organization")
+
+        org = org_result.data[0]
+
+        # Add creator as owner
+        member_result = (
+            supabase.table("organization_members")
+            .insert(
+                {
+                    "organization_id": org["id"],
+                    "user_id": user_id,
+                    "role": "owner",
+                }
+            )
+            .execute()
+        )
+
+        # Log the mutation
+        log_data_mutation(
+            table="organizations",
+            operation="INSERT",
+            record_id=org["id"],
+            user_id=user_id,
+            changes={"name": org_data.name, "slug": slug},
+        )
+
+        # Return organization with member count
+        return OrganizationResponse(
+            id=org["id"],
+            name=org["name"],
+            slug=org["slug"],
+            domain=org.get("domain"),
+            settings=org.get("settings", {}),
+            is_active=org["is_active"],
+            created_at=org["created_at"],
+            updated_at=org["updated_at"],
+            member_count=1,
+            your_role="owner",
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to create organization: {str(e)}")
+        raise
+
+
+@router.get("", response_model=OrganizationListResponse)
+async def list_user_organizations(
+    request: Request,
+    user_id: str = Depends(require_user),
+):
+    """
+    List all organizations the current user is a member of.
+
+    Returns organizations with:
+    - Organization details
+    - User's role in each organization
+    - Member count
+    """
+    supabase = get_supabase()
+
+    try:
+        # Get user's organizations using the view
+        result = (
+            supabase.rpc(
+                "get_user_organizations",
+                {"user_uuid": user_id}
+            )
+            .execute()
+        )
+
+        # If the RPC doesn't exist, fall back to manual query
+        if not hasattr(result, 'data') or result.data is None:
+            # Manual query
+            members_result = (
+                supabase.table("organization_members")
+                .select("organization_id, role, organizations(*)")
+                .eq("user_id", user_id)
+                .execute()
+            )
+
+            organizations = []
+            for member in members_result.data:
+                org = member["organizations"]
+
+                # Get member count
+                count_result = (
+                    supabase.table("organization_members")
+                    .select("user_id", count="exact")
+                    .eq("organization_id", org["id"])
+                    .execute()
+                )
+
+                organizations.append(
+                    OrganizationResponse(
+                        id=org["id"],
+                        name=org["name"],
+                        slug=org["slug"],
+                        domain=org.get("domain"),
+                        settings=org.get("settings", {}),
+                        is_active=org["is_active"],
+                        created_at=org["created_at"],
+                        updated_at=org["updated_at"],
+                        member_count=count_result.count or 0,
+                        your_role=member["role"],
+                    )
+                )
+
+            return OrganizationListResponse(
+                organizations=organizations, total=len(organizations)
+            )
+
+        return OrganizationListResponse(
+            organizations=[
+                OrganizationResponse(**org) for org in result.data
+            ],
+            total=len(result.data),
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to list organizations: {str(e)}")
+        raise
+
+
+@router.get("/{org_id}", response_model=OrganizationResponse)
+async def get_organization(
+    org_id: str,
+    request: Request,
+    user_id: str = Depends(require_user),
+):
+    """
+    Get detailed information about a specific organization.
+
+    - User must be a member of the organization
+    - Returns organization details, member count, and user's role
+    """
+    supabase = get_supabase()
+
+    # Validate org_id
+    org_id = validate_uuid(org_id, field_name="org_id")
+
+    try:
+        # Verify user is a member and get role
+        role = await get_user_role_in_org(supabase, user_id, org_id)
+
+        if role is None:
+            raise NotFoundError("Organization not found or you are not a member")
+
+        # Get organization details
+        org_result = (
+            supabase.table("organizations")
+            .select("*")
+            .eq("id", org_id)
+            .execute()
+        )
+
+        if not org_result.data:
+            raise NotFoundError("Organization not found")
+
+        org = org_result.data[0]
+
+        # Get member count
+        count_result = (
+            supabase.table("organization_members")
+            .select("user_id", count="exact")
+            .eq("organization_id", org_id)
+            .execute()
+        )
+
+        return OrganizationResponse(
+            id=org["id"],
+            name=org["name"],
+            slug=org["slug"],
+            domain=org.get("domain"),
+            settings=org.get("settings", {}),
+            is_active=org["is_active"],
+            created_at=org["created_at"],
+            updated_at=org["updated_at"],
+            member_count=count_result.count or 0,
+            your_role=role,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get organization: {str(e)}")
+        raise
+
+
+@router.patch("/{org_id}", response_model=OrganizationResponse)
+async def update_organization(
+    org_id: str,
+    org_update: OrganizationUpdate,
+    request: Request,
+    user_id: str = Depends(require_user),
+):
+    """
+    Update organization details.
+
+    - Only owners can update organization details
+    - Cannot change slug (would break URLs)
+    - Can update name, domain, settings, and active status
+    """
+    supabase = get_supabase()
+
+    # Validate org_id
+    org_id = validate_uuid(org_id, field_name="org_id")
+
+    # Verify user is owner
+    await verify_org_permission(supabase, user_id, org_id, ["owner"])
+
+    try:
+        # Build update dict (only include provided fields)
+        update_data = {}
+        if org_update.name is not None:
+            update_data["name"] = org_update.name
+        if org_update.domain is not None:
+            update_data["domain"] = org_update.domain
+        if org_update.settings is not None:
+            update_data["settings"] = org_update.settings
+        if org_update.is_active is not None:
+            update_data["is_active"] = org_update.is_active
+
+        if not update_data:
+            raise CustomValidationError("No fields provided for update")
+
+        # Update organization
+        result = (
+            supabase.table("organizations")
+            .update(update_data)
+            .eq("id", org_id)
+            .execute()
+        )
+
+        if not result.data:
+            raise NotFoundError("Organization not found")
+
+        org = result.data[0]
+
+        # Log the mutation
+        log_data_mutation(
+            table="organizations",
+            operation="UPDATE",
+            record_id=org_id,
+            user_id=user_id,
+            changes=update_data,
+        )
+
+        # Get member count
+        count_result = (
+            supabase.table("organization_members")
+            .select("user_id", count="exact")
+            .eq("organization_id", org_id)
+            .execute()
+        )
+
+        return OrganizationResponse(
+            id=org["id"],
+            name=org["name"],
+            slug=org["slug"],
+            domain=org.get("domain"),
+            settings=org.get("settings", {}),
+            is_active=org["is_active"],
+            created_at=org["created_at"],
+            updated_at=org["updated_at"],
+            member_count=count_result.count or 0,
+            your_role="owner",
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to update organization: {str(e)}")
+        raise
+
+
+@router.get("/{org_id}/members", response_model=List[OrganizationMemberResponse])
+async def list_organization_members(
+    org_id: str,
+    request: Request,
+    user_id: str = Depends(require_user),
+):
+    """
+    List all members of an organization.
+
+    - User must be a member of the organization
+    - Returns member details including email and role
+    """
+    supabase = get_supabase()
+
+    # Validate org_id
+    org_id = validate_uuid(org_id, field_name="org_id")
+
+    # Verify user is a member
+    role = await get_user_role_in_org(supabase, user_id, org_id)
+    if role is None:
+        raise NotFoundError("Organization not found or you are not a member")
+
+    try:
+        # Get members using the view
+        result = (
+            supabase.from_("v_organization_members")
+            .select("*")
+            .eq("organization_id", org_id)
+            .execute()
+        )
+
+        members = []
+        for member in result.data:
+            members.append(
+                OrganizationMemberResponse(
+                    organization_id=member["organization_id"],
+                    user_id=member["user_id"],
+                    role=member["role"],
+                    joined_at=member["joined_at"],
+                    invited_by=member.get("invited_by"),
+                    user_email=member.get("user_email"),
+                )
+            )
+
+        return members
+
+    except Exception as e:
+        logger.error(f"Failed to list organization members: {str(e)}")
+        raise
+
+
+@router.post("/{org_id}/members", response_model=OrganizationMemberResponse, status_code=201)
+async def add_organization_member(
+    org_id: str,
+    member_data: OrganizationMemberAdd,
+    request: Request,
+    user_id: str = Depends(require_user),
+):
+    """
+    Add a new member to an organization.
+
+    - Only owners and admins can add members
+    - User being added must exist in user_roles table
+    - Cannot add a user who is already a member
+    """
+    supabase = get_supabase()
+
+    # Validate org_id
+    org_id = validate_uuid(org_id, field_name="org_id")
+
+    # Verify user is owner or admin
+    await verify_org_permission(supabase, user_id, org_id, ["owner", "admin"])
+
+    try:
+        # Check if user exists in user_roles
+        user_result = (
+            supabase.table("user_roles")
+            .select("user_id")
+            .eq("user_id", member_data.user_id)
+            .execute()
+        )
+
+        if not user_result.data:
+            raise NotFoundError(f"User {member_data.user_id} not found")
+
+        # Check if user is already a member
+        existing_result = (
+            supabase.table("organization_members")
+            .select("user_id")
+            .eq("organization_id", org_id)
+            .eq("user_id", member_data.user_id)
+            .execute()
+        )
+
+        if existing_result.data:
+            raise ConflictError("User is already a member of this organization")
+
+        # Add member
+        result = (
+            supabase.table("organization_members")
+            .insert(
+                {
+                    "organization_id": org_id,
+                    "user_id": member_data.user_id,
+                    "role": member_data.role,
+                    "invited_by": user_id,
+                }
+            )
+            .execute()
+        )
+
+        if not result.data:
+            raise CustomValidationError("Failed to add member")
+
+        member = result.data[0]
+
+        # Log the mutation
+        log_data_mutation(
+            table="organization_members",
+            operation="INSERT",
+            record_id=f"{org_id}:{member_data.user_id}",
+            user_id=user_id,
+            changes={"role": member_data.role, "invited_by": user_id},
+        )
+
+        # Get user email
+        email_result = (
+            supabase.rpc("get_user_email", {"user_uuid": member_data.user_id})
+            .execute()
+        )
+
+        return OrganizationMemberResponse(
+            organization_id=member["organization_id"],
+            user_id=member["user_id"],
+            role=member["role"],
+            joined_at=member["joined_at"],
+            invited_by=member.get("invited_by"),
+            user_email=email_result.data if email_result.data else None,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to add organization member: {str(e)}")
+        raise
+
+
+@router.patch("/{org_id}/members/{member_user_id}", response_model=OrganizationMemberResponse)
+async def update_member_role(
+    org_id: str,
+    member_user_id: str,
+    role_update: OrganizationMemberUpdate,
+    request: Request,
+    user_id: str = Depends(require_user),
+):
+    """
+    Update a member's role in the organization.
+
+    - Only owners and admins can update roles
+    - Cannot demote yourself if you're the last owner
+    - Cannot promote to owner unless you're an owner
+    """
+    supabase = get_supabase()
+
+    # Validate IDs
+    org_id = validate_uuid(org_id, field_name="org_id")
+    member_user_id = validate_uuid(member_user_id, field_name="member_user_id")
+
+    # Verify user is owner or admin
+    await verify_org_permission(supabase, user_id, org_id, ["owner", "admin"])
+
+    try:
+        # Check if trying to demote yourself
+        if member_user_id == user_id:
+            # Get current role
+            current_role = await get_user_role_in_org(supabase, user_id, org_id)
+
+            # If demoting from owner, check if last owner
+            if current_role == "owner" and role_update.role != "owner":
+                owner_count_result = (
+                    supabase.table("organization_members")
+                    .select("user_id", count="exact")
+                    .eq("organization_id", org_id)
+                    .eq("role", "owner")
+                    .execute()
+                )
+
+                if owner_count_result.count <= 1:
+                    raise ForbiddenError(
+                        "Cannot demote yourself - organization must have at least one owner"
+                    )
+
+        # Update role
+        result = (
+            supabase.table("organization_members")
+            .update({"role": role_update.role})
+            .eq("organization_id", org_id)
+            .eq("user_id", member_user_id)
+            .execute()
+        )
+
+        if not result.data:
+            raise NotFoundError("Member not found")
+
+        member = result.data[0]
+
+        # Log the mutation
+        log_data_mutation(
+            table="organization_members",
+            operation="UPDATE",
+            record_id=f"{org_id}:{member_user_id}",
+            user_id=user_id,
+            changes={"role": role_update.role},
+        )
+
+        # Get member details from view
+        member_result = (
+            supabase.from_("v_organization_members")
+            .select("*")
+            .eq("organization_id", org_id)
+            .eq("user_id", member_user_id)
+            .execute()
+        )
+
+        if member_result.data:
+            member_data = member_result.data[0]
+            return OrganizationMemberResponse(
+                organization_id=member_data["organization_id"],
+                user_id=member_data["user_id"],
+                role=member_data["role"],
+                joined_at=member_data["joined_at"],
+                invited_by=member_data.get("invited_by"),
+                user_email=member_data.get("user_email"),
+            )
+
+        return OrganizationMemberResponse(
+            organization_id=member["organization_id"],
+            user_id=member["user_id"],
+            role=member["role"],
+            joined_at=member["joined_at"],
+            invited_by=member.get("invited_by"),
+            user_email=None,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to update member role: {str(e)}")
+        raise
+
+
+@router.delete("/{org_id}/members/{member_user_id}", status_code=204)
+async def remove_organization_member(
+    org_id: str,
+    member_user_id: str,
+    request: Request,
+    user_id: str = Depends(require_user),
+):
+    """
+    Remove a member from an organization.
+
+    - Only owners and admins can remove members
+    - Cannot remove the last owner
+    - Cannot remove yourself if you're the last owner
+    """
+    supabase = get_supabase()
+
+    # Validate IDs
+    org_id = validate_uuid(org_id, field_name="org_id")
+    member_user_id = validate_uuid(member_user_id, field_name="member_user_id")
+
+    # Verify user is owner or admin
+    await verify_org_permission(supabase, user_id, org_id, ["owner", "admin"])
+
+    try:
+        # Get member's current role
+        member_role = await get_user_role_in_org(supabase, member_user_id, org_id)
+
+        if member_role is None:
+            raise NotFoundError("Member not found")
+
+        # If removing an owner, check if last owner
+        if member_role == "owner":
+            owner_count_result = (
+                supabase.table("organization_members")
+                .select("user_id", count="exact")
+                .eq("organization_id", org_id)
+                .eq("role", "owner")
+                .execute()
+            )
+
+            if owner_count_result.count <= 1:
+                raise ForbiddenError(
+                    "Cannot remove last owner - organization must have at least one owner"
+                )
+
+        # Remove member
+        result = (
+            supabase.table("organization_members")
+            .delete()
+            .eq("organization_id", org_id)
+            .eq("user_id", member_user_id)
+            .execute()
+        )
+
+        # Log the mutation
+        log_data_mutation(
+            table="organization_members",
+            operation="DELETE",
+            record_id=f"{org_id}:{member_user_id}",
+            user_id=user_id,
+            changes={"removed_role": member_role},
+        )
+
+        return None  # 204 No Content
+
+    except Exception as e:
+        logger.error(f"Failed to remove organization member: {str(e)}")
+        raise

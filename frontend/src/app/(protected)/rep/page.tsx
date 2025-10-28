@@ -15,9 +15,12 @@ import { RepActionBar } from '@/components/ui/RepActionBar'
 import { AIMessage } from '@/components/ui/AIMessage'
 import { AIResponseModal } from '@/components/rep/AIResponseModal'
 import { KBIngestModal } from '@/components/ui/KBIngestModal'
+import { RepQueueSkeleton } from '@/components/skeletons/RepQueueSkeleton'
 import { buildAISuggestionQuery, prepareTicketContext } from '@/lib/ai/prompt'
-import { apiGet } from '@/lib/api'
+import { useOrganization } from '@/contexts/OrganizationContext'
+import api from '@/lib/api-client'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { Clock, MessageSquare, User, AlertTriangle, ExternalLink, Upload, CheckCircle, Phone, Mail, Bot } from 'lucide-react'
 import { m } from 'framer-motion'
 import { v } from '@/ui/motion/variants'
@@ -52,6 +55,24 @@ interface User {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000'
 
+// Utility function to calculate ticket age
+const getTicketAge = (createdAt: string): { text: string; urgent: boolean } => {
+  const now = new Date();
+  const created = new Date(createdAt);
+  const diffMs = now.getTime() - created.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffHours / 24);
+  
+  if (diffDays > 0) {
+    return { text: `${diffDays}d ago`, urgent: diffDays >= 1 };
+  } else if (diffHours > 0) {
+    return { text: `${diffHours}h ago`, urgent: diffHours >= 24 };
+  } else {
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    return { text: `${diffMins}m ago`, urgent: false };
+  }
+};
+
 // Simple skeleton loader component
 const TicketCardSkeleton = () => (
   <Card>
@@ -79,6 +100,11 @@ const TicketCardSkeleton = () => (
 
 export default function RepConsolePage() {
   const router = useRouter()
+  
+  // Organization context
+  const { currentOrganization, isReady, switchingOrg } = useOrganization()
+  const orgId = currentOrganization?.id
+  
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [ticketsLoading, setTicketsLoading] = useState(false)
@@ -109,15 +135,15 @@ export default function RepConsolePage() {
 
   // Load data when filters change
   useEffect(() => {
-    if (user) {
+    if (user && isReady && orgId) {
       loadTickets()
       loadCounts()
     }
-  }, [user, currentLane, searchQuery, mineOnly, offset])
+  }, [user, currentLane, searchQuery, mineOnly, offset, isReady, orgId])
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
-    if (!user) return
+    if (!user || !isReady || !orgId) return
 
     const interval = setInterval(() => {
       loadTickets(true) // silent refresh
@@ -126,7 +152,7 @@ export default function RepConsolePage() {
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [user, currentLane, searchQuery, mineOnly, offset])
+  }, [user, currentLane, searchQuery, mineOnly, offset, isReady, orgId])
 
   // AI cooldown timer
   useEffect(() => {
@@ -189,10 +215,11 @@ export default function RepConsolePage() {
   }
 
   const loadTickets = async (silent = false) => {
+    if (!orgId) return
+    
     try {
       if (!silent) setTicketsLoading(true)
       
-      const token = await getAuthToken()
       const params = new URLSearchParams({
         lane: currentLane,
         offset: offset.toString(),
@@ -202,22 +229,12 @@ export default function RepConsolePage() {
       if (searchQuery) params.append('q', searchQuery)
       if (mineOnly) params.append('mine', 'true')
 
-      const response = await fetch(`${API_BASE}/api/rep/queue?${params}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log('[RepConsole] Loaded tickets data:', data)
-        console.log('[RepConsole] First ticket priority:', data.items?.[0]?.priority)
-        console.log('[RepConsole] All ticket priorities:', data.items?.map((t: any) => t.priority))
-        setTickets(data.items)
-        setTotal(data.total)
-      } else {
-        if (!silent) {
-          toast.error('Failed to load tickets')
-        }
-      }
+      const data = await api.get(`/api/rep/queue?${params}`, orgId)
+      console.log('[RepConsole] Loaded tickets data for org:', orgId, data)
+      console.log('[RepConsole] First ticket priority:', data.items?.[0]?.priority)
+      console.log('[RepConsole] All ticket priorities:', data.items?.map((t: any) => t.priority))
+      setTickets(data.items)
+      setTotal(data.total)
     } catch (error) {
       console.error('Failed to load tickets:', error)
       if (!silent) {
@@ -229,22 +246,13 @@ export default function RepConsolePage() {
   }
 
   const loadCounts = async (silent = false) => {
+    if (!orgId) return
+    
     try {
       if (!silent) setCountsLoading(true)
       
-      const token = await getAuthToken()
-      const response = await fetch(`${API_BASE}/api/rep/counts`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setCounts(data)
-      } else {
-        if (!silent) {
-          toast.error('Failed to load queue counts')
-        }
-      }
+      const data = await api.get(`/api/rep/counts`, orgId)
+      setCounts(data)
     } catch (error) {
       console.error('Failed to load counts:', error)
       if (!silent) {
@@ -263,6 +271,8 @@ export default function RepConsolePage() {
   }
 
   const handleQuickCall = async (ticket: QueueItem) => {
+    if (!orgId) return
+    
     try {
       setActionLoading(ticket.id + 'call')
       
@@ -272,18 +282,10 @@ export default function RepConsolePage() {
         toast.success(`Calling ${ticket.customer_phone}`)
         
         // Also log a system message about the call
-        const token = await getAuthToken()
-        await fetch(`${API_BASE}/api/tickets/${ticket.id}/messages`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            body: `📞 Call initiated to ${ticket.customer_phone}`,
-            sender_role: 'system'
-          })
-        })
+        await api.post(`/api/tickets/${ticket.id}/messages`, {
+          body: `📞 Call initiated to ${ticket.customer_phone}`,
+          sender_role: 'system'
+        }, orgId)
         
         // Optimistically update message count
         setTickets(prev => prev.map(t => 
@@ -298,31 +300,19 @@ export default function RepConsolePage() {
         // No phone number available, open modal to log call manually
         const callNote = prompt('Phone number not available. Log call details:')
         if (callNote) {
-          const token = await getAuthToken()
-          const response = await fetch(`${API_BASE}/api/tickets/${ticket.id}/messages`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              body: `📞 Call logged: ${callNote}`,
-              sender_role: 'system'
-            })
-          })
+          await api.post(`/api/tickets/${ticket.id}/messages`, {
+            body: `📞 Call logged: ${callNote}`,
+            sender_role: 'system'
+          }, orgId)
           
-          if (response.ok) {
-            toast.success('Call logged successfully')
-            // Optimistically update message count
-            setTickets(prev => prev.map(t => 
-              t.id === ticket.id 
-                ? { ...t, message_count: t.message_count + 1 }
-                : t
-            ))
-            await loadTickets(true)
-          } else {
-            toast.error('Failed to log call')
-          }
+          toast.success('Call logged successfully')
+          // Optimistically update message count
+          setTickets(prev => prev.map(t => 
+            t.id === ticket.id 
+              ? { ...t, message_count: t.message_count + 1 }
+              : t
+          ))
+          await loadTickets(true)
         }
       }
     } catch (error) {
@@ -334,6 +324,8 @@ export default function RepConsolePage() {
   }
 
   const handleQuickEmail = async (ticket: QueueItem) => {
+    if (!orgId) return
+    
     try {
       setActionLoading(ticket.id + 'email')
       
@@ -347,31 +339,19 @@ export default function RepConsolePage() {
       // Log that an email was sent
       const shouldLog = confirm('Email client opened. Log this email in the ticket?')
       if (shouldLog) {
-        const token = await getAuthToken()
-        const response = await fetch(`${API_BASE}/api/tickets/${ticket.id}/messages`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            body: `📧 Email sent to ${ticket.customer_email || 'customer'}`,
-            sender_role: 'system'
-          })
-        })
+        await api.post(`/api/tickets/${ticket.id}/messages`, {
+          body: `📧 Email sent to ${ticket.customer_email || 'customer'}`,
+          sender_role: 'system'
+        }, orgId)
         
-        if (response.ok) {
-          toast.success('Email logged successfully')
-          // Optimistically update message count
-          setTickets(prev => prev.map(t => 
-            t.id === ticket.id 
-              ? { ...t, message_count: t.message_count + 1 }
-              : t
-          ))
-          await loadTickets(true)
-        } else {
-          toast.error('Failed to log email')
-        }
+        toast.success('Email logged successfully')
+        // Optimistically update message count
+        setTickets(prev => prev.map(t => 
+          t.id === ticket.id 
+            ? { ...t, message_count: t.message_count + 1 }
+            : t
+        ))
+        await loadTickets(true)
       }
     } catch (error) {
       console.error('Failed to handle email:', error)
@@ -405,10 +385,10 @@ export default function RepConsolePage() {
       
       try {
         // Get full ticket details
-        ticketDetails = await apiGet(`/api/tickets/${ticket.id}`, token)
+        ticketDetails = await api.get(`/api/tickets/${ticket.id}`, orgId)
         
         // Get recent messages (last 5)
-        const messagesResponse = await apiGet(`/api/tickets/${ticket.id}/messages?limit=5&order=desc`, token)
+        const messagesResponse = await api.get(`/api/tickets/${ticket.id}/messages?limit=5&order=desc`, orgId)
         messages = Array.isArray(messagesResponse) ? messagesResponse.reverse() : []
       } catch (detailError) {
         console.warn('Could not fetch detailed ticket context:', detailError)
@@ -419,61 +399,45 @@ export default function RepConsolePage() {
       const context = prepareTicketContext(ticketDetails as unknown as Record<string, unknown>, messages)
       const query = buildAISuggestionQuery(context)
 
-      // Make AI request with corrected field name
-      const response = await fetch(`${API_BASE}/api/tickets/${ticket.id}/chat`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          query: query  // Fixed: was 'prompt', now 'query'
-        })
-      })
+      if (!orgId) {
+        toast.error('Organization context not loaded', { id: 'ai-' + ticket.id })
+        return
+      }
 
-      if (response.ok) {
-        const aiResponseData = await response.json()
-        
-        toast.success('AI suggestion ready!', { id: 'ai-' + ticket.id })
-        
-        // Show in modal instead of alert
-        setAiResponse(aiResponseData)
-        setCurrentAiTicket(ticket.id)
-        setAiModalOpen(true)
-        
-      } else if (response.status === 429) {
-        // Handle rate limiting
-        const retryAfter = response.headers.get('Retry-After')
-        const cooldownSeconds = retryAfter ? parseInt(retryAfter) : 8
-        
+      // Make AI request using api client
+      const aiResponseData = await api.post(`/api/tickets/${ticket.id}/chat`, {
+        query: query
+      }, orgId)
+      
+      toast.success('AI suggestion ready!', { id: 'ai-' + ticket.id })
+      
+      // Show in modal instead of alert
+      setAiResponse(aiResponseData)
+      setCurrentAiTicket(ticket.id)
+      setAiModalOpen(true)
+      
+    } catch (error: any) {
+      console.error('AI suggestion failed:', error)
+      
+      // Handle rate limiting
+      if (error.message && error.message.includes('429')) {
+        const cooldownSeconds = 8
         setAiCooldowns(prev => ({
           ...prev,
           [ticket.id]: Date.now() + (cooldownSeconds * 1000)
         }))
-        
         toast.error(`Rate limited. Please wait ${cooldownSeconds} seconds.`, { 
           id: 'ai-' + ticket.id 
         })
-        
-      } else if (response.status === 401) {
+      } else if (error.message && error.message.includes('401')) {
         toast.error('Authentication required. Please log in again.', { id: 'ai-' + ticket.id })
         router.push('/login')
-        
-      } else if (response.status === 404) {
+      } else if (error.message && error.message.includes('404')) {
         toast.error('Ticket not found', { id: 'ai-' + ticket.id })
-        
-      } else {
-        const errorText = await response.text().catch(() => 'Unknown error')
-        toast.error(`AI request failed: ${errorText}`, { id: 'ai-' + ticket.id })
-      }
-      
-    } catch (error) {
-      console.error('AI suggestion failed:', error)
-      
-      if (error instanceof TypeError && error.message.includes('fetch')) {
+      } else if (error instanceof TypeError && error.message.includes('fetch')) {
         toast.error('Network error. Please check your connection.', { id: 'ai-' + ticket.id })
       } else {
-        toast.error('AI suggestion failed', { id: 'ai-' + ticket.id })
+        toast.error(`AI request failed: ${error.message || 'Unknown error'}`, { id: 'ai-' + ticket.id })
       }
       
     } finally {
@@ -519,68 +483,66 @@ export default function RepConsolePage() {
   }
 
   const addAuditMessage = async (ticketId: string, message: string) => {
+    if (!orgId) return
+    
     try {
-      const token = await getAuthToken()
-      await fetch(`${API_BASE}/api/tickets/${ticketId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          body: `[system] ${message}`,
-          sender_role: 'system'
-        })
-      })
+      await api.post(`/api/tickets/${ticketId}/messages`, {
+        body: `[system] ${message}`,
+        sender_role: 'system'
+      }, orgId)
     } catch (error) {
       console.warn('Failed to add audit message:', error)
     }
   }
 
   const performAction = async (ticketId: string, action: string, payload: any = {}) => {
+    if (!orgId) {
+      toast.error('Organization context not loaded', { id: 'action-' + ticketId })
+      return
+    }
+    
     try {
       setActionLoading(ticketId + action)
       toast.loading(`Performing ${action}...`, { id: 'action-' + ticketId })
       
-      const token = await getAuthToken()
+      // Use api client to automatically include org header
+      await api.post(`/api/rep/tickets/${ticketId}/${action}`, payload, orgId)
       
-      const response = await fetch(`${API_BASE}/api/rep/tickets/${ticketId}/${action}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      })
-
-      if (response.ok) {
-        toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} successful!`, { id: 'action-' + ticketId })
-        
-        // Optimistic UI update for certain actions
-        if (action === 'assign') {
-          setTickets(prev => prev.map(t => 
-            t.id === ticketId 
-              ? { ...t, assignee_id: user?.id }
-              : t
-          ))
-        } else if (action === 'acknowledge') {
-          setTickets(prev => prev.map(t => 
-            t.id === ticketId 
-              ? { ...t, needs_attention: false }
-              : t
-          ))
-        }
-        
-        // Reload data to sync with server
-        await loadTickets(true)
-        await loadCounts(true)
-      } else {
-        const errorText = await response.text()
-        toast.error(`${action} failed: ${errorText}`, { id: 'action-' + ticketId })
+      // Add specific toasts based on action
+      const toastMessages: Record<string, string> = {
+        assign: '✅ Ticket assigned to you',
+        acknowledge: '✅ Attention acknowledged',
+        escalate: '🚨 Ticket escalated to senior support',
+        status: payload.status === 'closed' ? '✅ Ticket marked as closed' : '🔄 Ticket status updated',
+        priority: `📌 Priority set to ${payload.priority}`,
       }
+      
+      toast.success(toastMessages[action] || `✅ ${action.charAt(0).toUpperCase() + action.slice(1)} successful!`, { 
+        id: 'action-' + ticketId 
+      })
+      
+      // Optimistic UI update for certain actions
+      if (action === 'assign') {
+        setTickets(prev => prev.map(t => 
+          t.id === ticketId 
+            ? { ...t, assignee_id: user?.id }
+            : t
+        ))
+      } else if (action === 'acknowledge') {
+        setTickets(prev => prev.map(t => 
+          t.id === ticketId 
+            ? { ...t, needs_attention: false }
+            : t
+        ))
+      }
+      
+      // Reload data to sync with server
+      await loadTickets(true)
+      await loadCounts(true)
     } catch (error) {
       console.error('Action failed:', error)
-      toast.error(`${action} failed`, { id: 'action-' + ticketId })
+      const errorMsg = error instanceof Error ? error.message : `${action} failed`
+      toast.error(`❌ ${errorMsg}`, { id: 'action-' + ticketId })
     } finally {
       setActionLoading(null)
     }
@@ -618,6 +580,12 @@ export default function RepConsolePage() {
   const handleKBIngest = async (sources: any[]) => {
     console.log('🔄 Rep: Starting KB ingest for', sources.length, 'sources')
     
+    if (!orgId) {
+      console.error('❌ Rep: Cannot ingest - no organization context')
+      setShowKBModal(false)
+      return
+    }
+    
     for (const source of sources) {
       try {
         const formData = new FormData()
@@ -641,6 +609,7 @@ export default function RepConsolePage() {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
+            'X-Organization-ID': orgId, // Add org header
           },
           body: formData,
         })
@@ -730,14 +699,14 @@ export default function RepConsolePage() {
                 Manage customer support tickets and prioritize urgent issues
               </p>
             </div>
-            <div className="flex gap-3">
-              <Button variant="outline" asChild>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button variant="outline" asChild className="min-h-[44px]">
                 <Link href="/dashboard">
                   <ExternalLink className="mr-2 h-4 w-4" />
                   Dashboard
                 </Link>
               </Button>
-              <Button onClick={() => setShowKBModal(true)}>
+              <Button onClick={() => setShowKBModal(true)} className="min-h-[44px]">
                 <Upload className="mr-2 h-4 w-4" />
                 KB Ingest
               </Button>
@@ -763,8 +732,8 @@ export default function RepConsolePage() {
           </div>
           
           {/* Refresh Controls */}
-          <div className="flex justify-between items-center pt-2 border-t">
-            <span className="text-sm text-muted-foreground">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pt-2 border-t">
+            <span className="text-xs sm:text-sm text-muted-foreground">
               Last updated: {new Date(lastRefresh).toLocaleTimeString()}
             </span>
             <Button 
@@ -772,14 +741,15 @@ export default function RepConsolePage() {
               variant="outline"
               onClick={handleManualRefresh}
               disabled={ticketsLoading || countsLoading}
+              className="min-h-[44px] w-full sm:w-auto"
             >
               Refresh
             </Button>
           </div>
         </div>
 
-        {/* Stats Overview */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {/* Stats Overview - Mobile Optimized */}
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <Card className="relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 to-red-600/5" />
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative">
@@ -868,46 +838,48 @@ export default function RepConsolePage() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-4">
-            {/* Lane Tabs */}
+            {/* Lane Tabs - Mobile Optimized */}
             <Tabs value={currentLane} onValueChange={(value) => { setCurrentLane(value); setOffset(0) }}>
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="needs_attention" className="text-xs">
-                  Needs Attention
+              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto">
+                <TabsTrigger value="needs_attention" className="text-xs sm:text-sm min-h-[44px] whitespace-normal py-2">
+                  <span className="hidden sm:inline">Needs Attention</span>
+                  <span className="sm:hidden">Attention</span>
                 </TabsTrigger>
-                <TabsTrigger value="open" className="text-xs">
-                  Open/Active
+                <TabsTrigger value="open" className="text-xs sm:text-sm min-h-[44px] whitespace-normal py-2">
+                  <span className="hidden sm:inline">Open/Active</span>
+                  <span className="sm:hidden">Open</span>
                 </TabsTrigger>
-                <TabsTrigger value="escalated" className="text-xs">
+                <TabsTrigger value="escalated" className="text-xs sm:text-sm min-h-[44px] whitespace-normal py-2">
                   Escalated
                 </TabsTrigger>
-                <TabsTrigger value="all" className="text-xs">
-                  All Tickets
+                <TabsTrigger value="all" className="text-xs sm:text-sm min-h-[44px] whitespace-normal py-2">
+                  <span className="hidden sm:inline">All Tickets</span>
+                  <span className="sm:hidden">All</span>
                 </TabsTrigger>
               </TabsList>
             </Tabs>
 
-            {/* Search and Filters */}
-            <div className="flex flex-col gap-4 md:flex-row md:items-center">
+            {/* Search and Filters - Mobile Optimized */}
+            <div className="flex flex-col gap-3">
               <div className="flex-1">
                 <Input
                   type="text"
-                  placeholder="Search tickets by ID, title, or customer..."
+                  placeholder="Search tickets..."
                   value={searchQuery}
                   onChange={(e) => { setSearchQuery(e.target.value); setOffset(0) }}
-                  className="bg-background/50"
+                  className="bg-background/50 min-h-[44px] text-base"
                 />
               </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="mine-only"
-                    checked={mineOnly}
-                    onCheckedChange={(checked) => { setMineOnly(checked as boolean); setOffset(0) }}
-                  />
-                  <label htmlFor="mine-only" className="text-sm font-medium">
-                    My tickets only
-                  </label>
-                </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="mine-only"
+                  checked={mineOnly}
+                  onCheckedChange={(checked) => { setMineOnly(checked as boolean); setOffset(0) }}
+                  className="min-h-[24px] min-w-[24px]"
+                />
+                <label htmlFor="mine-only" className="text-sm font-medium cursor-pointer">
+                  My tickets only
+                </label>
               </div>
             </div>
           </div>
@@ -916,39 +888,50 @@ export default function RepConsolePage() {
 
       {/* Tickets List */}
       <m.div className="space-y-4" variants={v.list} initial="initial" animate="animate">
-        {ticketsLoading && tickets.length === 0 ? (
-          // Show skeleton loaders while loading
-          Array.from({ length: 3 }).map((_, index) => (
-            <TicketCardSkeleton key={`skeleton-${index}`} />
-          ))
+        {((ticketsLoading && tickets.length === 0) || switchingOrg) ? (
+          // Show skeleton component while loading or switching orgs
+          <RepQueueSkeleton />
         ) : (
-          tickets.map(ticket => (
+          tickets.map(ticket => {
+            const age = getTicketAge(ticket.created_at);
+            
+            return (
             <m.div key={ticket.id} variants={v.item}>
-              <Card className="relative overflow-hidden hover:shadow-lg transition-all duration-200 bg-surface border">
+              <Card className={cn(
+                "relative overflow-hidden hover:shadow-lg transition-all duration-200 bg-surface border",
+                age.urgent && "border-l-4 border-l-red-500"
+              )}>
                 {ticket.needs_attention && (
                   <div className="absolute top-0 left-0 w-1 h-full bg-danger" />
                 )}
-            <CardContent className="p-6">
-              <div className="flex justify-between items-start gap-4">
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex flex-col gap-4">
                 <div className="flex-1 space-y-3">
                   {/* Title and Flagged Status */}
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                     <Link 
                       href={`/tickets/${ticket.id}`}
-                      className="text-lg font-semibold text-primary hover:underline"
+                      className="text-base sm:text-lg font-semibold text-primary hover:underline line-clamp-2 sm:line-clamp-1 min-h-[44px] flex items-center"
                     >
                       {ticket.title}
                     </Link>
-                    {ticket.needs_attention && (
-                      <Badge variant="destructive" className="text-xs">
-                        <AlertTriangle className="mr-1 h-3 w-3" />
-                        FLAGGED
-                      </Badge>
-                    )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {ticket.needs_attention && (
+                        <Badge variant="destructive" className="text-xs">
+                          <AlertTriangle className="mr-1 h-3 w-3" />
+                          FLAGGED
+                        </Badge>
+                      )}
+                      {ticket.priority === 'urgent' && (
+                        <Badge variant="destructive" className="text-xs">
+                          🔥 Urgent
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   
-                  {/* Metadata */}
-                  <div className="flex items-center gap-4 text-sm">
+                  {/* Metadata - Mobile Optimized */}
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm">
                     <StatusBadge status={ticket.status as "escalated" | "open" | "in_progress" | "resolved" | "closed"} />
                     <Badge variant={ticket.priority === 'high' ? 'destructive' : 
                                    ticket.priority === 'normal' ? 'default' : 'secondary'}>
@@ -956,13 +939,25 @@ export default function RepConsolePage() {
                     </Badge>
                     <div className="flex items-center gap-1 text-muted-foreground">
                       <User className="h-3 w-3" />
-                      {ticket.assignee_id ? 'Assigned' : 'Unassigned'}
+                      <span className="hidden sm:inline">{ticket.assignee_id ? 'Assigned' : 'Unassigned'}</span>
+                      <span className="sm:hidden">{ticket.assignee_id ? 'Asgnd' : 'Free'}</span>
                     </div>
                     <div className="flex items-center gap-1 text-muted-foreground">
                       <MessageSquare className="h-3 w-3" />
-                      {ticket.message_count} messages
+                      {ticket.message_count}
                     </div>
-                    <div className="flex items-center gap-1 text-muted-foreground">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      <span className={cn(age.urgent && 'text-red-600 font-medium')}>
+                        {age.text}
+                      </span>
+                      {age.urgent && (
+                        <Badge variant="destructive" className="text-xs">
+                          OVERDUE
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="hidden sm:flex items-center gap-1 text-muted-foreground">
                       <Clock className="h-3 w-3" />
                       {formatTimeAgo(ticket.last_message_at)}
                     </div>
@@ -1007,14 +1002,14 @@ export default function RepConsolePage() {
                           const remainingSeconds = Math.ceil((cooldownEnd - Date.now()) / 1000)
                           return `AI (${remainingSeconds}s)`
                         }
-                        return "AI Assist"
+                        return "Get AI Suggestion"
                       })(),
                       description: (() => {
                         const cooldownEnd = aiCooldowns[ticket.id]
                         if (cooldownEnd && cooldownEnd > Date.now()) {
                           return "Rate limited - please wait"
                         }
-                        return "Get AI suggestions"
+                        return "AI will analyze this ticket and suggest a response"
                       })(),
                       icon: Bot,
                       color: (aiCooldowns[ticket.id] && aiCooldowns[ticket.id] > Date.now()) ? "text-muted-foreground" : "text-primary",
@@ -1060,7 +1055,8 @@ export default function RepConsolePage() {
               </CardContent>
               </Card>
             </m.div>
-          ))
+          );
+          })
         )}
       </m.div>
 

@@ -101,6 +101,15 @@ class AckAttentionRequest(BaseModel):
 class PriorityRequest(BaseModel):
     priority: str = Field(pattern="^(low|normal|high)$")
 
+# Phase 3: AI Feedback schemas
+class FeedbackRequest(BaseModel):
+    message_id: str = Field(..., description="UUID of the AI message")
+    feedback_type: Literal['positive', 'negative'] = Field(..., description="User feedback on AI response quality")
+
+class FeedbackResponse(BaseModel):
+    ok: bool
+    message: str
+
 # Phase 5A: Admin Tools and Role Management schemas
 Role = Literal["customer", "rep", "admin"]
 RoleRequestStatus = Literal["pending", "approved", "denied", "cancelled"]

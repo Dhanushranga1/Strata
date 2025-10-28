@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { apiGet } from '@/lib/api'
+import { motion } from 'framer-motion'
+import { useOrganization } from '@/contexts/OrganizationContext'
+import api from '@/lib/api-client'
 import { BentoGrid, BentoGridItem } from '@/components/ui/BentoGrid'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { FieldError } from '@/components/FieldError'
+import { DashboardSkeleton } from '@/components/skeletons/DashboardSkeleton'
 import { 
   TicketIcon, 
   TrendingUp, 
@@ -79,20 +82,22 @@ interface TicketsResponse {
 export default function DashboardPage() {
   console.log('📊 Dashboard: Component initialized');
   const router = useRouter()
+  const { currentOrganization, isReady, switchingOrg } = useOrganization()
+  const orgId = currentOrganization?.id
   const [me, setMe] = useState<Me | null>(null)
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const loadDashboardStats = async (userRole: string) => {
+  const loadDashboardStats = async (userRole: string, orgId: string) => {
     console.log('📊 Dashboard: Loading stats for role:', userRole);
     
     try {
       if (userRole === 'admin') {
         console.log('👑 Dashboard: Loading admin analytics...');
         const [analytics, categorystats] = await Promise.all([
-          apiGet<AdminAnalytics>('/api/admin/analytics/summary'),
-          apiGet<any>('/api/admin/analytics/by-category').catch(() => ({ status_counts: [], priority_counts: [] }))
+          api.get<AdminAnalytics>('/api/admin/analytics/summary', orgId),
+          api.get<any>('/api/admin/analytics/by-category', orgId).catch(() => ({ status_counts: [], priority_counts: [] }))
         ]);
         
         console.log('📈 Dashboard: Admin analytics received:', analytics);
@@ -124,7 +129,7 @@ export default function DashboardPage() {
         
       } else if (userRole === 'rep') {
         console.log('👨‍💼 Dashboard: Loading rep counts...');
-        const counts = await apiGet<RepCounts>('/api/rep/counts');
+        const counts = await api.get<RepCounts>('/api/rep/counts', orgId);
         console.log('📋 Dashboard: Rep counts received:', counts);
         
         return {
@@ -150,14 +155,14 @@ export default function DashboardPage() {
       } else {
         // Customer: get their own tickets
         console.log('👤 Dashboard: Loading customer tickets...');
-        const myTickets = await apiGet<TicketsResponse>('/api/tickets?mine=true&status=all&limit=100');
+        const myTickets = await api.get<TicketsResponse>('/api/tickets?mine=true&status=all&limit=100', orgId);
         console.log('🎫 Dashboard: Customer tickets received:', myTickets.total, 'tickets');
         
         const tickets = myTickets.items || [];
-        const openCount = tickets.filter(t => t.status === 'open').length;
-        const pendingCount = tickets.filter(t => t.status === 'pending').length;
-        const resolvedCount = tickets.filter(t => ['resolved', 'closed'].includes(t.status)).length;
-        const urgentCount = tickets.filter(t => t.priority === 'urgent').length;
+        const openCount = tickets.filter((t: TicketItem) => t.status === 'open').length;
+        const pendingCount = tickets.filter((t: TicketItem) => t.status === 'pending').length;
+        const resolvedCount = tickets.filter((t: TicketItem) => ['resolved', 'closed'].includes(t.status)).length;
+        const urgentCount = tickets.filter((t: TicketItem) => t.priority === 'urgent').length;
         
         return {
           tickets: {
@@ -187,19 +192,25 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const loadDashboardData = async () => {
+      if (!isReady || !orgId) {
+        console.log('⏳ Dashboard: Waiting for org context...');
+        setLoading(true);
+        return;
+      }
+
       console.log('📊 Dashboard: Starting data load...');
       try {
         setLoading(true)
         
         // Load user info
         console.log('👤 Dashboard: Fetching user info...');
-        const userInfo = await apiGet<Me>('/api/me')
+        const userInfo = await api.get<Me>('/api/me')
         console.log('✅ Dashboard: User info received:', { id: userInfo.id, email: userInfo.email, role: userInfo.role });
         setMe(userInfo)
         
         // Load role-appropriate dashboard stats
         console.log('📊 Dashboard: Loading role-based stats...');
-        const dashboardStats = await loadDashboardStats(userInfo.role || 'customer');
+        const dashboardStats = await loadDashboardStats(userInfo.role || 'customer', orgId);
         setStats(dashboardStats);
         console.log('✅ Dashboard: Stats loaded successfully:', dashboardStats);
         console.log('✅ Dashboard: Data load complete');
@@ -214,7 +225,7 @@ export default function DashboardPage() {
     }
 
     loadDashboardData()
-  }, [])
+  }, [isReady, orgId])
 
   const getGreeting = () => {
     const hour = new Date().getHours()
@@ -236,54 +247,58 @@ export default function DashboardPage() {
 
   return (
     <PageShell>
-      <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 p-6">
-        <div className="max-w-7xl mx-auto space-y-8">
-          {/* Header Section */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">
+      <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 p-4 sm:p-6">
+        <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
+          {/* Header Section - Mobile Optimized */}
+          <div className="flex flex-col gap-4">
+            <div className="flex-1">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
                 {getGreeting()}{me?.email ? `, ${me.email.split('@')[0]}` : ''}
               </h1>
-              <p className="text-muted-foreground mt-1">
+              <p className="text-sm sm:text-base text-muted-foreground mt-1">
                 Here&apos;s what&apos;s happening with your tickets today.
               </p>
-              </div>
-              
-              {me && (
-                <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <User className="h-5 w-5 text-primary" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm">{me.email ?? me.id}</p>
-                        <Badge variant="secondary" className="text-xs">
-                          {me.role}
-                        </Badge>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
             </div>
+              
+            {me && (
+              <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+                <CardContent className="p-3 sm:p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <User className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-sm truncate">{me.email ?? me.id}</p>
+                      <Badge variant="secondary" className="text-xs">
+                        {me.role}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
 
             {error && <FieldError id="dashboard-error">{error}</FieldError>}
 
-            {/* Main Dashboard Grid */}
-            {loading ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <Card key={i} className="animate-pulse">
-                      <CardContent className="p-6">
-                        <div className="h-4 bg-muted rounded w-3/4 mb-2" />
-                        <div className="h-8 bg-muted rounded w-1/2" />
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
+            {/* Show skeleton when switching orgs or initial load */}
+            {(loading || switchingOrg) ? (
+              <DashboardSkeleton />
+            ) : stats && stats.tickets.total === 0 ? (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="text-center py-16"
+              >
+                <h1 className="text-4xl font-bold mb-4">Welcome to TicketPilot! 🎉</h1>
+                <p className="text-xl text-muted-foreground mb-8">
+                  Let&apos;s get you started with AI-powered support
+                </p>
+                <Button size="lg" onClick={() => router.push('/tickets')}>
+                  Create Your First Ticket
+                  <ArrowUpRight className="ml-2 w-5 h-5" />
+                </Button>
+              </motion.div>
             ) : stats ? (
               <BentoGrid>
                 {/* Tickets Overview */}

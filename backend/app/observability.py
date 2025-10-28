@@ -165,8 +165,8 @@ def log_rag_metrics(metrics: RAGMetrics):
                     INSERT INTO app.ai_runs (
                         ticket_id, user_id, model, prompt_hash, top_k, confidence,
                         suggest_escalation, input_chars, output_chars, latency_ms,
-                        created_at, meta
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     metrics.ticket_id,
                     metrics.user_id,
@@ -178,31 +178,9 @@ def log_rag_metrics(metrics: RAGMetrics):
                     metrics.query_length,
                     metrics.response_length,
                     metrics.total_latency_ms,
-                    metrics.timestamp,
-                    json.dumps({
-                        "operation": metrics.operation,
-                        "retrieval_metrics": {
-                            "chunks_retrieved": metrics.chunks_retrieved,
-                            "top_score": metrics.top_score,
-                            "score_variance": metrics.score_variance,
-                            "context_relevance": metrics.context_relevance,
-                            "source_diversity": metrics.source_diversity,
-                            "information_density": metrics.information_density
-                        },
-                        "timing_breakdown": {
-                            "embedding_ms": metrics.embedding_latency_ms,
-                            "retrieval_ms": metrics.retrieval_latency_ms,
-                            "generation_ms": metrics.generation_latency_ms,
-                            "total_ms": metrics.total_latency_ms
-                        },
-                        "quality_metrics": {
-                            "confidence": metrics.confidence,
-                            "citations_used": metrics.citations_used,
-                            "escalation_triggered": metrics.escalation_triggered
-                        },
-                        "errors": metrics.errors,
-                        "warnings": metrics.warnings
-                    })
+                    metrics.timestamp
+                    # Note: meta column removed - DB schema doesn't include it yet
+                    # Future: Add meta JSONB column for detailed metrics
                 ))
             
             conn.commit()

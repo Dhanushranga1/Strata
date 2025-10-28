@@ -2,7 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { apiGet, apiPost } from '@/lib/api'
+import { motion } from 'framer-motion'
+import { toast } from 'sonner'
+import { Sparkles, Eye, EyeOff, ThumbsUp, ThumbsDown, AlertCircle } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { useOrganization } from '@/contexts/OrganizationContext'
+import api from '@/lib/api-client'
 
 interface MessageOut {
   id: string
@@ -48,8 +53,27 @@ interface ChatResponse {
   suggest_escalation: boolean
 }
 
+// Helper function to detect system messages
+const isSystemMessage = (message: MessageOut) => {
+  return message.sender_role === 'system' || message.body.startsWith('[system]');
+};
+
+// System Message Component
+const SystemMessage = ({ message }: { message: MessageOut }) => (
+  <div className="my-2 text-center">
+    <div className="inline-block px-3 py-1 rounded-full bg-muted text-muted-foreground text-xs">
+      {message.body.replace('[system]', '').trim()}
+    </div>
+  </div>
+);
+
 export default function TicketDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
+  
+  // Organization context
+  const { currentOrganization, isReady } = useOrganization()
+  const orgId = currentOrganization?.id
+  
   const [ticketData, setTicketData] = useState<TicketWithMessages | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -62,12 +86,26 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   const [aiQuery, setAiQuery] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [showCitations, setShowCitations] = useState<{[messageId: string]: boolean}>({})
+  
+  // System messages toggle and citation tooltip
+  const [showSystemMessages, setShowSystemMessages] = useState(false)
+  const [showCitationTip, setShowCitationTip] = useState(true)
+  
+  // Phase 3: Escalation and feedback state
+  const [escalating, setEscalating] = useState(false)
+  const [feedbackGiven, setFeedbackGiven] = useState<{[messageId: string]: 'positive' | 'negative'}>({})
+  const [feedbackLoading, setFeedbackLoading] = useState<{[messageId: string]: boolean}>({})
+  
+  // Get current user ID from ticket data
+  const currentUserId = ticketData?.ticket?.created_by
 
   const loadTicket = async () => {
+    if (!orgId) return
+    
     try {
       setLoading(true)
       setError('')
-      const data: TicketWithMessages = await apiGet(`/api/tickets/${params.id}`)
+      const data: TicketWithMessages = await api.get(`/api/tickets/${params.id}`, orgId)
       setTicketData(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load ticket')
@@ -77,26 +115,32 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   }
 
   useEffect(() => {
-    loadTicket()
-  }, [params.id])
+    if (isReady && orgId) {
+      loadTicket()
+    }
+  }, [params.id, isReady, orgId])
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!newMessage.trim()) {
+    if (!newMessage.trim() || !orgId) {
       return
     }
     
     try {
       setSending(true)
-      await apiPost(`/api/tickets/${params.id}/messages`, {
+      await api.post(`/api/tickets/${params.id}/messages`, {
         body: newMessage.trim()
-      })
+      }, orgId)
+      
+      // Success feedback
+      toast.success('✅ Message sent successfully!')
       
       setNewMessage('')
       // Refresh the ticket to show the new message
       await loadTicket()
     } catch (err) {
+      toast.error('Failed to send message. Please try again.')
       setError(err instanceof Error ? err.message : 'Failed to send message')
     } finally {
       setSending(false)
@@ -107,23 +151,80 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   const handleAskAI = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!aiQuery.trim()) {
+    if (!aiQuery.trim() || !orgId) {
       return
     }
     
     try {
       setAiLoading(true)
-      const response: ChatResponse = await apiPost(`/api/tickets/${params.id}/chat`, {
+      toast.loading('🤖 AI is thinking...', { id: 'ai-response' })
+      
+      const response: ChatResponse = await api.post(`/api/tickets/${params.id}/chat`, {
         query: aiQuery.trim()
-      })
+      }, orgId)
+      
+      toast.success('✅ AI responded!', { id: 'ai-response' })
       
       setAiQuery('')
       // Refresh the ticket to show the AI response
       await loadTicket()
     } catch (err) {
+      toast.error('Failed to get AI response', { id: 'ai-response' })
       setError(err instanceof Error ? err.message : 'Failed to get AI response')
     } finally {
       setAiLoading(false)
+    }
+  }
+
+  // Phase 3: Escalation handler
+  const handleEscalate = async () => {
+    if (!orgId) return
+    
+    if (!confirm('Request human assistance? A support agent will be assigned to help you.')) {
+      return
+    }
+    
+    try {
+      setEscalating(true)
+      await api.post(`/api/rep/tickets/${params.id}/escalate`, {
+        reason: 'Customer requested human assistance'
+      }, orgId)
+      
+      // Show success message (you can use a toast library here)
+      alert('✅ Your request has been escalated! A support agent will help you soon.')
+      
+      // Refresh to show updated status
+      await loadTicket()
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to escalate ticket'
+      alert(`❌ ${errorMsg}`)
+    } finally {
+      setEscalating(false)
+    }
+  }
+
+  // Phase 3: AI Feedback handler
+  const handleFeedback = async (messageId: string, feedbackType: 'positive' | 'negative') => {
+    if (feedbackGiven[messageId] || !orgId) {
+      return // Already submitted feedback or no org context
+    }
+    
+    try {
+      setFeedbackLoading(prev => ({ ...prev, [messageId]: true }))
+      
+      const response = await api.post<{ok: boolean, message: string}>('/api/ai/feedback', {
+        message_id: messageId,
+        feedback_type: feedbackType
+      }, orgId)
+      
+      if (response.ok) {
+        setFeedbackGiven(prev => ({ ...prev, [messageId]: feedbackType }))
+        // Optional: Show a subtle success message
+      }
+    } catch (err) {
+      console.error('Failed to submit feedback:', err)
+    } finally {
+      setFeedbackLoading(prev => ({ ...prev, [messageId]: false }))
     }
   }
 
@@ -208,49 +309,65 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   const { ticket, messages } = ticketData
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      {/* Header */}
-      <div className="mb-6">
+    <div className="max-w-4xl mx-auto p-4 md:p-6">
+      {/* Header - Mobile Optimized */}
+      <div className="mb-4 md:mb-6">
         <button
           onClick={() => router.push('/tickets')}
-          className="text-blue-600 hover:text-blue-800 mb-4 flex items-center gap-1"
+          className="text-blue-600 hover:text-blue-800 mb-4 flex items-center gap-2 min-h-[44px] touch-manipulation active:scale-95 transition-transform"
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
           </svg>
-          Back to tickets
+          <span className="font-medium">Back to tickets</span>
         </button>
         
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">{ticket.title}</h1>
-              <div className="flex items-center gap-4 text-sm text-gray-500">
-                <span>Ticket #{ticket.id.slice(0, 8)}</span>
-                <span>Created {formatDate(ticket.created_at)}</span>
+        <div className="bg-white rounded-lg shadow p-4 md:p-6">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-xl md:text-2xl font-bold text-gray-900 mb-2">{ticket.title}</h1>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-gray-500">
+                <span className="font-mono">#{ticket.id.slice(0, 8)}</span>
+                <span className="hidden sm:inline">Created {formatDate(ticket.created_at)}</span>
                 <span>{ticket.message_count} message{ticket.message_count !== 1 ? 's' : ''}</span>
               </div>
             </div>
-            <span className={getStatusBadge(ticket.status)}>
-              {ticket.status}
-            </span>
+            <div className="flex-shrink-0">
+              <span className={getStatusBadge(ticket.status)}>
+                {ticket.status}
+              </span>
+            </div>
           </div>
           
           <div className="border-t pt-4">
             <h3 className="font-medium text-gray-900 mb-2">Description</h3>
-            <p className="text-gray-700 whitespace-pre-wrap">{ticket.description}</p>
+            <p className="text-gray-700 whitespace-pre-wrap text-sm md:text-base">{ticket.description}</p>
           </div>
         </div>
       </div>
 
       {/* Messages */}
       <div className="bg-white rounded-lg shadow mb-6">
-        <div className="p-6 border-b">
+        <div className="p-6 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">Messages</h2>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setShowSystemMessages(!showSystemMessages)}
+            className="flex items-center gap-2"
+          >
+            {showSystemMessages ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {showSystemMessages ? 'Hide' : 'Show'} System Logs
+          </Button>
         </div>
         
         <div className="divide-y divide-gray-200">
-          {messages.map((message) => (
+          {messages
+            .filter(msg => showSystemMessages || !isSystemMessage(msg))
+            .map((message) => (
+              isSystemMessage(message) ? (
+                <SystemMessage key={message.id} message={message} />
+              ) : (
             <div key={message.id} className="p-6">
               <div className="flex items-start space-x-3">
                 <div className="flex-shrink-0">
@@ -291,19 +408,31 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                     </span>
                   </div>
                   
-                  {/* Low confidence warning for AI messages */}
+                  {/* Low confidence warning for AI messages + Escalation button */}
                   {message.sender_role === 'ai' && message.meta?.suggest_escalation && (
                     <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                      <div className="flex">
-                        <div className="flex-shrink-0">
-                          <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                          </svg>
-                        </div>
-                        <div className="ml-3">
-                          <p className="text-sm text-yellow-800">
-                            Low confidence answer. Consider escalating this ticket for human review.
-                          </p>
+                      <div className="flex items-start justify-between">
+                        <div className="flex">
+                          <div className="flex-shrink-0">
+                            <AlertCircle className="h-5 w-5 text-yellow-600" />
+                          </div>
+                          <div className="ml-3">
+                            <p className="text-sm text-yellow-800 mb-2">
+                              Low confidence answer. Consider requesting human assistance.
+                            </p>
+                            {/* Escalation button - only show if user owns ticket and not already escalated */}
+                            {ticket.status !== 'escalated' && currentUserId === ticket.created_by && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleEscalate}
+                                disabled={escalating}
+                                className="border-yellow-300 text-yellow-800 hover:bg-yellow-100"
+                              >
+                                {escalating ? 'Escalating...' : '🙋 I Need Human Help'}
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -313,16 +442,64 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                     {message.body}
                   </div>
                   
+                  {/* Phase 3: AI Feedback Buttons */}
+                  {message.sender_role === 'ai' && (
+                    <div className="flex items-center gap-2 mt-3">
+                      <span className="text-xs text-gray-500">Was this helpful?</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleFeedback(message.id, 'positive')}
+                        disabled={!!feedbackGiven[message.id] || feedbackLoading[message.id]}
+                        className={`h-8 px-2 ${feedbackGiven[message.id] === 'positive' ? 'bg-green-100 text-green-700' : ''}`}
+                      >
+                        <ThumbsUp className={`w-4 h-4 ${feedbackGiven[message.id] === 'positive' ? 'fill-current' : ''}`} />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleFeedback(message.id, 'negative')}
+                        disabled={!!feedbackGiven[message.id] || feedbackLoading[message.id]}
+                        className={`h-8 px-2 ${feedbackGiven[message.id] === 'negative' ? 'bg-red-100 text-red-700' : ''}`}
+                      >
+                        <ThumbsDown className={`w-4 h-4 ${feedbackGiven[message.id] === 'negative' ? 'fill-current' : ''}`} />
+                      </Button>
+                      {feedbackGiven[message.id] && (
+                        <span className="text-xs text-gray-500 ml-2">Thanks for your feedback!</span>
+                      )}
+                    </div>
+                  )}
+                  
                   {/* AI Citations */}
                   {message.sender_role === 'ai' && message.meta?.citations?.length > 0 && (
                     <div className="mt-3">
+                      {/* Citation Education Tooltip */}
+                      {showCitationTip && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md flex items-start gap-2"
+                        >
+                          <Sparkles className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1 text-sm text-blue-900">
+                            <strong>💡 Tip:</strong> Blue numbers like [1], [2] are links to our help docs. Click to see the sources!
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowCitationTip(false)}
+                            className="text-blue-600 h-auto p-1"
+                          >
+                            Got it
+                          </Button>
+                        </motion.div>
+                      )}
+                      
                       <button
                         onClick={() => toggleCitations(message.id)}
-                        className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                        className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"
                       >
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-                        </svg>
+                        {showCitations[message.id] ? '▼' : '▶'} 
                         {showCitations[message.id] ? 'Hide' : 'Show'} Sources ({message.meta.citations.length})
                       </button>
                       
@@ -348,14 +525,15 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                 </div>
               </div>
             </div>
+              )
           ))}
         </div>
       </div>
 
-      {/* AI Chat Interface */}
+      {/* AI Chat Interface - Mobile Optimized */}
       {ticket.status === 'open' && (
-        <div className="bg-purple-50 border border-purple-200 rounded-lg shadow p-6 mb-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <div className="bg-purple-50 border border-purple-200 rounded-lg shadow p-4 md:p-6 mb-4 md:mb-6">
+          <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center gap-2">
             <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M13 7H7v6h6V7z" clipRule="evenodd" />
               <path fillRule="evenodd" d="M13 15H7a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v6a2 2 0 01-2 2zM7 6a1 1 0 00-1 1v6a1 1 0 001 1h6a1 1 0 001-1V7a1 1 0 00-1-1H7z" clipRule="evenodd" />
@@ -370,7 +548,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                 onChange={(e) => setAiQuery(e.target.value)}
                 placeholder="Ask the AI assistant about your issue..."
                 rows={3}
-                className="w-full border border-purple-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                className="w-full border border-purple-300 rounded-md px-3 py-2 text-base focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                 maxLength={1000}
                 disabled={aiLoading}
               />
@@ -383,7 +561,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
               <button
                 type="submit"
                 disabled={aiLoading || !aiQuery.trim()}
-                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="min-h-[44px] px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 touch-manipulation active:scale-95 transition-transform"
               >
                 {aiLoading ? (
                   <>
@@ -402,10 +580,10 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
         </div>
       )}
 
-      {/* Message Composer */}
+      {/* Message Composer - Mobile Optimized */}
       {ticket.status === 'open' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4">Add a message</h3>
+        <div className="bg-white rounded-lg shadow p-4 md:p-6">
+          <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Add a message</h3>
           
           <form onSubmit={handleSendMessage}>
             <div className="mb-4">
@@ -414,7 +592,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Type your message here..."
                 rows={4}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 maxLength={8000}
                 required
               />
@@ -427,7 +605,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
               <button
                 type="submit"
                 disabled={sending || !newMessage.trim()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="min-h-[44px] w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation active:scale-95 transition-transform"
               >
                 {sending ? 'Sending...' : 'Send Message'}
               </button>

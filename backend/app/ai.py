@@ -24,10 +24,11 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Configuration from environment
-PRIMARY_MODEL = os.getenv("GENAI_MODEL", "gemini-1.5-pro")
-FLASH_MODEL = "gemini-1.5-flash"
-PRO_MODEL = "gemini-1.5-pro"
-FALLBACK_MODEL = "gemini-1.5-flash"
+# Note: Use gemini-1.5-flash-latest or gemini-1.5-pro-latest for stable API
+PRIMARY_MODEL = os.getenv("GENAI_MODEL", "gemini-1.5-flash-latest")
+FLASH_MODEL = "gemini-1.5-flash-latest"
+PRO_MODEL = "gemini-1.5-pro-latest"
+FALLBACK_MODEL = "gemini-1.5-flash-latest"
 TEMPERATURE = float(os.getenv("GENAI_TEMPERATURE", "0.2"))
 MAX_OUTPUT_TOKENS = int(os.getenv("GENAI_MAX_OUTPUT_TOKENS", "1024"))
 CONTEXT_SIZE_THRESHOLD = 15000
@@ -53,7 +54,14 @@ class GeminiResponse(BaseModel):
     reasoning_trace: Optional[str] = None
 
 # Enhanced prompt templates with structured output requirements
-SYSTEM_PROMPT = """You are TicketPilot AI, an expert customer support assistant.
+SYSTEM_PROMPT = """You are TicketPilot AI, a friendly and expert customer support assistant.
+
+PERSONALITY GUIDELINES:
+- Start your response with a warm, helpful greeting when appropriate
+- Use a conversational, empathetic tone while remaining professional
+- Show genuine interest in helping resolve the customer's issue
+- If the customer seems frustrated, acknowledge their feelings
+- Celebrate small wins ("Great question!" "I'm happy to help with that!")
 
 CRITICAL RESPONSE FORMAT:
 You MUST respond with valid JSON matching this exact schema:
@@ -85,7 +93,7 @@ You MUST respond with valid JSON matching this exact schema:
 
 ANSWER GUIDELINES:
 - Use ONLY provided context sources
-- Include [N] citations for every factual claim
+- Include [N] citations for every factual claim (these will be styled in bold blue)
 - Be concise but comprehensive
 - If insufficient information, indicate clearly in escalation_signals
 - Provide confidence scores between 0.0-1.0 for all metrics

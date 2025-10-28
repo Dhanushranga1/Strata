@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
-import { apiGet, API_BASE } from "@/lib/api";
+import { useOrganization } from "@/contexts/OrganizationContext";
+import api from "@/lib/api-client";
 import { getBearer } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import {
   Activity
 } from "lucide-react";
 import { PageShell } from '@/ui/motion/PageShell';
+import { SystemHealthDashboard } from '@/components/admin/SystemHealthDashboard';
 
 interface AdminStats {
   totalUsers: number;
@@ -52,6 +54,11 @@ interface RoleRequest {
 
 export default function AdminPage() {
   const router = useRouter();
+  
+  // Organization context
+  const { currentOrganization, isReady } = useOrganization();
+  const orgId = currentOrganization?.id;
+  
   const [user, setUser] = useState<any>(null);
   const [stats, setStats] = useState<AdminStats>({
     totalUsers: 0,
@@ -64,25 +71,20 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
 
   const loadAdminStats = async () => {
-    console.log('📊 Admin: Loading real stats from backend...');
+    if (!orgId) return;
+    
+    console.log('📊 Admin: Loading real stats from backend for org:', orgId);
     setStatsLoading(true);
     setError(null);
     
     try {
-      const token = await getBearer();
-      if (!token) {
-        console.log('❌ Admin: No token available for stats loading');
-        router.push('/login');
-        return;
-      }
-
-      console.log('🔑 Admin: Token obtained, making API calls...');
+      console.log('🔑 Admin: Making API calls with org context...');
       
       // Parallel API calls for better performance
       const [analytics, users, roleRequests] = await Promise.all([
-        apiGet<AdminAnalytics>('/api/admin/analytics/summary', token),
-        apiGet<UserItem[]>('/api/admin/users', token),
-        apiGet<RoleRequest[]>('/api/admin/role-requests', token)
+        api.get<AdminAnalytics>('/api/admin/analytics/summary', orgId),
+        api.get<UserItem[]>('/api/admin/users', orgId),
+        api.get<RoleRequest[]>('/api/admin/role-requests', orgId)
       ]);
 
       console.log('📈 Admin: Analytics received:', analytics);
@@ -90,10 +92,10 @@ export default function AdminPage() {
       console.log('📋 Admin: Role requests received:', roleRequests.length, 'requests');
 
       // Count active reps from users
-      const activeReps = users.filter(u => u.role === 'rep').length;
+      const activeReps = users.filter((u: UserItem) => u.role === 'rep').length;
       
       // Count pending role requests
-      const pendingRequests = roleRequests.filter(r => r.status === 'pending').length;
+      const pendingRequests = roleRequests.filter((r: RoleRequest) => r.status === 'pending').length;
 
       const newStats: AdminStats = {
         totalUsers: users.length,
@@ -130,35 +132,19 @@ export default function AdminPage() {
         }
 
         console.log('🌐 Admin: Making API request to /api/me...');
-        const response = await fetch(`${API_BASE}/api/me`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
+        const userData = await api.get('/api/me');
 
-        console.log('📡 Admin: API response status:', response.status);
-
-        if (response.ok) {
-          const userData = await response.json();
-          console.log('✅ Admin: User data received:', { id: userData.id, email: userData.email, role: userData.role });
-          setUser(userData);
-          
-          // Check if user is admin
-          if (userData.role !== 'admin') {
-            console.log('❌ Admin: User is not admin, redirecting to dashboard');
-            router.push('/dashboard');
-            return;
-          }
-          
-          console.log('✅ Admin: Admin access confirmed, loading stats...');
-          // Load admin stats after successful auth
-          await loadAdminStats();
-        } else {
-          console.log('❌ Admin: API request failed, signing out and redirecting');
-          await supabase.auth.signOut();
-          router.push('/login');
+        console.log('✅ Admin: User data received:', { id: userData.id, email: userData.email, role: userData.role });
+        setUser(userData);
+        
+        // Check if user is admin
+        if (userData.role !== 'admin') {
+          console.log('❌ Admin: User is not admin, redirecting to dashboard');
+          router.push('/dashboard');
           return;
         }
+        
+        console.log('✅ Admin: Admin access confirmed');
       } catch (error) {
         console.error('💥 Admin: Auth check failed:', error);
         router.push('/login');
@@ -171,6 +157,14 @@ export default function AdminPage() {
 
     checkAuth();
   }, [router]);
+
+  // Load stats when org context is ready
+  useEffect(() => {
+    if (user && isReady && orgId) {
+      console.log('✅ Admin: Org context ready, loading stats...');
+      loadAdminStats();
+    }
+  }, [user, isReady, orgId]);
 
   const adminSections = [
     {
@@ -327,6 +321,9 @@ export default function AdminPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* System Health Dashboard - Phase 3: SI-3 */}
+        <SystemHealthDashboard />
 
         {/* Admin Sections */}
         <div className="grid gap-6 md:grid-cols-2">

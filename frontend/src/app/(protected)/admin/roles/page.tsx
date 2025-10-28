@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { supabase } from '@/lib/supabaseClient'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -262,7 +263,9 @@ export default function AdminRolesPage() {
       if (!response.ok) {
         const errorData = await response.json()
         if (response.status === 409) {
-          setError(errorData.error || 'Cannot perform this action - would leave system without admins')
+          const errorMsg = errorData.error || 'Cannot perform this action - would leave system without admins'
+          setError(errorMsg)
+          toast.error(`❌ ${errorMsg}`)
         } else {
           throw new Error(`HTTP ${response.status}`)
         }
@@ -270,7 +273,9 @@ export default function AdminRolesPage() {
       }
 
       const data = await response.json()
-      setSuccess(`User role updated to ${newRole}`)
+      const successMsg = `User role updated to ${newRole}`
+      setSuccess(successMsg)
+      toast.success(`✅ ${successMsg}`)
       
       // Add activity for role change
       const targetUser = users.find(u => u.id === userId)
@@ -296,7 +301,9 @@ export default function AdminRolesPage() {
       
     } catch (error) {
       console.error('Error updating user role:', error)
-      setError('Failed to update user role')
+      const errorMsg = error instanceof Error ? error.message : 'Failed to update user role'
+      setError(errorMsg)
+      toast.error(`❌ ${errorMsg}`)
     } finally {
       setProcessingUsers(prev => {
         const next = new Set(prev)

@@ -106,9 +106,9 @@ export function AIResponseModal({
               <Sparkles className="h-5 w-5" />
             </div>
             <div>
-              <DialogTitle className="text-lg font-semibold">AI Suggestion</DialogTitle>
+              <DialogTitle className="text-lg font-semibold">AI-Generated Response Draft</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
-                Powered by {response.model} • Ticket #{ticketId}
+                Review this AI-suggested response before sending to the customer. You can edit or use it as-is.
               </DialogDescription>
             </div>
           </div>
@@ -143,9 +143,9 @@ export function AIResponseModal({
 
         {/* AI Response Content */}
         <div className="flex-1 overflow-auto space-y-4">
-          <div className="bg-slate-50 rounded-lg p-4 border">
+          <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 border">
             <div className="prose prose-sm max-w-none">
-              <p className="text-slate-800 leading-relaxed whitespace-pre-wrap m-0">
+              <p className="text-base text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap m-0">
                 {response.content}
               </p>
             </div>
@@ -182,16 +182,31 @@ export function AIResponseModal({
                 }
               </Button>
               {sourcesOpen && (
-                <div className="p-3 pt-0 space-y-2">
+                <div className="p-3 pt-0 space-y-3">
                   {response.citations.map((citation, index) => (
-                    <div key={index} className="bg-white border rounded-lg p-3">
+                    <div key={index} className="bg-white border rounded-lg p-4 hover:bg-slate-50 transition-colors">
                       <div className="flex items-center gap-2 mb-2">
-                        <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                        <span className="font-medium text-sm">{citation.title}</span>
+                        <ExternalLink className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+                        <span className="font-semibold text-base text-slate-900 dark:text-slate-100">
+                          {citation.title}
+                        </span>
                       </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        {citation.content}
-                      </p>
+                      {citation.content ? (
+                        <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                          {citation.content}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic">
+                          Click source title to view full document
+                        </p>
+                      )}
+                      {citation.source && (
+                        <div className="mt-2 pt-2 border-t">
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Source: {citation.source}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
