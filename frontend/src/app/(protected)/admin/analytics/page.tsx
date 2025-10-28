@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { useOrganization } from "@/contexts/OrganizationContext";
+import api from "@/lib/api-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   BarChart3, 
@@ -60,6 +62,11 @@ const formatNumber = (value: number): string => {
 
 export default function AdminAnalyticsPage() {
   const router = useRouter();
+  
+  // Organization context
+  const { currentOrganization, isReady } = useOrganization();
+  const orgId = currentOrganization?.id;
+  
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
@@ -70,6 +77,13 @@ export default function AdminAnalyticsPage() {
   useEffect(() => {
     checkAuthAndLoadData();
   }, []);
+
+  // Load analytics when org context is ready
+  useEffect(() => {
+    if (user && isReady && orgId) {
+      loadAnalyticsData();
+    }
+  }, [user, isReady, orgId]);
 
   const checkAuthAndLoadData = async () => {
     try {
@@ -88,34 +102,19 @@ export default function AdminAnalyticsPage() {
       }
 
       console.log('🌐 Admin Analytics: Making API request to /api/me...');
-      const response = await fetch(`${API_BASE}/api/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      const userData = await api.get('/api/me');
 
-      console.log('📡 Admin Analytics: API response status:', response.status);
-
-      if (response.ok) {
-        const userData = await response.json();
-        console.log('✅ Admin Analytics: User data received:', { id: userData.id, email: userData.email, role: userData.role });
-        setUser(userData);
-        
-        // Check if user is admin
-        if (userData.role !== 'admin') {
-          console.log('❌ Admin Analytics: User is not admin, redirecting to dashboard');
-          router.push('/dashboard');
-          return;
-        }
-        
-        console.log('✅ Admin Analytics: Admin access confirmed, loading analytics data...');
-        await loadAnalyticsData(token);
-      } else {
-        console.log('❌ Admin Analytics: API request failed, signing out and redirecting');
-        await supabase.auth.signOut();
-        router.push('/login');
+      console.log('✅ Admin Analytics: User data received:', { id: userData.id, email: userData.email, role: userData.role });
+      setUser(userData);
+      
+      // Check if user is admin
+      if (userData.role !== 'admin') {
+        console.log('❌ Admin Analytics: User is not admin, redirecting to dashboard');
+        router.push('/dashboard');
         return;
       }
+      
+      console.log('✅ Admin Analytics: Admin access confirmed');
     } catch (error) {
       console.error('💥 Admin Analytics: Auth check failed:', error);
       setError('Failed to load analytics data');
@@ -127,37 +126,25 @@ export default function AdminAnalyticsPage() {
     }
   };
 
-  const loadAnalyticsData = async (token: string) => {
+  const loadAnalyticsData = async () => {
+    if (!orgId) return;
+    
     try {
-      // Load summary data
-      const summaryResponse = await fetch(`${API_BASE}/api/admin/analytics/summary`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      console.log('📊 Admin Analytics: Loading analytics data for org:', orgId);
       
-      if (summaryResponse.ok) {
-        const summaryData = await summaryResponse.json();
-        setSummary(summaryData);
-      }
+      // Load summary data
+      const summaryData = await api.get<AnalyticsSummary>('/api/admin/analytics/summary', orgId);
+      setSummary(summaryData);
 
       // Load category data
-      const categoryResponse = await fetch(`${API_BASE}/api/admin/analytics/by-category`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (categoryResponse.ok) {
-        const catData = await categoryResponse.json();
-        setCategoryData(catData);
-      }
+      const catData = await api.get<CategoryData>('/api/admin/analytics/by-category', orgId);
+      setCategoryData(catData);
 
       // Load rep performance data
-      const repResponse = await fetch(`${API_BASE}/api/admin/analytics/rep-performance`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const repData = await api.get<RepPerformance>('/api/admin/analytics/rep-performance', orgId);
+      setRepPerformance(repData);
       
-      if (repResponse.ok) {
-        const repData = await repResponse.json();
-        setRepPerformance(repData);
-      }
+      console.log('✅ Admin Analytics: All analytics data loaded successfully');
     } catch (error) {
       console.error('Failed to load analytics data:', error);
       setError('Failed to load analytics data');

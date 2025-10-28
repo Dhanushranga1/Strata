@@ -1,7 +1,7 @@
 """
 Admin-only API endpoints for Phase 5A
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from typing import Optional, List
 from datetime import datetime
 import logging
@@ -14,6 +14,7 @@ from .schemas import (
 )
 from .auth import get_current_user, User
 from .roles import get_database_connection, set_user_role, normalize_role, invalidate_cache
+from .org_middleware import require_org_context
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -316,18 +317,22 @@ async def db_diagnostics(user: User = Depends(get_current_user)):
 
 # Analytics Endpoints
 @router.get("/analytics/summary")
-async def get_analytics_summary(user: User = Depends(get_current_user)):
+async def get_analytics_summary(request: Request, user: User = Depends(get_current_user)):
     """Get summary analytics for admin dashboard"""
+    org_id = require_org_context(request)
     require_admin(user)
     
     conn = await get_database_connection()
     try:
         # Total tickets
-        total_tickets = await conn.fetchval("SELECT count(*) FROM app.tickets")
+        total_tickets = await conn.fetchval(
+            "SELECT count(*) FROM app.tickets WHERE organization_id = $1", org_id
+        )
         
         # Resolution rate (resolved + closed / total)
         resolved_count = await conn.fetchval(
-            "SELECT count(*) FROM app.tickets WHERE status IN ('resolved', 'closed')"
+            "SELECT count(*) FROM app.tickets WHERE organization_id = $1 AND status IN ('resolved', 'closed')",
+            org_id
         )
         resolution_rate = (resolved_count / total_tickets * 100) if total_tickets > 0 else 0
         
@@ -337,17 +342,17 @@ async def get_analytics_summary(user: User = Depends(get_current_user)):
             SELECT AVG(
                 EXTRACT(EPOCH FROM (
                     (SELECT MIN(created_at) FROM app.messages 
-                     WHERE ticket_id = t.id AND sender_role IN ('rep', 'admin'))
+                     WHERE ticket_id = t.id AND sender_role IN ('rep', 'admin') AND organization_id = $1)
                     - t.created_at
                 )) / 3600
             ) as avg_hours
             FROM app.tickets t
-            WHERE EXISTS (
+            WHERE t.organization_id = $1 AND EXISTS (
                 SELECT 1 FROM app.messages m 
-                WHERE m.ticket_id = t.id AND m.sender_role IN ('rep', 'admin')
+                WHERE m.ticket_id = t.id AND m.sender_role IN ('rep', 'admin') AND m.organization_id = $1
             )
         """
-        avg_response_hours = await conn.fetchval(avg_response_query) or 0
+        avg_response_hours = await conn.fetchval(avg_response_query, org_id) or 0
         
         return {
             "total_tickets": total_tickets,
@@ -358,8 +363,9 @@ async def get_analytics_summary(user: User = Depends(get_current_user)):
         await conn.close()
 
 @router.get("/analytics/by-category")
-async def get_analytics_by_category(user: User = Depends(get_current_user)):
+async def get_analytics_by_category(request: Request, user: User = Depends(get_current_user)):
     """Get ticket analytics by category/status"""
+    org_id = require_org_context(request)
     require_admin(user)
     
     conn = await get_database_connection()
@@ -368,15 +374,17 @@ async def get_analytics_by_category(user: User = Depends(get_current_user)):
         status_query = """
             SELECT status, count(*) as count
             FROM app.tickets
+            WHERE organization_id = $1
             GROUP BY status
             ORDER BY count DESC
         """
-        status_counts = await conn.fetch(status_query)
+        status_counts = await conn.fetch(status_query, org_id)
         
         # Get ticket counts by priority
         priority_query = """
             SELECT priority, count(*) as count
             FROM app.tickets
+            WHERE organization_id = $1
             GROUP BY priority
             ORDER BY 
                 CASE priority 
@@ -387,18 +395,19 @@ async def get_analytics_by_category(user: User = Depends(get_current_user)):
                     ELSE 5
                 END
         """
-        priority_counts = await conn.fetch(priority_query)
+        priority_counts = await conn.fetch(priority_query, org_id)
         
         return {
-            "by_status": [{"name": row["status"], "count": row["count"]} for row in status_counts],
-            "by_priority": [{"name": row["priority"], "count": row["count"]} for row in priority_counts]
+            "status_counts": [{"status": row["status"], "count": row["count"]} for row in status_counts],
+            "priority_counts": [{"priority": row["priority"], "count": row["count"]} for row in priority_counts]
         }
     finally:
         await conn.close()
 
 @router.get("/analytics/rep-performance")
-async def get_rep_performance(user: User = Depends(get_current_user)):
+async def get_rep_performance(request: Request, user: User = Depends(get_current_user)):
     """Get support representative performance metrics"""
+    org_id = require_org_context(request)
     require_admin(user)
     
     conn = await get_database_connection()
@@ -413,21 +422,21 @@ async def get_rep_performance(user: User = Depends(get_current_user)):
                     AVG(
                         EXTRACT(EPOCH FROM (
                             (SELECT MIN(created_at) FROM app.messages 
-                             WHERE ticket_id = t.id AND sender_id = u.user_id)
+                             WHERE ticket_id = t.id AND sender_id = u.user_id AND organization_id = $1)
                             - t.created_at
                         )) / 3600
                     ), 0
                 ) as avg_response_hours
             FROM auth.users u
             JOIN app.user_roles ur ON u.id = ur.user_id
-            LEFT JOIN app.tickets t ON t.assignee_id = u.id
+            LEFT JOIN app.tickets t ON t.assignee_id = u.id AND t.organization_id = $1
             WHERE ur.role IN ('rep', 'admin')
             GROUP BY u.id, u.email
             HAVING COUNT(t.id) > 0
             ORDER BY tickets_handled DESC
             LIMIT 10
         """
-        rep_stats = await conn.fetch(perf_query)
+        rep_stats = await conn.fetch(perf_query, org_id)
         
         performance_data = []
         for row in rep_stats:

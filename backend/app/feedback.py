@@ -3,13 +3,14 @@ Feedback module for collecting user feedback on AI responses.
 Part of Phase 3: Strategic Improvements (SI-2).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 import asyncpg
 import os
 from datetime import datetime
 import uuid
 from .auth import User, get_current_user
 from .schemas import FeedbackRequest, FeedbackResponse
+from .org_middleware import require_org_context
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -22,6 +23,7 @@ async def get_db_connection():
 
 @router.post("/feedback", response_model=FeedbackResponse)
 async def submit_feedback(
+    request: Request,
     body: FeedbackRequest,
     user: User = Depends(get_current_user)
 ):
@@ -31,6 +33,7 @@ async def submit_feedback(
     - Users can only submit one feedback per message (enforced by UNIQUE constraint)
     - Returns ok=true on success, ok=false if duplicate feedback
     """
+    org_id = require_org_context(request)
     conn = await get_db_connection()
     try:
         # First, verify the message exists and belongs to a ticket the user has access to
@@ -38,8 +41,8 @@ async def submit_feedback(
             SELECT m.id, m.ticket_id, t.created_by, t.id as ticket_exists
             FROM app.messages m
             JOIN app.tickets t ON m.ticket_id = t.id
-            WHERE m.id = $1
-        """, uuid.UUID(body.message_id))
+            WHERE m.id = $1 AND m.organization_id = $2 AND t.organization_id = $2
+        """, uuid.UUID(body.message_id), uuid.UUID(org_id))
         
         if not message_check:
             raise HTTPException(
@@ -57,8 +60,8 @@ async def submit_feedback(
         if user_role in ("rep", "admin"):
             assigned_check = await conn.fetchval("""
                 SELECT 1 FROM app.tickets 
-                WHERE id = $1 AND assignee_id = $2
-            """, message_check['ticket_id'], uuid.UUID(user.id))
+                WHERE id = $1 AND assignee_id = $2 AND organization_id = $3
+            """, message_check['ticket_id'], uuid.UUID(user.id), uuid.UUID(org_id))
             is_assigned = assigned_check is not None
         
         if not (is_admin or is_creator or is_assigned):
@@ -71,9 +74,9 @@ async def submit_feedback(
         try:
             await conn.execute("""
                 INSERT INTO app.ai_feedback (
-                    id, ticket_id, message_id, user_id, feedback_type, created_at
+                    id, ticket_id, message_id, user_id, feedback_type, organization_id, created_at
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6
+                    $1, $2, $3, $4, $5, $6, $7
                 )
             """,
                 uuid.uuid4(),
@@ -81,6 +84,7 @@ async def submit_feedback(
                 uuid.UUID(body.message_id),
                 uuid.UUID(user.id),
                 body.feedback_type,
+                uuid.UUID(org_id),
                 datetime.utcnow()
             )
             

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from typing import Optional
 import asyncpg
 import os
@@ -9,6 +9,7 @@ from .schemas import (
     EscalateRequest, StatusChangeRequest, AssignRequest, 
     AckAttentionRequest, PriorityRequest
 )
+from .org_middleware import require_org_context
 
 router = APIRouter(prefix="/api/rep", tags=["rep"])
 
@@ -26,6 +27,7 @@ async def get_db_connection():
 
 @router.get("/queue", response_model=QueueResponse)
 async def queue(
+    request: Request,
     lane: str = Query("needs_attention", pattern="^(needs_attention|open|escalated|all)$"),
     q: Optional[str] = Query(None, max_length=100),
     mine: Optional[bool] = Query(False),
@@ -34,13 +36,14 @@ async def queue(
     user: User = Depends(get_current_user)
 ):
     """Get tickets queue based on lane with optional filters"""
+    org_id = require_org_context(request)
     require_rep(user)
     
     conn = await get_db_connection()
     try:
         # Build WHERE clause based on lane
-        where_conditions = []
-        params = []
+        where_conditions = ["organization_id = $1"]
+        params = [org_id]
         
         if lane == "needs_attention":
             where_conditions.append("needs_attention = true AND status != 'closed'")
@@ -112,27 +115,32 @@ async def queue(
         await conn.close()
 
 @router.get("/counts", response_model=QueueCounts)
-async def counts(user: User = Depends(get_current_user)):
+async def counts(request: Request, user: User = Depends(get_current_user)):
     """Get counts for all queue lanes"""
+    org_id = require_org_context(request)
     require_rep(user)
     
     conn = await get_db_connection()
     try:
         # Get counts for each lane
         needs_attention_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM app.tickets WHERE needs_attention = true AND status != 'closed'"
+            "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1 AND needs_attention = true AND status != 'closed'",
+            org_id
         )
         
         open_active_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM app.tickets WHERE status IN ('open', 'in_progress', 'resolved') AND needs_attention = false"
+            "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1 AND status IN ('open', 'in_progress', 'resolved') AND needs_attention = false",
+            org_id
         )
         
         escalated_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM app.tickets WHERE status = 'escalated'"
+            "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1 AND status = 'escalated'",
+            org_id
         )
         
         all_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM app.tickets"
+            "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1",
+            org_id
         )
         
         return QueueCounts(
@@ -147,20 +155,24 @@ async def counts(user: User = Depends(get_current_user)):
 
 @router.post("/tickets/{ticket_id}/escalate", status_code=status.HTTP_200_OK)
 async def escalate(
-    ticket_id: str, 
-    body: EscalateRequest, 
+    ticket_id: str,
+    body: EscalateRequest,
+    request: Request,
     user: User = Depends(get_current_user)
 ):
     """
     Escalate a ticket to escalated status.
     Accessible by: Rep/Admin OR the ticket creator (customer self-escalation).
     """
+    org_id = require_org_context(request)
+    
     conn = await get_db_connection()
     try:
         async with conn.transaction():
             # Check if ticket exists and get creator
             ticket = await conn.fetchrow(
-                "SELECT id, status, created_by FROM app.tickets WHERE id = $1", ticket_id
+                "SELECT id, status, created_by FROM app.tickets WHERE id = $1 AND organization_id = $2", 
+                ticket_id, org_id
             )
             
             if not ticket:
@@ -202,10 +214,10 @@ async def escalate(
             
             await conn.execute(
                 """
-                INSERT INTO app.messages (ticket_id, sender_id, sender_role, body, created_at)
-                VALUES ($1, $2, 'system', $3, NOW())
+                INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
+                VALUES ($1, $2, 'system', $3, $4, NOW())
                 """,
-                ticket_id, user.id, message_body
+                ticket_id, user.id, org_id, message_body
             )
             
             # Update message count
@@ -221,11 +233,13 @@ async def escalate(
 
 @router.post("/tickets/{ticket_id}/status", status_code=status.HTTP_200_OK)
 async def set_status(
-    ticket_id: str, 
-    body: StatusChangeRequest, 
+    ticket_id: str,
+    body: StatusChangeRequest,
+    request: Request,
     user: User = Depends(get_current_user)
 ):
     """Change ticket status with transition validation"""
+    org_id = require_org_context(request)
     require_rep(user)
     
     conn = await get_db_connection()
@@ -233,7 +247,8 @@ async def set_status(
         async with conn.transaction():
             # Check if ticket exists
             ticket = await conn.fetchrow(
-                "SELECT id, status FROM app.tickets WHERE id = $1", ticket_id
+                "SELECT id, status FROM app.tickets WHERE id = $1 AND organization_id = $2", 
+                ticket_id, org_id
             )
             
             if not ticket:
@@ -269,10 +284,10 @@ async def set_status(
             
             await conn.execute(
                 """
-                INSERT INTO app.messages (ticket_id, sender_id, sender_role, body, created_at)
-                VALUES ($1, $2, 'system', $3, NOW())
+                INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
+                VALUES ($1, $2, 'system', $3, $4, NOW())
                 """,
-                ticket_id, user.id, message_body
+                ticket_id, user.id, org_id, message_body
             )
             
             # Update message count
@@ -288,11 +303,13 @@ async def set_status(
 
 @router.post("/tickets/{ticket_id}/assign", status_code=status.HTTP_200_OK)
 async def assign(
-    ticket_id: str, 
-    body: AssignRequest, 
+    ticket_id: str,
+    body: AssignRequest,
+    request: Request,
     user: User = Depends(get_current_user)
 ):
     """Assign ticket to a rep"""
+    org_id = require_org_context(request)
     require_rep(user)
     
     conn = await get_db_connection()
@@ -300,7 +317,8 @@ async def assign(
         async with conn.transaction():
             # Check if ticket exists
             ticket = await conn.fetchrow(
-                "SELECT id FROM app.tickets WHERE id = $1", ticket_id
+                "SELECT id FROM app.tickets WHERE id = $1 AND organization_id = $2", 
+                ticket_id, org_id
             )
             
             if not ticket:
@@ -325,10 +343,10 @@ async def assign(
             
             await conn.execute(
                 """
-                INSERT INTO app.messages (ticket_id, sender_id, sender_role, body, created_at)
-                VALUES ($1, $2, 'system', $3, NOW())
+                INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
+                VALUES ($1, $2, 'system', $3, $4, NOW())
                 """,
-                ticket_id, user.id, message_body
+                ticket_id, user.id, org_id, message_body
             )
             
             # Update message count
@@ -344,11 +362,13 @@ async def assign(
 
 @router.post("/tickets/{ticket_id}/acknowledge", status_code=status.HTTP_200_OK)
 async def acknowledge_attention(
-    ticket_id: str, 
-    body: AckAttentionRequest, 
+    ticket_id: str,
+    body: AckAttentionRequest,
+    request: Request,
     user: User = Depends(get_current_user)
 ):
     """Acknowledge attention flag on ticket"""
+    org_id = require_org_context(request)
     require_rep(user)
     
     conn = await get_db_connection()
@@ -356,7 +376,8 @@ async def acknowledge_attention(
         async with conn.transaction():
             # Check if ticket exists and needs attention
             ticket = await conn.fetchrow(
-                "SELECT id, needs_attention FROM app.tickets WHERE id = $1", ticket_id
+                "SELECT id, needs_attention FROM app.tickets WHERE id = $1 AND organization_id = $2", 
+                ticket_id, org_id
             )
             
             if not ticket:
@@ -380,10 +401,10 @@ async def acknowledge_attention(
                 
                 await conn.execute(
                     """
-                    INSERT INTO app.messages (ticket_id, sender_id, sender_role, body, created_at)
-                    VALUES ($1, $2, 'system', $3, NOW())
+                    INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
+                    VALUES ($1, $2, 'system', $3, $4, NOW())
                     """,
-                    ticket_id, user.id, message_body
+                    ticket_id, user.id, org_id, message_body
                 )
                 
                 # Update message count
@@ -399,11 +420,13 @@ async def acknowledge_attention(
 
 @router.post("/tickets/{ticket_id}/priority", status_code=status.HTTP_200_OK)
 async def set_priority(
-    ticket_id: str, 
-    body: PriorityRequest, 
+    ticket_id: str,
+    body: PriorityRequest,
+    request: Request,
     user: User = Depends(get_current_user)
 ):
     """Set ticket priority"""
+    org_id = require_org_context(request)
     require_rep(user)
     
     conn = await get_db_connection()
@@ -411,7 +434,8 @@ async def set_priority(
         async with conn.transaction():
             # Check if ticket exists
             ticket = await conn.fetchrow(
-                "SELECT id FROM app.tickets WHERE id = $1", ticket_id
+                "SELECT id FROM app.tickets WHERE id = $1 AND organization_id = $2", 
+                ticket_id, org_id
             )
             
             if not ticket:
@@ -432,10 +456,10 @@ async def set_priority(
             
             await conn.execute(
                 """
-                INSERT INTO app.messages (ticket_id, sender_id, sender_role, body, created_at)
-                VALUES ($1, $2, 'system', $3, NOW())
+                INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
+                VALUES ($1, $2, 'system', $3, $4, NOW())
                 """,
-                ticket_id, user.id, message_body
+                ticket_id, user.id, org_id, message_body
             )
             
             # Update message count

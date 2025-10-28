@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from typing import Optional, List
 from datetime import datetime
 import os
@@ -15,6 +15,7 @@ from .schemas import (
 )
 from .auth import User, get_current_user
 from .observability import get_observer, log_rag_metrics
+from .org_middleware import require_org_context
 
 router = APIRouter(prefix="/api", tags=["tickets"])
 
@@ -40,8 +41,9 @@ def is_rep(user: User) -> bool:
     return actual_role in ("rep", "admin")
 
 @router.post("/tickets", response_model=TicketDetail, status_code=status.HTTP_201_CREATED)
-def create_ticket(payload: TicketCreate, user: User = Depends(get_current_user)):
+def create_ticket(payload: TicketCreate, request: Request, user: User = Depends(get_current_user)):
     """Create a new ticket with initial message."""
+    org_id = require_org_context(request)
     user_role = get_user_role(user.id)
     
     # Map admin to rep for messages (DB constraint only allows: customer, rep, ai, system)
@@ -52,21 +54,21 @@ def create_ticket(payload: TicketCreate, user: User = Depends(get_current_user))
         
         # 1) Insert ticket
         cursor.execute("""
-            INSERT INTO app.tickets (created_by, title, description, status, message_count)
-            VALUES (%s, %s, %s, 'open', 0)
-            RETURNING id, created_by, assignee_id, title, description, status, 
+            INSERT INTO app.tickets (created_by, organization_id, title, description, status, message_count)
+            VALUES (%s, %s, %s, %s, 'open', 0)
+            RETURNING id, created_by, organization_id, assignee_id, title, description, status, 
                       message_count, last_message_at, created_at, updated_at
-        """, (user.id, payload.title, payload.description))
+        """, (user.id, org_id, payload.title, payload.description))
         
         ticket_row = cursor.fetchone()
         ticket_id = ticket_row["id"]
         
         # 2) Insert initial message
         cursor.execute("""
-            INSERT INTO app.messages (ticket_id, sender_id, sender_role, body)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING id, ticket_id, sender_id, sender_role, body, created_at
-        """, (ticket_id, user.id, message_sender_role, payload.description))
+        """, (ticket_id, user.id, message_sender_role, org_id, payload.description))
         
         message_row = cursor.fetchone()
         
@@ -97,6 +99,7 @@ def create_ticket(payload: TicketCreate, user: User = Depends(get_current_user))
 
 @router.get("/tickets", response_model=TicketListResponse)
 def list_tickets(
+    request: Request,
     status_filter: str = Query("open", pattern="^(open|closed|all)$"),
     q: Optional[str] = Query(None, max_length=100),
     mine: Optional[bool] = Query(None),
@@ -105,14 +108,15 @@ def list_tickets(
     user: User = Depends(get_current_user),
 ):
     """List tickets with filters and pagination."""
+    org_id = require_org_context(request)
     user_is_rep = is_rep(user)
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
         # Build WHERE conditions
-        where_conditions = []
-        params = []
+        where_conditions = ["organization_id = %s"]
+        params = [org_id]
         
         # Access control
         if not user_is_rep:
@@ -134,7 +138,7 @@ def list_tickets(
             where_conditions.append("title ILIKE %s")
             params.append(f"%{q}%")
         
-        where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        where_clause = "WHERE " + " AND ".join(where_conditions)
         
         # Get total count
         count_query = f"SELECT COUNT(*) as total FROM app.tickets {where_clause}"
@@ -172,8 +176,9 @@ def list_tickets(
         )
 
 @router.get("/tickets/{ticket_id}", response_model=TicketWithMessages)
-def get_ticket(ticket_id: str, user: User = Depends(get_current_user)):
+def get_ticket(ticket_id: str, request: Request, user: User = Depends(get_current_user)):
     """Get ticket details with messages."""
+    org_id = require_org_context(request)
     user_is_rep = is_rep(user)
     
     with get_db_connection() as conn:
@@ -181,10 +186,10 @@ def get_ticket(ticket_id: str, user: User = Depends(get_current_user)):
         
         # Get ticket
         cursor.execute("""
-            SELECT id, created_by, assignee_id, title, description, status, 
+            SELECT id, created_by, organization_id, assignee_id, title, description, status, 
                    message_count, last_message_at, created_at, updated_at
-            FROM app.tickets WHERE id = %s
-        """, (ticket_id,))
+            FROM app.tickets WHERE id = %s AND organization_id = %s
+        """, (ticket_id, org_id))
         
         ticket_row = cursor.fetchone()
         if not ticket_row:
@@ -198,9 +203,9 @@ def get_ticket(ticket_id: str, user: User = Depends(get_current_user)):
         cursor.execute("""
             SELECT id, ticket_id, sender_id, sender_role, body, created_at
             FROM app.messages 
-            WHERE ticket_id = %s
+            WHERE ticket_id = %s AND organization_id = %s
             ORDER BY created_at ASC
-        """, (ticket_id,))
+        """, (ticket_id, org_id))
         
         message_rows = cursor.fetchall()
         
@@ -232,12 +237,14 @@ def get_ticket(ticket_id: str, user: User = Depends(get_current_user)):
 
 @router.get("/tickets/{ticket_id}/messages", response_model=List[MessageOut])
 def get_messages(
-    ticket_id: str, 
+    ticket_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     limit: int = Query(10, ge=1, le=100),
     order: str = Query("asc", regex="^(asc|desc)$")
 ):
     """Get messages for a ticket."""
+    org_id = require_org_context(request)
     user_is_rep = is_rep(user)
     
     with get_db_connection() as conn:
@@ -245,8 +252,8 @@ def get_messages(
         
         # Check ticket exists and access
         cursor.execute("""
-            SELECT created_by FROM app.tickets WHERE id = %s
-        """, (ticket_id,))
+            SELECT created_by FROM app.tickets WHERE id = %s AND organization_id = %s
+        """, (ticket_id, org_id))
         
         ticket_row = cursor.fetchone()
         if not ticket_row:
@@ -261,10 +268,10 @@ def get_messages(
         cursor.execute(f"""
             SELECT id, ticket_id, sender_id, sender_role, body, created_at
             FROM app.messages 
-            WHERE ticket_id = %s
+            WHERE ticket_id = %s AND organization_id = %s
             ORDER BY created_at {order_clause}
             LIMIT %s
-        """, (ticket_id, limit))
+        """, (ticket_id, org_id, limit))
         
         message_rows = cursor.fetchall()
         
@@ -283,8 +290,9 @@ def get_messages(
         return messages
 
 @router.post("/tickets/{ticket_id}/messages", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
-def post_message(ticket_id: str, payload: MessageCreate, user: User = Depends(get_current_user)):
+def post_message(ticket_id: str, payload: MessageCreate, request: Request, user: User = Depends(get_current_user)):
     """Add a message to a ticket."""
+    org_id = require_org_context(request)
     user_is_rep = is_rep(user)
     user_role = get_user_role(user.id)
     
@@ -297,8 +305,8 @@ def post_message(ticket_id: str, payload: MessageCreate, user: User = Depends(ge
         # Check ticket exists and access
         cursor.execute("""
             SELECT id, created_by, message_count
-            FROM app.tickets WHERE id = %s
-        """, (ticket_id,))
+            FROM app.tickets WHERE id = %s AND organization_id = %s
+        """, (ticket_id, org_id))
         
         ticket_row = cursor.fetchone()
         if not ticket_row:
@@ -310,10 +318,10 @@ def post_message(ticket_id: str, payload: MessageCreate, user: User = Depends(ge
         
         # Insert message
         cursor.execute("""
-            INSERT INTO app.messages (ticket_id, sender_id, sender_role, body)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING id, ticket_id, sender_id, sender_role, body, created_at
-        """, (ticket_id, user.id, message_sender_role, payload.body))
+        """, (ticket_id, user.id, message_sender_role, org_id, payload.body))
         
         message_row = cursor.fetchone()
         
@@ -345,7 +353,7 @@ CHAT_COOLDOWN_SECONDS = int(os.getenv("CHAT_COOLDOWN_SECONDS", "8"))
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.55"))
 CONFIDENCE_MIN_CHUNKS = int(os.getenv("CONFIDENCE_MIN_CHUNKS", "2"))
 
-def fetch_chunks_by_faiss_ids(faiss_ids: List[int]) -> List[dict]:
+def fetch_chunks_by_faiss_ids(faiss_ids: List[int], org_id: str) -> List[dict]:
     """Fetch chunk details from database by FAISS IDs."""
     if not faiss_ids:
         return []
@@ -356,18 +364,20 @@ def fetch_chunks_by_faiss_ids(faiss_ids: List[int]) -> List[dict]:
             SELECT c.id as chunk_id, c.doc_id, c.text, c.faiss_id, d.title
             FROM app.chunks c
             JOIN app.documents d ON d.id = c.doc_id
-            WHERE c.faiss_id = ANY(%s)
+            WHERE c.faiss_id = ANY(%s) AND c.organization_id = %s
             ORDER BY c.faiss_id
-        """, (faiss_ids,))
+        """, (faiss_ids, org_id))
         return cursor.fetchall()
 
 @router.post("/tickets/{ticket_id}/chat", response_model=ChatResponse)
 def chat_with_ai(
     ticket_id: str,
     payload: ChatRequest,
+    request: Request,
     user: User = Depends(get_current_user)
 ):
     """Generate AI response for a ticket using enhanced RAG with comprehensive observability."""
+    org_id = require_org_context(request)
     
     # Start observability tracking
     observer = get_observer()
@@ -384,10 +394,10 @@ def chat_with_ai(
         
         # Check ticket access (same rules as viewing ticket)
         if is_rep(user):
-            cursor.execute("SELECT id FROM app.tickets WHERE id = %s", (ticket_id,))
+            cursor.execute("SELECT id FROM app.tickets WHERE id = %s AND organization_id = %s", (ticket_id, org_id))
         else:
-            cursor.execute("SELECT id FROM app.tickets WHERE id = %s AND created_by = %s", 
-                         (ticket_id, user.id))
+            cursor.execute("SELECT id FROM app.tickets WHERE id = %s AND created_by = %s AND organization_id = %s", 
+                         (ticket_id, user.id, org_id))
         
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="Ticket not found")
@@ -405,7 +415,7 @@ def chat_with_ai(
     
     # 4) Retrieve relevant chunks using enhanced RAG with metrics
     retrieval_start = time.time()
-    retrieval_result = retrieve(clean_query, fetch_chunks_by_faiss_ids)
+    retrieval_result = retrieve(clean_query, lambda faiss_ids: fetch_chunks_by_faiss_ids(faiss_ids, org_id))
     retrieval_latency = int((time.time() - retrieval_start) * 1000)
     
     # Handle new enhanced return format
@@ -451,12 +461,13 @@ def chat_with_ai(
             }
             
             cursor.execute("""
-                INSERT INTO app.messages (ticket_id, sender_id, sender_role, body, meta)
-                VALUES (%s, %s, 'ai', %s, %s)
+                INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, meta)
+                VALUES (%s, %s, 'ai', %s, %s, %s)
                 RETURNING id, created_at
             """, (
                 ticket_id, 
-                user.id, 
+                user.id,
+                org_id,
                 no_context_response,
                 json.dumps({
                     "citations": [],
@@ -481,22 +492,23 @@ def chat_with_ai(
             """, (message_row["created_at"], datetime.utcnow(), ticket_id))
             
             # Auto-flag ticket for no context case
-            cursor.execute("SELECT status FROM app.tickets WHERE id = %s", (ticket_id,))
+            cursor.execute("SELECT status FROM app.tickets WHERE id = %s AND organization_id = %s", (ticket_id, org_id))
             ticket_status = cursor.fetchone()
             
             if ticket_status and ticket_status["status"] != 'closed':
                 cursor.execute("""
                     UPDATE app.tickets 
                     SET needs_attention = true 
-                    WHERE id = %s
-                """, (ticket_id,))
+                    WHERE id = %s AND organization_id = %s
+                """, (ticket_id, org_id))
                 
                 cursor.execute("""
-                    INSERT INTO app.messages (ticket_id, sender_id, sender_role, body)
-                    VALUES (%s, %s, 'system', %s)
+                    INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body)
+                    VALUES (%s, %s, 'system', %s, %s)
                 """, (
                     ticket_id, 
-                    user.id, 
+                    user.id,
+                    org_id,
                     "[system] AI escalation: No relevant knowledge base content (confidence 0.00)"
                 ))
                 
@@ -617,10 +629,10 @@ def chat_with_ai(
         }
         
         cursor.execute("""
-            INSERT INTO app.messages (ticket_id, sender_id, sender_role, body, meta)
-            VALUES (%s, %s, 'ai', %s, %s)
+            INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, meta)
+            VALUES (%s, %s, 'ai', %s, %s, %s)
             RETURNING id, created_at
-        """, (ticket_id, user.id, ai_response, json.dumps(message_meta)))
+        """, (ticket_id, user.id, org_id, ai_response, json.dumps(message_meta)))
         
         message_row = cursor.fetchone()
         message_id = str(message_row["id"])
@@ -637,7 +649,7 @@ def chat_with_ai(
         # Enhanced escalation handling with detailed reasoning
         if should_escalate_flag:
             # Check if ticket is not closed before flagging
-            cursor.execute("SELECT status FROM app.tickets WHERE id = %s", (ticket_id,))
+            cursor.execute("SELECT status FROM app.tickets WHERE id = %s AND organization_id = %s", (ticket_id, org_id))
             ticket_status = cursor.fetchone()
             
             if ticket_status and ticket_status["status"] != 'closed':
@@ -645,17 +657,18 @@ def chat_with_ai(
                 cursor.execute("""
                     UPDATE app.tickets 
                     SET needs_attention = true 
-                    WHERE id = %s
-                """, (ticket_id,))
+                    WHERE id = %s AND organization_id = %s
+                """, (ticket_id, org_id))
                 
                 # Enhanced system message with escalation details
                 escalation_reason = escalation_details.get("reasoning", "AI suggested escalation")
                 cursor.execute("""
-                    INSERT INTO app.messages (ticket_id, sender_id, sender_role, body)
-                    VALUES (%s, %s, 'system', %s)
+                    INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body)
+                    VALUES (%s, %s, 'system', %s, %s)
                 """, (
                     ticket_id, 
-                    user.id, 
+                    user.id,
+                    org_id,
                     f"[system] {escalation_reason} (confidence {confidence:.2f})"
                 ))
                 

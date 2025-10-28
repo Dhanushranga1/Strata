@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { apiGet, apiPost } from "@/lib/api";
+import { useOrganization } from "@/contexts/OrganizationContext";
+import api from "@/lib/api-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,11 @@ interface DocumentItem {
 
 export default function KnowledgeBasePage() {
   const router = useRouter();
+  
+  // Organization context
+  const { currentOrganization, isReady } = useOrganization();
+  const orgId = currentOrganization?.id;
+  
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<KBStats | null>(null);
@@ -77,8 +83,13 @@ export default function KnowledgeBasePage() {
   const [documentsFilter, setDocumentsFilter] = useState("");
 
   useEffect(() => {
+    if (!isReady || !orgId) {
+      setLoading(true);
+      return;
+    }
+
     const checkAuth = async () => {
-      console.log('📚 KB: Starting authentication check...');
+      console.log('📚 KB: Starting authentication check for org:', orgId);
       try {
         // Use Supabase session for authentication
         const { data: sessionData } = await supabase.auth.getSession();
@@ -92,8 +103,8 @@ export default function KnowledgeBasePage() {
           return;
         }
 
-        // Get user info
-        const userInfo = await apiGet('/api/me');
+        // Get user info (doesn't need org context)
+        const userInfo = await api.get('/api/me');
         console.log('👤 KB: User info received:', userInfo);
         setUser(userInfo);
 
@@ -110,12 +121,14 @@ export default function KnowledgeBasePage() {
     };
 
     checkAuth();
-  }, [router]);
+  }, [router, isReady, orgId]);
 
   const loadStats = async () => {
+    if (!orgId) return;
+    
     try {
-      console.log('📊 KB: Loading stats...');
-      const statsData = await apiGet<KBStats>('/api/kb/stats');
+      console.log('📊 KB: Loading stats for org:', orgId);
+      const statsData = await api.get<KBStats>('/api/kb/stats', orgId);
       console.log('✅ KB: Stats loaded:', statsData);
       setStats(statsData);
     } catch (error) {
@@ -124,10 +137,12 @@ export default function KnowledgeBasePage() {
   };
 
   const loadDocuments = async () => {
-    console.log('📄 KB: Loading documents list...');
+    if (!orgId) return;
+    
+    console.log('📄 KB: Loading documents list for org:', orgId);
     setDocumentsLoading(true);
     try {
-      const docs = await apiGet<DocumentItem[]>('/api/kb/documents');
+      const docs = await api.get<DocumentItem[]>('/api/kb/documents', orgId);
       console.log('✅ KB: Documents loaded:', docs.length, 'documents');
       setDocuments(docs);
     } catch (error) {
@@ -139,12 +154,12 @@ export default function KnowledgeBasePage() {
   };
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim() || !orgId) return;
     
     setSearchLoading(true);
     try {
-      console.log('🔍 KB: Searching for:', searchQuery);
-      const results = await apiGet<SearchResult[]>(`/api/kb/search?q=${encodeURIComponent(searchQuery)}&k=5`);
+      console.log('🔍 KB: Searching for:', searchQuery, 'in org:', orgId);
+      const results = await api.get<SearchResult[]>(`/api/kb/search?q=${encodeURIComponent(searchQuery)}&k=5`, orgId);
       console.log('✅ KB: Search results:', results);
       setSearchResults(results);
     } catch (error) {
@@ -161,11 +176,16 @@ export default function KnowledgeBasePage() {
       return;
     }
 
+    if (!orgId) {
+      setUploadMessage({type: 'error', message: 'Organization context not loaded. Please refresh the page.'});
+      return;
+    }
+
     setUploadLoading(true);
     setUploadMessage(null);
 
     try {
-      console.log('📤 KB: Starting upload...');
+      console.log('📤 KB: Starting upload for org:', orgId);
       
       const formData = new FormData();
       if (selectedFile) {
@@ -178,7 +198,7 @@ export default function KnowledgeBasePage() {
         formData.append('filename', filename);
       }
 
-      // Use fetch directly for file upload since apiPost expects JSON
+      // Use fetch directly for file upload since it needs FormData
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
       
@@ -186,6 +206,7 @@ export default function KnowledgeBasePage() {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'X-Organization-ID': orgId, // Add org context
         },
         body: formData,
       });

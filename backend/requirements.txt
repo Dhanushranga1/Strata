@@ -10,3 +10,5 @@ python-docx==1.1.2
 psycopg[binary]==3.2.10
 asyncpg==0.29.0
 supabase==2.7.4
+bleach==6.1.0
+slowapi==0.1.9

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Request
 from pydantic import BaseModel
 from typing import Optional, List
 import os
@@ -9,6 +9,7 @@ from .chunker import make_chunks
 from .embeddings import embed_texts
 from .store import add_vectors_for_chunks, search_vectors
 from .auth import User, get_current_user
+from .org_middleware import require_org_context
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
 
@@ -38,11 +39,13 @@ class IngestResponse(BaseModel):
 
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(
+    request: Request,
     user: User = Depends(get_current_user),
     file: UploadFile = File(None),
     raw_text: Optional[str] = Form(None),
     filename: Optional[str] = Form(None),
 ):
+    org_id = require_org_context(request)
     require_rep(user)
 
     if not file and not raw_text:
@@ -75,10 +78,10 @@ async def ingest(
     # 2) Database operations
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            # Check for duplicate document
+            # Check for duplicate document in this organization
             cur.execute(
-                "SELECT id FROM app.documents WHERE doc_hash = %s", 
-                (doc_hash,)
+                "SELECT id FROM app.documents WHERE doc_hash = %s AND organization_id = %s", 
+                (doc_hash, org_id)
             )
             existing = cur.fetchone()
             if existing:
@@ -86,10 +89,10 @@ async def ingest(
 
             # Create document record
             cur.execute("""
-                INSERT INTO app.documents (title, source, mime_type, size_bytes, doc_hash, created_by)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO app.documents (title, source, mime_type, size_bytes, doc_hash, created_by, organization_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (title, source, detected_mime, size_bytes, doc_hash, user.id))
+            """, (title, source, detected_mime, size_bytes, doc_hash, user.id, org_id))
             
             document_record = cur.fetchone()
             document_id = str(document_record['id'])
@@ -109,10 +112,10 @@ async def ingest(
                 # Insert chunk (will skip if duplicate hash within doc due to unique constraint)
                 try:
                     cur.execute("""
-                        INSERT INTO app.chunks (doc_id, chunk_index, text, chunk_hash, token_count)
-                        VALUES (%s, %s, %s, %s, %s)
+                        INSERT INTO app.chunks (doc_id, chunk_index, text, chunk_hash, token_count, organization_id)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         RETURNING id
-                    """, (document_record['id'], i, chunk_text, chunk_hash, len(chunk_text.split())))
+                    """, (document_record['id'], i, chunk_text, chunk_hash, len(chunk_text.split()), org_id))
                     
                     chunk_record = cur.fetchone()
                     chunk_id = str(chunk_record['id'])
@@ -161,8 +164,9 @@ class DocumentItem(BaseModel):
 
 
 @router.get("/documents", response_model=List[DocumentItem])
-async def list_documents(user: User = Depends(get_current_user)):
+async def list_documents(request: Request, user: User = Depends(get_current_user)):
     """Get list of knowledge base documents (rep/admin only)."""
+    org_id = require_org_context(request)
     require_rep(user)
     
     with get_db_connection() as conn:
@@ -176,10 +180,11 @@ async def list_documents(user: User = Depends(get_current_user)):
                     COUNT(c.id) as chunk_count
                 FROM app.documents d
                 LEFT JOIN app.chunks c ON d.id = c.doc_id
+                WHERE d.organization_id = %s
                 GROUP BY d.id, d.title, d.mime_type, d.created_at
                 ORDER BY d.created_at DESC
             """
-            cur.execute(query)
+            cur.execute(query, (org_id,))
             rows = cur.fetchall()
             
             return [
@@ -195,15 +200,17 @@ async def list_documents(user: User = Depends(get_current_user)):
 
 
 @router.get("/stats", response_model=KBStats)
-async def stats(user: User = Depends(get_current_user)):
+async def stats(request: Request, user: User = Depends(get_current_user)):
     """Get knowledge base statistics."""
+    org_id = require_org_context(request)
+    
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS count FROM app.documents")
+            cur.execute("SELECT COUNT(*) AS count FROM app.documents WHERE organization_id = %s", (org_id,))
             row = cur.fetchone()
             doc_count = (row["count"] if isinstance(row, dict) else row[0]) if row else 0
             
-            cur.execute("SELECT COUNT(*) AS count FROM app.chunks")
+            cur.execute("SELECT COUNT(*) AS count FROM app.chunks WHERE organization_id = %s", (org_id,))
             row = cur.fetchone()
             chunk_count = (row["count"] if isinstance(row, dict) else row[0]) if row else 0
         
@@ -219,8 +226,10 @@ class SearchResult(BaseModel):
 
 
 @router.get("/search", response_model=List[SearchResult])
-async def search(q: str, k: int = 3, user: User = Depends(get_current_user)):
+async def search(q: str, k: int = 3, request: Request = None, user: User = Depends(get_current_user)):
     """Search knowledge base for similar content."""
+    org_id = require_org_context(request)
+    
     # Generate query embedding
     query_vector = embed_texts([q])[0]
     
@@ -232,13 +241,13 @@ async def search(q: str, k: int = 3, user: User = Depends(get_current_user)):
         results = []
         with conn.cursor() as cur:
             for score, faiss_id in zip(scores, faiss_ids):
-                # Find chunk by FAISS ID
+                # Find chunk by FAISS ID in this organization
                 cur.execute("""
                     SELECT c.id as chunk_id, c.doc_id, c.text, d.id as document_id
                     FROM app.chunks c
                     JOIN app.documents d ON c.doc_id = d.id
-                    WHERE c.faiss_id = %s
-                """, (faiss_id,))
+                    WHERE c.faiss_id = %s AND c.organization_id = %s
+                """, (faiss_id, org_id))
                 
                 chunk_record = cur.fetchone()
                 

@@ -7,9 +7,11 @@ import { Plus, Search, Filter, Download, AlertCircle, Eye, Edit } from 'lucide-r
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { DataTable } from '@/components/ui/DataTable'
+import { MobileTicketCard } from '@/components/ui/mobile-ticket-card'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { TicketListSkeleton } from '@/components/skeletons/TicketListSkeleton'
 import {
   Dialog,
   DialogContent,
@@ -29,7 +31,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { StatusBadge } from '@/components/StatusBadge'
-import { apiGet, apiPost } from '@/lib/api'
+import { useOrganization } from '@/contexts/OrganizationContext'
+import api from '@/lib/api-client'
 
 // Types from backend schemas
 interface TicketSummary {
@@ -187,6 +190,10 @@ export default function TicketsPage() {
   const router = useRouter()
   const filterParam = searchParams.get('filter')
   
+  // Organization context
+  const { currentOrganization, isReady, switchingOrg } = useOrganization()
+  const orgId = currentOrganization?.id
+  
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState(filterParam || 'all')
   const [newTicketOpen, setNewTicketOpen] = useState(false)
@@ -199,12 +206,22 @@ export default function TicketsPage() {
     description: '',
     priority: 'medium'
   })
+  const [validationErrors, setValidationErrors] = useState({
+    title: '',
+    description: ''
+  })
 
   // Load tickets from API
   useEffect(() => {
+    // Wait for org context to be ready
+    if (!isReady || !orgId) {
+      setLoading(true)
+      return
+    }
+
     const loadTickets = async () => {
       try {
-        console.log('🎫 Tickets: Loading tickets from API...');
+        console.log('🎫 Tickets: Loading tickets from API for org:', orgId);
         setLoading(true);
         
         const params = new URLSearchParams();
@@ -215,7 +232,7 @@ export default function TicketsPage() {
           params.append('q', searchTerm);
         }
         
-        const response = await apiGet<TicketListResponse>(`/api/tickets?${params.toString()}`);
+        const response = await api.get<TicketListResponse>(`/api/tickets?${params.toString()}`, orgId);
         console.log('✅ Tickets: Loaded tickets:', response);
         setTickets(response.items || []);
         setError(null);
@@ -229,29 +246,62 @@ export default function TicketsPage() {
     };
 
     loadTickets();
-  }, [statusFilter, searchTerm]);
+  }, [statusFilter, searchTerm, isReady, orgId]);
 
   // Create ticket function
   const createTicket = async () => {
-    if (!newTicket.title.trim() || !newTicket.description.trim()) {
-      toast.error('Please fill in both title and description');
-      return;
+    // Reset validation errors
+    setValidationErrors({ title: '', description: '' })
+
+    // Validate title
+    const errors: { title: string; description: string } = { title: '', description: '' }
+    
+    if (!newTicket.title.trim()) {
+      errors.title = 'Title is required'
+    } else if (newTicket.title.trim().length < 5) {
+      errors.title = 'Title must be at least 5 characters'
+    } else if (newTicket.title.trim().length > 200) {
+      errors.title = 'Title must be less than 200 characters'
+    }
+
+    // Validate description
+    if (!newTicket.description.trim()) {
+      errors.description = 'Description is required'
+    } else if (newTicket.description.trim().length < 20) {
+      errors.description = 'Please provide more detail (at least 20 characters)'
+    }
+
+    // If there are validation errors, show them
+    if (errors.title || errors.description) {
+      setValidationErrors(errors)
+      if (errors.title) {
+        toast.error(errors.title)
+      } else if (errors.description) {
+        toast.error(errors.description)
+      }
+      return
+    }
+
+    if (!orgId) {
+      toast.error('Organization context not loaded. Please refresh the page.')
+      return
     }
 
     try {
       setCreating(true);
-      const response = await apiPost<{ id: string }>('/api/tickets', {
+      const response = await api.post<{ id: string }>('/api/tickets', {
         title: newTicket.title,
         description: newTicket.description,
-      });
+      }, orgId);
       
       // Show success toast
       toast.success('✅ Ticket created! Our AI is analyzing your question...', {
         duration: 4000,
       });
       
-      // Reset form
+      // Reset form and validation
       setNewTicket({ title: '', description: '', priority: 'medium' });
+      setValidationErrors({ title: '', description: '' })
       setNewTicketOpen(false);
       
       // Redirect with slight delay for toast visibility
@@ -413,31 +463,68 @@ export default function TicketsPage() {
               <div className="grid gap-4 py-4">
                 <div className="space-y-2">
                   <Label htmlFor="title">
-                    Subject
+                    Subject <span className="text-red-500">*</span>
                   </Label>
                   <Input 
                     id="title" 
                     placeholder="Brief summary of your issue"
                     value={newTicket.title}
-                    onChange={(e) => setNewTicket({ ...newTicket, title: e.target.value })}
+                    onChange={(e) => {
+                      setNewTicket({ ...newTicket, title: e.target.value })
+                      // Clear error when user starts typing
+                      if (validationErrors.title) {
+                        setValidationErrors({ ...validationErrors, title: '' })
+                      }
+                    }}
+                    className={validationErrors.title ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                    maxLength={200}
                   />
+                  {validationErrors.title && (
+                    <p className="text-sm text-red-500 flex items-center gap-1">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {validationErrors.title}
+                    </p>
+                  )}
+                  {!validationErrors.title && newTicket.title && (
+                    <p className="text-xs text-muted-foreground">
+                      {newTicket.title.length}/200 characters
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">
-                    Description
+                    Description <span className="text-red-500">*</span>
                   </Label>
                   <Textarea 
                     id="description" 
                     value={newTicket.description}
-                    onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })}
+                    onChange={(e) => {
+                      setNewTicket({ ...newTicket, description: e.target.value })
+                      // Clear error when user starts typing
+                      if (validationErrors.description) {
+                        setValidationErrors({ ...validationErrors, description: '' })
+                      }
+                    }}
                     placeholder="Describe your issue in detail. For example: 'I'm trying to reset my password, but the email link says it expired. I've tried 3 times in the last hour.'"
                     rows={6}
-                    className="resize-none"
+                    className={`resize-none ${validationErrors.description ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
                     maxLength={500}
                   />
-                  <div className="text-xs text-muted-foreground">
-                    {newTicket.description.length}/500 characters • More detail helps us assist you faster!
-                  </div>
+                  {validationErrors.description && (
+                    <p className="text-sm text-red-500 flex items-center gap-1">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {validationErrors.description}
+                    </p>
+                  )}
+                  {!validationErrors.description && (
+                    <p className="text-xs text-muted-foreground">
+                      {newTicket.description.length}/500 characters • More detail helps us assist you faster!
+                    </p>
+                  )}
                 </div>
               </div>
               <DialogFooter>
@@ -446,16 +533,34 @@ export default function TicketsPage() {
                   onClick={() => {
                     setNewTicketOpen(false);
                     setNewTicket({ title: '', description: '', priority: 'medium' });
+                    setValidationErrors({ title: '', description: '' });
                   }}
+                  disabled={creating}
                 >
                   Cancel
                 </Button>
                 <Button 
                   type="submit" 
                   onClick={createTicket}
-                  disabled={creating || !newTicket.title.trim() || !newTicket.description.trim()}
+                  disabled={
+                    creating || 
+                    !newTicket.title.trim() || 
+                    !newTicket.description.trim() ||
+                    newTicket.title.trim().length < 5 ||
+                    newTicket.description.trim().length < 20
+                  }
                 >
-                  {creating ? 'Creating...' : 'Create Ticket'}
+                  {creating ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Ticket'
+                  )}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -464,37 +569,47 @@ export default function TicketsPage() {
       </div>
 
       {/* Data Table or Empty State */}
-      {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-            <p className="text-muted-foreground">Loading tickets...</p>
-          </div>
-        </div>
+      {(loading || switchingOrg) ? (
+        <TicketListSkeleton />
       ) : filteredTickets.length === 0 && !searchTerm && statusFilter === 'all' ? (
         <EmptyTicketState onCreateClick={() => setNewTicketOpen(true)} />
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>All Tickets</CardTitle>
-            <CardDescription>
-              Showing {filteredTickets.length} of {totalTickets} tickets
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable
-              columns={columns}
-              data={filteredTickets}
-              actions={tableActions}
-              searchable={true}
-              searchPlaceholder="Search tickets..."
-              filterable={true}
-              sortable={true}
-              pagination={true}
-              pageSize={10}
-            />
-          </CardContent>
-        </Card>
+        <>
+          {/* Mobile Card View (< 768px) */}
+          <div className="md:hidden space-y-3">
+            <div className="flex items-center justify-between px-1 mb-2">
+              <p className="text-sm text-muted-foreground">
+                Showing {filteredTickets.length} of {totalTickets} tickets
+              </p>
+            </div>
+            {filteredTickets.map((ticket) => (
+              <MobileTicketCard key={ticket.id} ticket={ticket} />
+            ))}
+          </div>
+
+          {/* Desktop Table View (>= 768px) */}
+          <Card className="hidden md:block">
+            <CardHeader>
+              <CardTitle>All Tickets</CardTitle>
+              <CardDescription>
+                Showing {filteredTickets.length} of {totalTickets} tickets
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                columns={columns}
+                data={filteredTickets}
+                actions={tableActions}
+                searchable={true}
+                searchPlaceholder="Search tickets..."
+                filterable={true}
+                sortable={true}
+                pagination={true}
+                pageSize={10}
+              />
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   )

@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
+import { toast } from 'sonner'
 import { Sparkles, Eye, EyeOff, ThumbsUp, ThumbsDown, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { apiGet, apiPost } from '@/lib/api'
+import { useOrganization } from '@/contexts/OrganizationContext'
+import api from '@/lib/api-client'
 
 interface MessageOut {
   id: string
@@ -67,6 +69,11 @@ const SystemMessage = ({ message }: { message: MessageOut }) => (
 
 export default function TicketDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
+  
+  // Organization context
+  const { currentOrganization, isReady } = useOrganization()
+  const orgId = currentOrganization?.id
+  
   const [ticketData, setTicketData] = useState<TicketWithMessages | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -93,10 +100,12 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   const currentUserId = ticketData?.ticket?.created_by
 
   const loadTicket = async () => {
+    if (!orgId) return
+    
     try {
       setLoading(true)
       setError('')
-      const data: TicketWithMessages = await apiGet(`/api/tickets/${params.id}`)
+      const data: TicketWithMessages = await api.get(`/api/tickets/${params.id}`, orgId)
       setTicketData(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load ticket')
@@ -106,26 +115,32 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   }
 
   useEffect(() => {
-    loadTicket()
-  }, [params.id])
+    if (isReady && orgId) {
+      loadTicket()
+    }
+  }, [params.id, isReady, orgId])
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!newMessage.trim()) {
+    if (!newMessage.trim() || !orgId) {
       return
     }
     
     try {
       setSending(true)
-      await apiPost(`/api/tickets/${params.id}/messages`, {
+      await api.post(`/api/tickets/${params.id}/messages`, {
         body: newMessage.trim()
-      })
+      }, orgId)
+      
+      // Success feedback
+      toast.success('✅ Message sent successfully!')
       
       setNewMessage('')
       // Refresh the ticket to show the new message
       await loadTicket()
     } catch (err) {
+      toast.error('Failed to send message. Please try again.')
       setError(err instanceof Error ? err.message : 'Failed to send message')
     } finally {
       setSending(false)
@@ -136,20 +151,25 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   const handleAskAI = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!aiQuery.trim()) {
+    if (!aiQuery.trim() || !orgId) {
       return
     }
     
     try {
       setAiLoading(true)
-      const response: ChatResponse = await apiPost(`/api/tickets/${params.id}/chat`, {
+      toast.loading('🤖 AI is thinking...', { id: 'ai-response' })
+      
+      const response: ChatResponse = await api.post(`/api/tickets/${params.id}/chat`, {
         query: aiQuery.trim()
-      })
+      }, orgId)
+      
+      toast.success('✅ AI responded!', { id: 'ai-response' })
       
       setAiQuery('')
       // Refresh the ticket to show the AI response
       await loadTicket()
     } catch (err) {
+      toast.error('Failed to get AI response', { id: 'ai-response' })
       setError(err instanceof Error ? err.message : 'Failed to get AI response')
     } finally {
       setAiLoading(false)
@@ -158,15 +178,17 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
 
   // Phase 3: Escalation handler
   const handleEscalate = async () => {
+    if (!orgId) return
+    
     if (!confirm('Request human assistance? A support agent will be assigned to help you.')) {
       return
     }
     
     try {
       setEscalating(true)
-      await apiPost(`/api/rep/tickets/${params.id}/escalate`, {
+      await api.post(`/api/rep/tickets/${params.id}/escalate`, {
         reason: 'Customer requested human assistance'
-      })
+      }, orgId)
       
       // Show success message (you can use a toast library here)
       alert('✅ Your request has been escalated! A support agent will help you soon.')
@@ -183,17 +205,17 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
 
   // Phase 3: AI Feedback handler
   const handleFeedback = async (messageId: string, feedbackType: 'positive' | 'negative') => {
-    if (feedbackGiven[messageId]) {
-      return // Already submitted feedback
+    if (feedbackGiven[messageId] || !orgId) {
+      return // Already submitted feedback or no org context
     }
     
     try {
       setFeedbackLoading(prev => ({ ...prev, [messageId]: true }))
       
-      const response = await apiPost<{ok: boolean, message: string}>('/api/ai/feedback', {
+      const response = await api.post<{ok: boolean, message: string}>('/api/ai/feedback', {
         message_id: messageId,
         feedback_type: feedbackType
-      })
+      }, orgId)
       
       if (response.ok) {
         setFeedbackGiven(prev => ({ ...prev, [messageId]: feedbackType }))
@@ -287,37 +309,39 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   const { ticket, messages } = ticketData
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      {/* Header */}
-      <div className="mb-6">
+    <div className="max-w-4xl mx-auto p-4 md:p-6">
+      {/* Header - Mobile Optimized */}
+      <div className="mb-4 md:mb-6">
         <button
           onClick={() => router.push('/tickets')}
-          className="text-blue-600 hover:text-blue-800 mb-4 flex items-center gap-1"
+          className="text-blue-600 hover:text-blue-800 mb-4 flex items-center gap-2 min-h-[44px] touch-manipulation active:scale-95 transition-transform"
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
           </svg>
-          Back to tickets
+          <span className="font-medium">Back to tickets</span>
         </button>
         
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">{ticket.title}</h1>
-              <div className="flex items-center gap-4 text-sm text-gray-500">
-                <span>Ticket #{ticket.id.slice(0, 8)}</span>
-                <span>Created {formatDate(ticket.created_at)}</span>
+        <div className="bg-white rounded-lg shadow p-4 md:p-6">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-xl md:text-2xl font-bold text-gray-900 mb-2">{ticket.title}</h1>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-gray-500">
+                <span className="font-mono">#{ticket.id.slice(0, 8)}</span>
+                <span className="hidden sm:inline">Created {formatDate(ticket.created_at)}</span>
                 <span>{ticket.message_count} message{ticket.message_count !== 1 ? 's' : ''}</span>
               </div>
             </div>
-            <span className={getStatusBadge(ticket.status)}>
-              {ticket.status}
-            </span>
+            <div className="flex-shrink-0">
+              <span className={getStatusBadge(ticket.status)}>
+                {ticket.status}
+              </span>
+            </div>
           </div>
           
           <div className="border-t pt-4">
             <h3 className="font-medium text-gray-900 mb-2">Description</h3>
-            <p className="text-gray-700 whitespace-pre-wrap">{ticket.description}</p>
+            <p className="text-gray-700 whitespace-pre-wrap text-sm md:text-base">{ticket.description}</p>
           </div>
         </div>
       </div>
@@ -506,10 +530,10 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
         </div>
       </div>
 
-      {/* AI Chat Interface */}
+      {/* AI Chat Interface - Mobile Optimized */}
       {ticket.status === 'open' && (
-        <div className="bg-purple-50 border border-purple-200 rounded-lg shadow p-6 mb-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <div className="bg-purple-50 border border-purple-200 rounded-lg shadow p-4 md:p-6 mb-4 md:mb-6">
+          <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center gap-2">
             <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M13 7H7v6h6V7z" clipRule="evenodd" />
               <path fillRule="evenodd" d="M13 15H7a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v6a2 2 0 01-2 2zM7 6a1 1 0 00-1 1v6a1 1 0 001 1h6a1 1 0 001-1V7a1 1 0 00-1-1H7z" clipRule="evenodd" />
@@ -524,7 +548,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                 onChange={(e) => setAiQuery(e.target.value)}
                 placeholder="Ask the AI assistant about your issue..."
                 rows={3}
-                className="w-full border border-purple-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                className="w-full border border-purple-300 rounded-md px-3 py-2 text-base focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                 maxLength={1000}
                 disabled={aiLoading}
               />
@@ -537,7 +561,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
               <button
                 type="submit"
                 disabled={aiLoading || !aiQuery.trim()}
-                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="min-h-[44px] px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 touch-manipulation active:scale-95 transition-transform"
               >
                 {aiLoading ? (
                   <>
@@ -556,10 +580,10 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
         </div>
       )}
 
-      {/* Message Composer */}
+      {/* Message Composer - Mobile Optimized */}
       {ticket.status === 'open' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4">Add a message</h3>
+        <div className="bg-white rounded-lg shadow p-4 md:p-6">
+          <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Add a message</h3>
           
           <form onSubmit={handleSendMessage}>
             <div className="mb-4">
@@ -568,7 +592,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Type your message here..."
                 rows={4}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 maxLength={8000}
                 required
               />
@@ -581,7 +605,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
               <button
                 type="submit"
                 disabled={sending || !newMessage.trim()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="min-h-[44px] w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation active:scale-95 transition-transform"
               >
                 {sending ? 'Sending...' : 'Send Message'}
               </button>
