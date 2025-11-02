@@ -10,10 +10,10 @@ const nextConfig: NextConfig = {
     // Temporarily disable TypeScript errors during builds
     ignoreBuildErrors: true,
   },
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
-      '@': path.resolve(__dirname, './src'),
+      '@': path.join(process.cwd(), 'src'),
     };
     return config;
   },
