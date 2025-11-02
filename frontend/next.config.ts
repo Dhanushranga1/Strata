@@ -2,7 +2,6 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
   eslint: {
     // Temporarily disable ESLint during builds
     ignoreDuringBuilds: true,
@@ -10,6 +9,11 @@ const nextConfig: NextConfig = {
   typescript: {
     // Temporarily disable TypeScript errors during builds
     ignoreBuildErrors: true,
+  },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
   },
   webpack: (config, { isServer }) => {
     config.resolve.alias['@'] = path.join(process.cwd(), 'src');
