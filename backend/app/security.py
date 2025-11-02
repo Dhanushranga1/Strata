@@ -169,5 +169,6 @@ def get_cors_config() -> dict:
     Returns:
         CORS configuration dictionary
     """
-    is_production = os.getenv("NODE_ENV") == "production"
+    env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development"))
+    is_production = env == "production"
     return PRODUCTION_CORS_CONFIG if is_production else DEVELOPMENT_CORS_CONFIG
