@@ -6,6 +6,9 @@ import { supabase } from "@/lib/supabaseClient";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import api from "@/lib/api-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+
+// API Base URL with trailing slash removal
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000').replace(/\/$/, '');
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -202,7 +205,7 @@ export default function KnowledgeBasePage() {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
       
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/kb/ingest`, {
+      const response = await fetch(`${API_BASE}/api/kb/ingest`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
