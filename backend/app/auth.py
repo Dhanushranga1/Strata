@@ -103,7 +103,12 @@ async def get_db_connection():
     if not database_url:
         raise RuntimeError("DATABASE_URL environment variable is required")
     # Disable statement caching to avoid prepared statement conflicts
-    return await asyncpg.connect(database_url, statement_cache_size=0)
+    # Add SSL configuration for Supabase
+    return await asyncpg.connect(
+        database_url, 
+        statement_cache_size=0,
+        ssl='require'
+    )
 
 async def get_user_organizations(user_id: str) -> List[UserOrganization]:
     """
