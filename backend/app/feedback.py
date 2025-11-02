@@ -19,7 +19,7 @@ async def get_db_connection():
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL environment variable is required")
-    return await asyncpg.connect(database_url)
+    return await asyncpg.connect(database_url, ssl='require')
 
 @router.post("/feedback", response_model=FeedbackResponse)
 async def submit_feedback(
