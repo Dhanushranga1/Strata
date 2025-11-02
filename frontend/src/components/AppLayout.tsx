@@ -3,6 +3,8 @@ import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { supabase } from "@/lib/supabaseClient";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000';
+
 interface User {
   id: string;
   email: string;
@@ -38,7 +40,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         }
 
         console.log('🌐 AppLayout: Making API request to /api/me...');
-        const response = await fetch('http://127.0.0.1:8000/api/me', {
+        const response = await fetch(`${API_BASE}/api/me`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },

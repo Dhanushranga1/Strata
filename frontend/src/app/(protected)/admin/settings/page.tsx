@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,7 +58,7 @@ export default function AdminSettingsPage() {
         }
 
         console.log('🌐 Admin Settings: Making API request to /api/me...');
-        const response = await fetch('http://127.0.0.1:8000/api/me', {
+        const response = await fetch(`${API_BASE}/api/me`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -108,7 +110,7 @@ export default function AdminSettingsPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
       
-      const response = await fetch('http://127.0.0.1:8000/api/admin/diagnostics/db', {
+      const response = await fetch(`${API_BASE}/api/admin/diagnostics/db`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
