@@ -11,10 +11,7 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   webpack: (config, { isServer }) => {
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      '@': path.join(process.cwd(), 'src'),
-    };
+    config.resolve.alias['@'] = path.join(process.cwd(), 'src');
     return config;
   },
 };
