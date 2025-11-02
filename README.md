@@ -1,106 +1,62 @@
-# TicketPilot — AI-Powered Multi-Tenant Customer Support Platform
+# TicketPilot
 
-> **Transform your customer support with intelligent, AI-powered ticket management**
+**AI-Powered Customer Support Platform with RAG-Based Knowledge Assistance**
 
-A production-ready, enterprise-grade customer support system that combines traditional ticketing workflows with cutting-edge AI assistance. Built from the ground up with multi-tenancy, security, and scalability in mind.
-
-[![Production Ready](https://img.shields.io/badge/status-production%20ready-success)]()
-[![Test Coverage](https://img.shields.io/badge/tests-16%2F16%20passing-brightgreen)]()
-[![Security](https://img.shields.io/badge/security-hardened-blue)]()
-[![Performance](https://img.shields.io/badge/response%20time-%3C200ms-orange)]()
+A production-ready, multi-tenant customer support system that combines intelligent ticketing with Retrieval-Augmented Generation (RAG), enabling support teams to deliver faster, more accurate responses by instantly accessing organizational knowledge through natural language queries.
 
 ---
 
-## 🎯 What is TicketPilot?
+## Why TicketPilot?
 
-TicketPilot is an intelligent customer support platform designed to help support teams work faster and smarter. It combines familiar ticketing workflows with AI-powered assistance, enabling representatives to deliver faster, more accurate responses by leveraging your organization's knowledge base.
+### The Problem
 
-### The Problem We Solve
+Support teams waste 60-70% of their time searching through documentation, past tickets, and knowledge bases. This creates several critical issues:
 
-Modern support teams face several challenges:
-- **Information Overload**: Finding the right answer in hundreds of documents
-- **Inconsistent Responses**: Different reps giving different answers
-- **Long Resolution Times**: Searching for information slows down responses
-- **Scaling Difficulties**: Training new reps takes time and resources
-- **Multi-Organization Complexity**: Managing separate teams and data
+- **Slow Response Times**: Representatives spend minutes searching for information while customers wait
+- **Inconsistent Answers**: Different team members provide different responses to the same questions
+- **Extended Onboarding**: New support staff require weeks or months to become productive
+- **Linear Scaling Costs**: Growing ticket volume requires proportional increases in headcount
+- **Hidden Knowledge Gaps**: Organizations lack visibility into missing or outdated documentation
 
-### Our Solution
+### The Solution
 
-TicketPilot addresses these challenges through:
-1. **AI-Powered Knowledge Retrieval**: Instant access to relevant information using RAG (Retrieval-Augmented Generation)
-2. **Smart Rep Console**: AI suggests responses based on your knowledge base and conversation context
-3. **Complete Multi-Tenancy**: Serve multiple organizations with complete data isolation
-4. **Role-Based Access**: Granular permissions for admins, reps, and customers
-5. **Real-Time Analytics**: Track performance, response times, and team efficiency
+TicketPilot transforms support operations by combining AI-powered knowledge retrieval with enterprise-grade ticketing. The platform uses Retrieval-Augmented Generation (RAG) to turn your knowledge base into an intelligent assistant that:
 
----
+1. **Understands Natural Language**: Support reps ask questions conversationally instead of crafting search queries
+2. **Retrieves Relevant Context**: Semantic search finds the most relevant information from your documentation
+3. **Generates Accurate Responses**: AI synthesizes retrieved information into clear, cited answers
+4. **Provides Confidence Scores**: 7-factor scoring system helps reps know when to trust AI vs. escalate
+5. **Maintains Complete Citations**: Every response links to source documents for verification
 
-## ✨ Key Features
+This approach reduces search time from minutes to seconds, enables new reps to be productive immediately, and ensures consistent, accurate responses across your support team.
 
-### 🤖 Intelligent AI Assistant
-- **RAG-Powered Responses**: Leverages Google Gemini and FAISS vector search to find relevant information
-- **Context-Aware Suggestions**: Analyzes ticket history and conversation flow
-- **Confidence Scoring**: 7-factor confidence calculation (retrieval quality, citation coverage, semantic coherence, etc.)
-- **Smart Escalation**: Automatically flags tickets that need human expertise
-- **Citation Tracking**: Shows which documents were used to generate each response
+### Key Capabilities
 
-### 🏢 Enterprise Multi-Tenancy
-- **Complete Data Isolation**: Organization-scoped queries with PostgreSQL Row-Level Security (RLS)
-- **Organization Management**: Create, manage, and switch between multiple organizations
-- **Member Roles**: Owner, Admin, and Member roles with granular permissions
-- **Shared Resources**: Optional resource sharing between organizations
-- **Scalable Architecture**: Built to handle thousands of organizations
+**For Support Representatives:**
+- AI assistant provides instant, cited answers from your knowledge base
+- Confidence scoring (0-100%) indicates response reliability
+- Complete ticket management with assignment, status tracking, and threading
+- Personal dashboard showing performance metrics and AI assistance effectiveness
 
-### 🎫 Comprehensive Ticketing System
-- **Full Lifecycle Management**: From creation to resolution with status tracking
-- **Priority Levels**: Urgent, High, Normal, Low with automatic escalation
-- **Assignment System**: Route tickets to specific reps or teams
-- **Message Threading**: Complete conversation history with timestamps
-- **Real-Time Updates**: Live status changes and notifications
+**For Administrators:**
+- Upload documents (PDF, TXT, MD, DOCX) that become instantly searchable
+- Analytics dashboard tracking ticket volume, resolution times, and team performance
+- RAG usage metrics identifying knowledge gaps and improvement opportunities
+- User management with granular role-based permissions
+- Multi-organization support with complete data isolation
 
-### 📚 Knowledge Base Management
-- **Document Ingestion**: Support for PDF, TXT, MD, and DOCX formats
-- **Intelligent Chunking**: Automatic text segmentation with overlap for context
-- **Vector Embeddings**: Google's text-embedding-004 for semantic search
-- **Deduplication**: Document and chunk-level duplicate detection
-- **Search & Discovery**: Fast semantic search across all documents
-
-### 📊 Analytics & Insights
-- **Admin Dashboard**: Organization-wide metrics and trends
-- **Rep Performance**: Individual and team performance tracking
-- **Response Time Metrics**: Average response and resolution times
-- **RAG Usage Analytics**: AI assistance effectiveness and confidence scores
-- **Ticket Analytics**: Status distribution, priority breakdown, trends
-
-### 🔒 Security & Performance
-- **Security Headers**: HSTS, CSP, X-Frame-Options, and more
-- **Rate Limiting**: IP-based, per-endpoint protection
-- **JWT Authentication**: Secure token-based auth via Supabase
-- **SQL Injection Protection**: Parameterized queries throughout
-- **Fast Response Times**: Average <200ms for analytics queries
-- **Code Splitting**: Optimized bundles (102KB shared, 248KB max page)
-
-### 🔒 Security & Performance
-- **Security Headers**: HSTS, CSP, X-Frame-Options, and more
-- **Rate Limiting**: IP-based, per-endpoint protection
-- **JWT Authentication**: Secure token-based auth via Supabase
-- **SQL Injection Protection**: Parameterized queries throughout
-- **Fast Response Times**: Average <200ms for analytics queries
-- **Code Splitting**: Optimized bundles (102KB shared, 248KB max page)
-
-### 🎨 Modern User Experience
-- **Responsive Design**: Mobile-optimized with touch-friendly interactions
-- **Dark Theme**: Professional "Midnight Prism" design system
-- **Smooth Animations**: Framer Motion with reduced-motion support
-- **Loading States**: Skeleton loaders and progress indicators
-- **Accessibility**: ARIA labels, keyboard navigation, WCAG AA compliant
-- **Organization Switching**: Seamless context switching for multi-org users
+**For Enterprises:**
+- Multi-tenant architecture with PostgreSQL Row-Level Security (RLS)
+- Complete data isolation between organizations at the database level
+- Comprehensive security: rate limiting, security headers, JWT authentication
+- High performance: average API response times under 200ms
+- Production-tested: 16/16 tests passing with 100% success rate
 
 ---
 
-## 🏗️ Architecture & Technology
+## Architecture
 
-### System Architecture
+### System Overview
 
 ```
 ┌─────────────────┐
@@ -164,9 +120,167 @@ TicketPilot addresses these challenges through:
 - **Auth**: JWT with RS256 signing
 - **Database**: Row-Level Security (RLS) policies
 
+### Database Schema
+
+**Core Tables:**
+- `app.users` - User profiles with authentication
+- `app.organizations` - Organization/tenant definitions
+- `app.organization_members` - User-organization relationships with roles
+- `app.tickets` - Support tickets with status and priority
+- `app.messages` - Ticket conversation threads
+- `app.kb_documents` - Knowledge base document metadata
+- `app.kb_chunks` - Chunked document content with embeddings
+- `app.rag_requests` - RAG query history and analytics
+- `app.ai_feedback` - User feedback on AI responses
+
+**Multi-Tenancy Implementation:**
+- All tables include `organization_id` column
+- Row-Level Security (RLS) policies enforce organization scoping
+- All queries automatically filtered by organization context
+- Separate FAISS indices per organization for data isolation
+
+**Migrations:**
+11 sequential migrations establish the schema:
+1. User roles and authentication
+2. Knowledge base tables
+3. Core ticketing system
+4. AI chat and messaging
+5. Rep console features
+6. Admin role management
+7. AI feedback collection
+8. Organizations table
+9. Add organization_id to all tables
+10. Migrate existing data to default organization
+11. Enable Row-Level Security policies
+
 ---
 
-## 📁 Project Structure
+## How It Works
+
+### For Customers
+
+1. **Submit a Support Ticket**
+   - Navigate to the tickets page and click "New Ticket"
+   - Describe the issue with a title and detailed description
+   - Select priority level (Low, Medium, High, Urgent)
+   - Submit and receive a unique ticket ID
+
+2. **Track and Respond**
+   - View ticket status in real-time (Open, In Progress, Resolved, Closed)
+   - Receive responses from support representatives in the ticket thread
+   - Add follow-up messages to provide additional context
+   - Close ticket when issue is resolved
+
+### For Support Representatives
+
+1. **View Assigned Tickets**
+   - Dashboard shows all tickets assigned to you
+   - Filter by status, priority, or customer
+   - See ticket age and last response time
+   - Quick actions for common operations
+
+2. **Use AI Assistant**
+   - Open the Rep Console for any ticket
+   - Ask questions about the customer's issue in natural language
+   - AI searches the knowledge base using semantic similarity
+   - Receive instant responses with confidence scores and source citations
+   - Copy AI responses to clipboard and paste into ticket replies
+
+3. **Respond to Customers**
+   - Add messages to ticket threads
+   - Use AI suggestions as-is or modify as needed
+   - Update ticket status (In Progress, Resolved, etc.)
+   - Reassign tickets if specialized expertise is needed
+
+4. **Monitor Performance**
+   - Rep dashboard shows personal metrics
+   - Track tickets handled, average response time, and resolution rate
+   - View AI assistance usage and effectiveness
+   - Identify areas for improvement
+
+### For Administrators
+
+1. **Manage Knowledge Base**
+   - Upload documents in supported formats (PDF, TXT, MD, DOCX)
+   - System automatically chunks documents into semantic segments
+   - Google AI generates vector embeddings for each chunk
+   - Documents become instantly searchable by AI assistant
+
+2. **Monitor Team Performance**
+   - Admin dashboard displays organization-wide metrics
+   - View ticket volume trends and resolution times
+   - Track individual and team rep performance
+   - Analyze AI assistant usage and confidence scores
+
+3. **Identify Knowledge Gaps**
+   - RAG analytics show questions with low confidence scores
+   - Identify topics where documentation is lacking
+   - Track which documents are most frequently used
+   - Prioritize knowledge base improvements
+
+4. **Manage Users and Organizations**
+   - Invite team members and assign roles
+   - Roles: Owner (full access), Admin (management), Rep (support), Customer (tickets only)
+   - Create and manage multiple organizations
+   - Switch between organizations seamlessly
+
+### RAG Pipeline Architecture
+
+The AI assistant follows this workflow for every query:
+
+**Document Ingestion Phase:**
+```
+1. Admin uploads document (PDF/TXT/MD/DOCX)
+   ↓
+2. Text extraction and preprocessing
+   ↓
+3. Chunking: Split into 512-1024 token segments with 20% overlap
+   ↓
+4. Embedding: Generate 768-dimensional vectors using text-embedding-004
+   ↓
+5. Indexing: Store in FAISS index (separate per organization)
+   ↓
+6. Metadata: Store chunk mappings in PostgreSQL
+```
+
+**Query Phase:**
+```
+1. Rep asks question in Rep Console
+   ↓
+2. Query embedding generated using same text-embedding-004 model
+   ↓
+3. FAISS similarity search: Find top 10 most similar chunks
+   ↓
+4. MMR Re-ranking: Apply Maximal Marginal Relevance for diversity
+   ↓ (Balances relevance vs. source diversity to avoid redundancy)
+5. Context assembly: Combine top 5 chunks with citations
+   ↓
+6. Gemini generation: Generate response using context
+   ↓
+7. Confidence scoring: Calculate 7-factor confidence score
+   ↓
+8. Response delivery: Display to rep with confidence and citations
+   ↓
+9. Analytics: Log request, response, and confidence for analysis
+```
+
+**Confidence Scoring (7 Factors):**
+- **Retrieval Quality (30%)**: Average similarity score of retrieved chunks
+- **Citation Coverage (20%)**: Percentage of response backed by citations
+- **Semantic Coherence (20%)**: How well response matches query intent
+- **Response Completeness (10%)**: Whether all aspects of query are addressed
+- **Information Density (10%)**: Quality content vs. filler
+- **Source Diversity (10%)**: Number of unique source documents cited
+- **Variance Penalty**: Reduces confidence if retrieval scores are too similar (indicates unclear query)
+
+Total confidence score ranges from 0-100%, helping reps decide whether to:
+- **80-100%**: Use response confidently
+- **60-79%**: Review and verify before using
+- **Below 60%**: Consider escalating or researching manually
+
+---
+
+## Project Structure
 
 ```
 ticketpilot/
@@ -259,7 +373,7 @@ ticketpilot/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -268,9 +382,9 @@ ticketpilot/
 - **Supabase** account (free tier works)
 - **Google AI API** key (for embeddings and chat)
 
-### Quick Start (15 minutes)
+### Quick Setup (15 minutes)
 
-#### 1. Clone the Repository
+**1. Clone Repository**
 
 ```bash
 git clone https://github.com/yourusername/ticketpilot.git
@@ -384,7 +498,7 @@ pnpm dev  # or: npm run dev
 
 ---
 
-## 🔧 How It Works
+## How It Works
 
 ### For Customers
 
@@ -475,7 +589,7 @@ pnpm dev  # or: npm run dev
 
 ---
 
-## 📚 API Documentation
+## API Reference
 
 ### Authentication
 
@@ -568,7 +682,7 @@ curl -X POST http://localhost:8000/kb/upload \
 
 ---
 
-## 🚢 Deployment
+## Deployment
 
 ### Prerequisites
 - Railway account (backend) or Render/Fly.io
@@ -651,7 +765,7 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for full deployment guide and [SETUP_GUIDE.
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ### Run All Tests
 
@@ -703,7 +817,7 @@ For full test report, see documentation in `/docs`.
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Here's how to get started:
 
@@ -751,7 +865,7 @@ We welcome contributions! Here's how to get started:
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the **MIT License** - see the [LICENSE](./LICENSE) file for details.
 
@@ -763,7 +877,7 @@ You are free to:
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 This project was built using incredible open-source technologies:
 
@@ -781,7 +895,7 @@ Special thanks to the open-source community for making projects like this possib
 
 ---
 
-## 📞 Support & Contact
+## Support & Contact
 
 - **Documentation**: Check `/docs` folder for detailed guides
   - [Setup Guide](./SETUP_GUIDE.md)
@@ -793,7 +907,7 @@ Special thanks to the open-source community for making projects like this possib
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
 ### Completed ✅
 - ✅ Multi-tenant architecture with Row-Level Security
@@ -818,31 +932,31 @@ Special thanks to the open-source community for making projects like this possib
 ### Planned 🚀
 
 **Short-term (Next 3 months)**
-- 📧 **Email Notifications**: Automated notifications for ticket updates, assignments, and mentions
-- 📎 **File Attachments**: Allow file uploads in tickets (images, logs, screenshots)
-- 🔍 **Full-Text Search**: Advanced search with filters across tickets, KB, and messages
-- 📊 **Enhanced Analytics**: Export reports, custom date ranges, trend analysis
+- **Email Notifications**: Automated notifications for ticket updates, assignments, and mentions
+- **File Attachments**: Allow file uploads in tickets (images, logs, screenshots)
+- **Full-Text Search**: Advanced search with filters across tickets, KB, and messages
+- **Enhanced Analytics**: Export reports, custom date ranges, trend analysis
 - 🔔 **In-App Notifications**: Real-time notification center with toast alerts
 
 **Medium-term (3-6 months)**
-- ⚡ **Real-Time Updates**: WebSocket support for live ticket updates and chat
-- 📱 **Mobile Apps**: Native iOS and Android apps with push notifications
-- 🤖 **Advanced AI Features**: 
+- **Real-Time Updates**: WebSocket support for live ticket updates and chat
+- **Mobile Apps**: Native iOS and Android apps with push notifications
+- **Advanced AI Features**: 
   - Auto-categorization of tickets
   - Sentiment analysis
   - Suggested responses
   - Knowledge gap detection
-- 🔗 **Integrations**: Slack, Microsoft Teams, Discord webhooks
-- 📈 **SLA Management**: Track and enforce service level agreements with alerts
+- **Integrations**: Slack, Microsoft Teams, Discord webhooks
+- **SLA Management**: Track and enforce service level agreements with alerts
 
 **Long-term (6+ months)**
-- 🏢 **Self-Hosted Option**: Docker Compose setup for on-premise deployment
-- 🌐 **Multi-Language Support**: i18n for UI and AI responses
-- 🔄 **Migration Tools**: Import from Zendesk, Freshdesk, Intercom
-- 🎨 **White-Label**: Customizable branding and themes
-- 📊 **Business Intelligence**: Advanced reporting with custom dashboards
-- 🤝 **Third-Party Integrations**: Zapier, Make.com, API marketplace
-- 🔐 **SSO Support**: SAML, OAuth2 for enterprise authentication
+- **Self-Hosted Option**: Docker Compose setup for on-premise deployment
+- **Multi-Language Support**: i18n for UI and AI responses
+- **Migration Tools**: Import from Zendesk, Freshdesk, Intercom
+- **White-Label**: Customizable branding and themes
+- **Business Intelligence**: Advanced reporting with custom dashboards
+- **Third-Party Integrations**: Zapier, Make.com, API marketplace
+- **SSO Support**: SAML, OAuth2 for enterprise authentication
 
 ### Community Requests
 Want a feature not listed here? [Open an issue](https://github.com/yourusername/ticketpilot/issues) with the `feature-request` label!
