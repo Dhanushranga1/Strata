@@ -110,11 +110,16 @@ async def get_user_organizations(user_id: str) -> List[UserOrganization]:
     Fetch all organizations the user is a member of.
     Returns list with role and default organization flag.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     conn = await get_db_connection()
     try:
         # Convert to UUID for query
         import uuid as uuid_lib
         user_uuid = uuid_lib.UUID(user_id)
+        
+        logger.info(f"🔍 Fetching organizations for user: {user_id}")
         
         rows = await conn.fetch("""
             SELECT 
@@ -129,6 +134,8 @@ async def get_user_organizations(user_id: str) -> List[UserOrganization]:
             ORDER BY o.name ASC
         """, user_uuid)
         
+        logger.info(f"✅ Found {len(rows)} organizations for user {user_id}")
+        
         # Mark first org as default for now (until we add default_organization_id column)
         result = [
             UserOrganization(
@@ -142,6 +149,9 @@ async def get_user_organizations(user_id: str) -> List[UserOrganization]:
         ]
         
         return result
+    except Exception as e:
+        logger.error(f"❌ Error fetching organizations for user {user_id}: {e}", exc_info=True)
+        raise
     finally:
         await conn.close()
 
@@ -236,38 +246,44 @@ async def get_auth_context(user: User = Depends(get_current_user)):
     import logging
     logger = logging.getLogger(__name__)
     
-    organizations = await get_user_organizations(user.id)
-    
-    # 🚨 CRITICAL FIX: Auto-create organization for new users
-    if not organizations:
-        logger.warning(f"⚠️ User {user.email} has no organizations! Auto-creating default org...")
+    try:
+        organizations = await get_user_organizations(user.id)
         
-        try:
-            # Create default organization
-            org_id = await auto_create_organization_for_new_user(user.id, user.email or "user")
+        # 🚨 CRITICAL FIX: Auto-create organization for new users
+        if not organizations:
+            logger.warning(f"⚠️ User {user.email} has no organizations! Auto-creating default org...")
             
-            # Fetch the newly created organization
-            organizations = await get_user_organizations(user.id)
-            
-            if not organizations:
-                raise HTTPException(500, "Failed to create default organization for new user")
-            
-            logger.info(f"✅ Successfully created default organization for {user.email}")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to auto-create organization: {e}")
-            # Don't fail the request, but log the error
-            # Frontend will show "no organization" state
-    
-    # Find default organization
-    default_org_id = None
-    for org in organizations:
-        if org.is_default:
-            default_org_id = org.id
-            break
-    
-    return AuthContextResponse(
-        user=user,
-        organizations=organizations,
-        default_organization_id=default_org_id
-    )
+            try:
+                # Create default organization
+                org_id = await auto_create_organization_for_new_user(user.id, user.email or "user")
+                
+                # Fetch the newly created organization
+                organizations = await get_user_organizations(user.id)
+                
+                if not organizations:
+                    raise HTTPException(500, "Failed to create default organization for new user")
+                
+                logger.info(f"✅ Successfully created default organization for {user.email}")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to auto-create organization: {e}")
+                # Don't fail the request, but log the error
+                # Frontend will show "no organization" state
+        
+        # Find default organization
+        default_org_id = None
+        for org in organizations:
+            if org.is_default:
+                default_org_id = org.id
+                break
+        
+        return AuthContextResponse(
+            user=user,
+            organizations=organizations,
+            default_organization_id=default_org_id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error in get_auth_context: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to get auth context: {str(e)}")
