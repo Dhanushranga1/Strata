@@ -132,7 +132,7 @@ PRODUCTION_CORS_CONFIG = {
         os.getenv("WEB_ORIGIN", "http://localhost:3000")
     ],
     "allow_credentials": True,
-    "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     "allow_headers": [
         "Content-Type",
         "Authorization",
