@@ -58,8 +58,10 @@ async def get_user_role(user_id: str) -> str:
     
     try:
         # Add SSL configuration for Supabase
+        # CRITICAL FIX: Disable statement caching to avoid prepared statement conflicts with pgbouncer
         conn = await asyncpg.connect(
             database_url, 
+            statement_cache_size=0,
             ssl='require',
             server_settings={
                 'application_name': 'ticketpilot_backend'
@@ -105,8 +107,10 @@ async def set_user_role(user_id: str, role: str):
         raise RuntimeError("DATABASE_URL not configured")
     
     try:
+        # Disable statement caching to avoid prepared statement conflicts with pgbouncer
         conn = await asyncpg.connect(
             database_url,
+            statement_cache_size=0,
             ssl='require',
             server_settings={
                 'application_name': 'ticketpilot_backend'
@@ -142,10 +146,12 @@ async def get_database_connection():
         raise RuntimeError("DATABASE_URL not configured")
     
     # Use connection pooler with session pooling mode
+    # CRITICAL FIX: Disable statement caching to avoid prepared statement conflicts with pgbouncer
     if ':6543/' in database_url:
         # Connection pooler mode - disable SSL for pooler
         return await asyncpg.connect(
             database_url,
+            statement_cache_size=0,
             ssl='disable',
             server_settings={
                 'application_name': 'ticketpilot_backend'
@@ -155,6 +161,7 @@ async def get_database_connection():
         # Direct connection mode - require SSL
         return await asyncpg.connect(
             database_url,
+            statement_cache_size=0,
             ssl='require',
             server_settings={
                 'application_name': 'ticketpilot_backend'

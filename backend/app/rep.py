@@ -23,7 +23,8 @@ async def get_db_connection():
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL environment variable is required")
-    return await asyncpg.connect(database_url, ssl='require')
+    # Disable statement caching to avoid prepared statement conflicts with pgbouncer
+    return await asyncpg.connect(database_url, statement_cache_size=0, ssl='require')
 
 @router.get("/queue", response_model=QueueResponse)
 async def queue(

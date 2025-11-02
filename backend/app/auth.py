@@ -198,6 +198,16 @@ async def auto_create_organization_for_new_user(user_id: str, user_email: str) -
     try:
         user_uuid = uuid_lib.UUID(user_id)
         
+        # CRITICAL FIX: Ensure user exists in user_roles table first
+        # This is required because organization_members has a foreign key to user_roles
+        await conn.execute("""
+            INSERT INTO app.user_roles (user_id, role)
+            VALUES ($1, 'customer')
+            ON CONFLICT (user_id) DO NOTHING
+        """, user_uuid)
+        
+        logger.info(f"✅ Ensured user {user_id} exists in user_roles table")
+        
         # Check if slug exists, if so add suffix
         while attempt < 10:
             check_slug = f"{base_slug}-{int(time.time())}" if attempt > 0 else slug
