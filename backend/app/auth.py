@@ -42,33 +42,36 @@ class AuthContextResponse(BaseModel):
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 def verify_supabase_jwt(token: str) -> dict:
-    """Verify Supabase JWT token and return payload"""
+    """Verify Supabase JWT token signature and return payload."""
+    jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
+
+    if not jwt_secret:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server misconfiguration: SUPABASE_JWT_SECRET not set",
+        )
+
     try:
-        # Decode without verification first to get the header
-        unverified_header = jwt.get_unverified_header(token)
-        unverified_payload = jwt.decode(token, options={"verify_signature": False})
-        
-        # For development/testing, let's be more lenient with verification
-        # In production, you'd want to verify the signature properly
-        
-        # Verify the token structure and required fields
-        if not unverified_payload.get("sub"):
-            raise HTTPException(status_code=401, detail="Invalid token: missing subject")
-        
-        if not unverified_payload.get("iss") or "supabase" not in unverified_payload.get("iss", ""):
-            raise HTTPException(status_code=401, detail="Invalid token: wrong issuer")
-        
-        # Check if token is expired
-        import time
-        if unverified_payload.get("exp", 0) < time.time():
-            raise HTTPException(status_code=401, detail="Token expired")
-        
-        return unverified_payload
-        
+        payload = jwt.decode(
+            token,
+            jwt_secret,
+            algorithms=["HS256"],
+            options={"verify_aud": False},  # Supabase 'aud' varies by project
+        )
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
+
+    if not payload.get("sub"):
+        raise HTTPException(status_code=401, detail="Invalid token: missing subject")
+
+    if "supabase" not in payload.get("iss", ""):
+        raise HTTPException(status_code=401, detail="Invalid token: wrong issuer")
+
+    return payload
 
 async def get_current_user(request: Request) -> User:
     """Extract and verify user from JWT token, read role from database"""

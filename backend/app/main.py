@@ -1,5 +1,8 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
@@ -46,7 +49,56 @@ logger.info("Starting TicketPilot API", extra={
     "security_enabled": SECURITY_ENABLED
 })
 
-app = FastAPI(title="TicketPilot API", version=API_VERSION)
+
+def _check_faiss_indices():
+    """
+    Warn if the FAISS data directory is empty.
+
+    FAISS indices live under data/faiss/<org_id>/ and are NOT committed to git.
+    On ephemeral cloud deployments (Render, Railway, etc.) the filesystem is wiped
+    on every deploy, so all indices are lost. When this warning fires, admins must
+    re-upload KB documents to rebuild the indices before the AI assistant returns
+    useful answers.
+    """
+    index_dir = os.getenv("VECTOR_INDEX_DIR", "./data/faiss")
+    if not os.path.isdir(index_dir):
+        logger.warning(
+            "FAISS data directory '%s' does not exist — no KB indices loaded. "
+            "AI responses will have low confidence until documents are re-uploaded. "
+            "On ephemeral deployments KB documents must be re-uploaded after every deploy.",
+            index_dir,
+        )
+        return
+
+    org_dirs = [
+        d for d in os.listdir(index_dir)
+        if os.path.isdir(os.path.join(index_dir, d))
+    ]
+    if not org_dirs:
+        logger.warning(
+            "FAISS data directory '%s' exists but contains no org indices — "
+            "AI responses will have low confidence until documents are re-uploaded.",
+            index_dir,
+        )
+    else:
+        logger.info(
+            "FAISS: found indices for %d organisation(s): %s",
+            len(org_dirs),
+            org_dirs,
+        )
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _check_faiss_indices()
+    yield
+
+
+app = FastAPI(
+    title="TicketPilot API",
+    version=API_VERSION,
+    lifespan=lifespan,
+)
 
 # Add rate limiter state if security is enabled
 if SECURITY_ENABLED:
@@ -92,6 +144,7 @@ from .rep import router as rep_router
 from .admin import router as admin_router
 from .feedback import router as feedback_router
 from .organizations import router as organizations_router
+from .invites import router as invites_router
 
 app.include_router(auth_router)
 app.include_router(kb_router)
@@ -100,6 +153,8 @@ app.include_router(rep_router)
 app.include_router(admin_router)
 app.include_router(feedback_router)
 app.include_router(organizations_router)
+app.include_router(invites_router)
+
 
 @app.get("/api/health")
 def health():

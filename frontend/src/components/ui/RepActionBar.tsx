@@ -42,8 +42,8 @@ interface QuickAction {
 
 interface RepActionBarProps {
   ticketId?: string;
-  priority?: "low" | "medium" | "high" | "urgent";
-  status?: "open" | "pending" | "resolved" | "closed";
+  priority?: "low" | "normal" | "high";
+  status?: "open" | "in_progress" | "escalated" | "resolved" | "closed";
   assignedTo?: string;
   lastUpdated?: Date;
   primaryActions?: ActionItem[];
@@ -57,7 +57,7 @@ interface RepActionBarProps {
 const RepActionBar = forwardRef<HTMLDivElement, RepActionBarProps>(
   ({
     ticketId,
-    priority = "medium",
+    priority = "normal",
     status = "open",
     assignedTo,
     lastUpdated,
@@ -71,19 +71,14 @@ const RepActionBar = forwardRef<HTMLDivElement, RepActionBarProps>(
   }, ref) => {
     const priorityConfig = {
       low: { color: "text-green-600", bg: "bg-green-50 dark:bg-green-950/20", label: "Low" },
-      normal: { color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/20", label: "Normal" }, // Database default
-      medium: { color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-950/20", label: "Medium" }, // Frontend alias
+      normal: { color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/20", label: "Normal" },
       high: { color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-950/20", label: "High" },
-      urgent: { color: "text-red-600", bg: "bg-red-50 dark:bg-red-950/20", label: "Urgent" }
     };
-
-    // Debug logging for priority issues
-    console.log('[RepActionBar] Priority value received:', priority);
-    console.log('[RepActionBar] Priority config exists:', !!priorityConfig[priority as keyof typeof priorityConfig]);
 
     const statusConfig = {
       open: { color: "text-blue-600", icon: AlertTriangle, label: "Open" },
-      pending: { color: "text-yellow-600", icon: Clock, label: "Pending" },
+      in_progress: { color: "text-purple-600", icon: ArrowRight, label: "In Progress" },
+      escalated: { color: "text-red-600", icon: AlertTriangle, label: "Escalated" },
       resolved: { color: "text-green-600", icon: CheckCircle, label: "Resolved" },
       closed: { color: "text-gray-600", icon: CheckCircle, label: "Closed" }
     };
@@ -150,16 +145,10 @@ const RepActionBar = forwardRef<HTMLDivElement, RepActionBarProps>(
                   {statusConfig[status].label}
                 </Badge>
                 {(() => {
-                  const priorityKey = priority as keyof typeof priorityConfig;
-                  const config = priorityConfig[priorityKey] || priorityConfig.normal; // Fallback to normal
-                  
-                  if (!priorityConfig[priorityKey]) {
-                    console.warn('[RepActionBar] Unknown priority value:', priority, 'falling back to normal');
-                  }
-                  
+                  const config = priorityConfig[priority];
                   return (
-                    <Badge 
-                      variant="outline" 
+                    <Badge
+                      variant="outline"
                       className={cn("text-xs", config.color, config.bg)}
                     >
                       {config.label} Priority

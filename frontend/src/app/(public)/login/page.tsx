@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabaseClient'
@@ -18,6 +18,8 @@ import { v } from '@/ui/motion/variants'
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectTo = searchParams.get('redirect') || '/dashboard'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -27,35 +29,23 @@ export default function LoginPage() {
   const [success, setSuccess] = useState(false)
 
   const signIn = async () => {
-    console.log('🔐 Login: Starting sign-in process...');
     setLoading(true)
     setError(null)
-    
-    console.log('🌐 Login: Calling Supabase signInWithPassword...');
+
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
-    
-    if (error) { 
-      console.log('❌ Login: Supabase authentication failed:', error.message);
+
+    if (error) {
       setError(error.message)
-      return 
+      return
     }
-    
-    console.log('✅ Login: Supabase authentication successful');
-    console.log('🔑 Login: Session data:', { 
-      user: data.user?.id, 
-      email: data.user?.email,
-      access_token: data.session?.access_token ? 'EXISTS' : 'NOT_FOUND' 
-    });
-    
+
     if (data.session?.access_token) {
-      console.log('🔄 Login: Redirecting to dashboard...');
       setSuccess(true);
       setTimeout(() => {
-        router.replace('/dashboard');
+        router.replace(redirectTo);
       }, 1500);
     } else {
-      console.log('❌ Login: No access token in session data');
       setError('Authentication failed: No token received');
     }
   }

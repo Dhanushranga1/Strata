@@ -12,42 +12,83 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     const handleAuthCallback = async () => {
       try {
-        // Get the hash fragment from the URL
+        // Check for magic link token in query params (PKCE flow)
+        const searchParams = new URLSearchParams(window.location.search)
+        const token = searchParams.get('token')
+        const type = searchParams.get('type')
+        // ?next= carries a post-auth redirect (e.g. /invite/<token>)
+        const next = searchParams.get('next') || '/dashboard'
+
+        // Also check hash fragment for OAuth/implicit flow
         const hashFragment = window.location.hash.substring(1)
-        const params = new URLSearchParams(hashFragment)
-        
-        // Check if this is an auth callback
-        if (params.get('access_token')) {
-          const { data, error } = await supabase.auth.getSession()
-          
+        const hashParams = new URLSearchParams(hashFragment)
+        const hashToken = hashParams.get('access_token')
+
+        // Handle magic link token verification
+        if (token && type === 'magiclink') {
+          const { data, error } = await supabase.auth.verifyOtp({
+            token_hash: token,
+            type: 'magiclink'
+          })
+
           if (error) {
-            console.error('Auth callback error:', error)
             setError(error.message)
             setLoading(false)
             return
           }
 
           if (data.session) {
-            // Successfully authenticated, redirect to dashboard
-            router.replace('/dashboard')
+            router.replace(next)
             return
           }
         }
 
-        // If we get here, check if there's an error in the URL
-        const errorParam = params.get('error')
-        const errorDescription = params.get('error_description')
-        
+        // Handle OAuth/implicit flow (hash fragment)
+        if (hashToken) {
+          const { data, error } = await supabase.auth.getSession()
+
+          if (error) {
+            setError(error.message)
+            setLoading(false)
+            return
+          }
+
+          if (data.session) {
+            router.replace(next)
+            return
+          }
+        }
+
+        // Try exchanging code for session (PKCE flow)
+        const code = searchParams.get('code')
+        if (code) {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+
+          if (error) {
+            setError(error.message)
+            setLoading(false)
+            return
+          }
+
+          if (data.session) {
+            router.replace(next)
+            return
+          }
+        }
+
+        // Check for errors in URL
+        const errorParam = searchParams.get('error') || hashParams.get('error')
+        const errorDescription = searchParams.get('error_description') || hashParams.get('error_description')
+
         if (errorParam) {
           setError(errorDescription || errorParam)
           setLoading(false)
           return
         }
 
-        // No auth callback detected, redirect to login
-        router.replace('/login')
+        // No auth callback detected
+        setTimeout(() => router.replace('/login'), 1000)
       } catch (err) {
-        console.error('Unexpected error during auth callback:', err)
         setError('An unexpected error occurred')
         setLoading(false)
       }

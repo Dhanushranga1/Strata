@@ -531,7 +531,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
       </div>
 
       {/* AI Chat Interface - Mobile Optimized */}
-      {ticket.status === 'open' && (
+      {(ticket.status === 'open' || ticket.status === 'escalated' || ticket.status === 'in_progress') && (
         <div className="bg-purple-50 border border-purple-200 rounded-lg shadow p-4 md:p-6 mb-4 md:mb-6">
           <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center gap-2">
             <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
@@ -581,7 +581,7 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
       )}
 
       {/* Message Composer - Mobile Optimized */}
-      {ticket.status === 'open' && (
+      {(ticket.status === 'open' || ticket.status === 'escalated' || ticket.status === 'in_progress') && (
         <div className="bg-white rounded-lg shadow p-4 md:p-6">
           <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Add a message</h3>
           
@@ -614,9 +614,9 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
         </div>
       )}
 
-      {ticket.status === 'closed' && (
+      {(ticket.status === 'closed' || ticket.status === 'resolved') && (
         <div className="bg-gray-50 rounded-lg p-6 text-center">
-          <p className="text-gray-600">This ticket is closed. No new messages can be added.</p>
+          <p className="text-gray-600">This ticket is {ticket.status}. No new messages can be added.</p>
         </div>
       )}
     </div>

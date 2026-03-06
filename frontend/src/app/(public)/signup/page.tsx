@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabaseClient'
@@ -16,7 +16,8 @@ import { LoadingSpinner, SuccessCheckmark, PulsingDots } from '@/ui/components/L
 import { v } from '@/ui/motion/variants'
 
 export default function SignupPage() {
-  const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectTo = searchParams.get('redirect') || '/dashboard'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -70,11 +71,12 @@ export default function SignupPage() {
     setError(null)
     setSuccess(null)
 
+    const next = redirectTo !== '/dashboard' ? `?next=${encodeURIComponent(redirectTo)}` : ''
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`
+        emailRedirectTo: `${window.location.origin}/auth/callback${next}`
       }
     })
 
@@ -93,10 +95,11 @@ export default function SignupPage() {
     setError(null)
     setSuccess(null)
 
+    const next = redirectTo !== '/dashboard' ? `?next=${encodeURIComponent(redirectTo)}` : ''
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`
+        emailRedirectTo: `${window.location.origin}/auth/callback${next}`
       }
     })
 

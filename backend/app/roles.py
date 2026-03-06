@@ -37,30 +37,17 @@ async def get_user_role(user_id: str) -> str:
         cached_role = _role_cache[user_id]
         logger.info(f"Returning cached role for {user_id}: {cached_role}")
         return cached_role
-    
-    # Temporary fallback for testing - assign admin role to specific user IDs
-    admin_user_ids = [
-        "cfa54340-eea2-43af-b0fd-6cc11ea68b5f",
-        "12345678-1234-1234-1234-123456789012"
-    ]
-    
-    if user_id in admin_user_ids:
-        logger.info(f"Assigning hardcoded admin role to {user_id}")
-        _role_cache[user_id] = "admin"
-        _cache_ttl[user_id] = datetime.utcnow() + timedelta(seconds=CACHE_DURATION)
-        return "admin"
-    
+
     # Query database
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         logger.warning("DATABASE_URL not set, defaulting to customer role")
         return "customer"
-    
+
     try:
-        # Add SSL configuration for Supabase
-        # CRITICAL FIX: Disable statement caching to avoid prepared statement conflicts with pgbouncer
+        # Disable statement caching to avoid prepared statement conflicts with pgbouncer
         conn = await asyncpg.connect(
-            database_url, 
+            database_url,
             statement_cache_size=0,
             ssl='require',
             server_settings={
@@ -74,24 +61,22 @@ async def get_user_role(user_id: str) -> str:
             )
             if role is None:
                 role = "customer"
-            
+
             logger.info(f"Database query result for {user_id}: {role}")
-            
+
             # Cache the result
             _role_cache[user_id] = role
             _cache_ttl[user_id] = datetime.utcnow() + timedelta(seconds=CACHE_DURATION)
-            
+
             return role
         finally:
             await conn.close()
     except Exception as e:
         logger.error(f"Failed to get user role for {user_id}: {e}")
-        # Fallback to admin for known admin users, customer for others
-        fallback_role = "admin" if user_id in admin_user_ids else "customer"
-        logger.warning(f"Using fallback role for {user_id}: {fallback_role}")
-        _role_cache[user_id] = fallback_role
+        logger.warning(f"Defaulting to customer role for {user_id} due to DB error")
+        _role_cache[user_id] = "customer"
         _cache_ttl[user_id] = datetime.utcnow() + timedelta(seconds=CACHE_DURATION)
-        return fallback_role
+        return "customer"
 
 async def set_user_role(user_id: str, role: str):
     """

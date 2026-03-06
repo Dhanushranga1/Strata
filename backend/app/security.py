@@ -44,11 +44,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         
         # Content Security Policy
-        # Adjust 'self' and sources based on your needs
+        # Allow Swagger UI CDN resources for /docs endpoint
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
             "img-src 'self' data: https:; "
             "font-src 'self' data:; "
             "connect-src 'self' https://nvgmgvplfpukckfkjuso.supabase.co;"
