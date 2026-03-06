@@ -63,19 +63,14 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   // Load auth context from backend
   const loadAuthContext = async () => {
     try {
-      console.log('🔐 OrganizationContext: Loading auth context...')
-      
-      // Get Supabase session
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData?.session?.access_token
-      
+
       if (!token) {
-        console.log('❌ OrganizationContext: No token found')
         setLoading(false)
         return
       }
 
-      // Call backend /api/auth/context
       const response = await fetch(`${API_BASE}/api/auth/context`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -84,7 +79,6 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
       })
 
       if (!response.ok) {
-        console.error('❌ OrganizationContext: Failed to load auth context:', response.status)
         if (response.status === 401) {
           await supabase.auth.signOut()
           router.push('/login')
@@ -94,72 +88,51 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
       }
 
       const data: AuthContext = await response.json()
-      console.log('✅ OrganizationContext: Auth context loaded:', {
-        userId: data.user.id,
-        orgCount: data.organizations.length,
-        defaultOrg: data.default_organization_id
-      })
 
-      // Update state
       setUser(data.user)
       setOrganizations(data.organizations)
       setDefaultOrganizationId(data.default_organization_id)
 
-      // Set current organization from localStorage or use default
       const savedOrgId = localStorage.getItem('currentOrganizationId')
       let orgToUse: Organization | null = null
 
       if (savedOrgId) {
-        // Check if saved org is still valid
         orgToUse = data.organizations.find(org => org.id === savedOrgId) || null
       }
 
       if (!orgToUse && data.default_organization_id) {
-        // Use default organization
         orgToUse = data.organizations.find(org => org.id === data.default_organization_id) || null
       }
 
       if (!orgToUse && data.organizations.length > 0) {
-        // Fallback to first organization
         orgToUse = data.organizations[0]
       }
 
       if (orgToUse) {
         setCurrentOrganization(orgToUse)
         localStorage.setItem('currentOrganizationId', orgToUse.id)
-        console.log('✅ OrganizationContext: Current org set to:', orgToUse.name)
       }
 
-    } catch (error) {
-      console.error('💥 OrganizationContext: Error loading auth context:', error)
+    } catch {
+      // Silently handle — user stays unauthenticated
     } finally {
       setLoading(false)
     }
   }
 
-  // Refresh organizations (e.g., after creating new org)
   const refreshOrganizations = async () => {
-    console.log('🔄 OrganizationContext: Refreshing organizations...')
     await loadAuthContext()
   }
 
-  // Switch to a different organization
   const switchOrganization = (orgId: string) => {
-    console.log('🔄 OrganizationContext: Switching to organization:', orgId)
     setSwitchingOrg(true)
 
     const org = organizations.find(o => o.id === orgId)
     if (org) {
       setCurrentOrganization(org)
       localStorage.setItem('currentOrganizationId', orgId)
-      console.log('✅ OrganizationContext: Switched to:', org.name)
-      
-      // Trigger a page reload to refresh all data with new org context
-      // We'll do a soft reload by just updating the state
-      // Components using this context will re-render automatically
       setTimeout(() => setSwitchingOrg(false), 300)
     } else {
-      console.error('❌ OrganizationContext: Organization not found:', orgId)
       setSwitchingOrg(false)
     }
   }
@@ -172,8 +145,6 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   // Listen for auth state changes
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('🔔 OrganizationContext: Auth state changed:', event)
-      
       if (event === 'SIGNED_IN') {
         loadAuthContext()
       } else if (event === 'SIGNED_OUT') {

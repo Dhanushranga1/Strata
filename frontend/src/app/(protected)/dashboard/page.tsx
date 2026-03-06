@@ -80,7 +80,6 @@ interface TicketsResponse {
 }
 
 export default function DashboardPage() {
-  console.log('📊 Dashboard: Component initialized');
   const router = useRouter()
   const { currentOrganization, isReady, switchingOrg } = useOrganization()
   const orgId = currentOrganization?.id
@@ -90,17 +89,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
 
   const loadDashboardStats = async (userRole: string, orgId: string) => {
-    console.log('📊 Dashboard: Loading stats for role:', userRole);
-    
     try {
       if (userRole === 'admin') {
-        console.log('👑 Dashboard: Loading admin analytics...');
         const [analytics, categorystats] = await Promise.all([
           api.get<AdminAnalytics>('/api/admin/analytics/summary', orgId),
           api.get<any>('/api/admin/analytics/by-category', orgId).catch(() => ({ status_counts: [], priority_counts: [] }))
         ]);
-        
-        console.log('📈 Dashboard: Admin analytics received:', analytics);
         
         const statusCounts = categorystats.status_counts || [];
         const openCount = statusCounts.find((s: any) => s.status === 'open')?.count || 0;
@@ -128,9 +122,7 @@ export default function DashboardPage() {
         };
         
       } else if (userRole === 'rep') {
-        console.log('👨‍💼 Dashboard: Loading rep counts...');
         const counts = await api.get<RepCounts>('/api/rep/counts', orgId);
-        console.log('📋 Dashboard: Rep counts received:', counts);
         
         return {
           tickets: {
@@ -154,9 +146,7 @@ export default function DashboardPage() {
         
       } else {
         // Customer: get their own tickets
-        console.log('👤 Dashboard: Loading customer tickets...');
         const myTickets = await api.get<TicketsResponse>('/api/tickets?mine=true&status=all&limit=100', orgId);
-        console.log('🎫 Dashboard: Customer tickets received:', myTickets.total, 'tickets');
         
         const tickets = myTickets.items || [];
         const openCount = tickets.filter((t: TicketItem) => t.status === 'open').length;
@@ -185,7 +175,6 @@ export default function DashboardPage() {
         };
       }
     } catch (error) {
-      console.error('💥 Dashboard: Stats loading failed:', error);
       throw error;
     }
   };
@@ -193,32 +182,19 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadDashboardData = async () => {
       if (!isReady || !orgId) {
-        console.log('⏳ Dashboard: Waiting for org context...');
         setLoading(true);
         return;
       }
 
-      console.log('📊 Dashboard: Starting data load...');
       try {
         setLoading(true)
-        
-        // Load user info
-        console.log('👤 Dashboard: Fetching user info...');
         const userInfo = await api.get<Me>('/api/me')
-        console.log('✅ Dashboard: User info received:', { id: userInfo.id, email: userInfo.email, role: userInfo.role });
         setMe(userInfo)
-        
-        // Load role-appropriate dashboard stats
-        console.log('📊 Dashboard: Loading role-based stats...');
         const dashboardStats = await loadDashboardStats(userInfo.role || 'customer', orgId);
         setStats(dashboardStats);
-        console.log('✅ Dashboard: Stats loaded successfully:', dashboardStats);
-        console.log('✅ Dashboard: Data load complete');
-        
-      } catch (e: unknown) { 
+      } catch (e: unknown) {
         const error = e as Error
-        console.error('💥 Dashboard: Data load failed:', error.message);
-        setError(error.message) 
+        setError(error.message)
       } finally {
         setLoading(false)
       }

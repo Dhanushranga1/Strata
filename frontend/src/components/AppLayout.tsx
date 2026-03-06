@@ -23,46 +23,32 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   useEffect(() => {
     const fetchUser = async () => {
-      console.log('🔍 AppLayout: Starting user authentication check...');
-      
       try {
-        // Use Supabase session instead of localStorage
-        console.log('🔑 AppLayout: Getting Supabase session...');
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
-        
-        console.log('🔑 AppLayout: Token from Supabase session:', token ? 'EXISTS' : 'NOT_FOUND');
-        
+
         if (!token) {
-          console.log('❌ AppLayout: No session found, redirecting to login');
           router.push('/login');
           return;
         }
 
-        console.log('🌐 AppLayout: Making API request to /api/me...');
         const response = await fetch(`${API_BASE}/api/me`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
         });
 
-        console.log('📡 AppLayout: API response status:', response.status);
-
         if (response.ok) {
           const userData = await response.json();
-          console.log('✅ AppLayout: User data received:', { id: userData.id, email: userData.email, role: userData.role });
           setUser(userData);
         } else {
-          console.log('❌ AppLayout: API request failed, signing out and redirecting');
           await supabase.auth.signOut();
           router.push('/login');
         }
-      } catch (error) {
-        console.error('💥 AppLayout: Failed to fetch user:', error);
+      } catch {
         await supabase.auth.signOut();
         router.push('/login');
       } finally {
-        console.log('🏁 AppLayout: Authentication check complete');
         setLoading(false);
       }
     };

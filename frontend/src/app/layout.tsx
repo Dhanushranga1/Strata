@@ -3,7 +3,8 @@ import { Geist, Inter } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import MotionProvider from '@/ui/motion/MotionProvider';
 import { Toaster } from 'sonner';
-import { OrganizationProvider } from '@/contexts/OrganizationContext';
+import { OrganizationProvider } from '@/contexts/OrganizationContext'
+import { AuthHashHandler } from '@/components/AuthHashHandler';
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <MotionProvider>
             <OrganizationProvider>
+              <AuthHashHandler />
               {children}
             </OrganizationProvider>
           </MotionProvider>
