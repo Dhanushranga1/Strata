@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
@@ -12,10 +12,10 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Separator } from '@/components/ui/separator'
 import { Mail, Lock, ArrowRight, Sparkles, Eye, EyeOff, UserPlus, Shield, CheckCircle2, AlertCircle } from 'lucide-react'
 import { MeshGradient, ParticleFlow } from '@/ui/backgrounds/AnimatedBackgrounds'
-import { LoadingSpinner, SuccessCheckmark, PulsingDots } from '@/ui/components/LoadingComponents'
+import { SuccessCheckmark, PulsingDots } from '@/ui/components/LoadingComponents'
 import { v } from '@/ui/motion/variants'
 
-export default function SignupPage() {
+function SignupPageInner() {
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get('redirect') || '/dashboard'
   const [email, setEmail] = useState('')
@@ -444,5 +444,13 @@ export default function SignupPage() {
         </motion.div>
       </motion.div>
     </main>
+  )
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense>
+      <SignupPageInner />
+    </Suspense>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
@@ -16,7 +16,7 @@ import { MeshGradient, FloatingOrbs } from '@/ui/backgrounds/AnimatedBackgrounds
 import { LoadingSpinner, SuccessCheckmark } from '@/ui/components/LoadingComponents'
 import { v } from '@/ui/motion/variants'
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get('redirect') || '/dashboard'
@@ -349,5 +349,13 @@ export default function LoginPage() {
         </motion.div>
       </motion.div>
     </main>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginPageInner />
+    </Suspense>
   )
 }
