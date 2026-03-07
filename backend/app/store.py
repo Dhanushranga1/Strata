@@ -13,7 +13,7 @@ INDEX_DIR = os.getenv("VECTOR_INDEX_DIR", "./data/faiss")
 INDEX_FILE = os.getenv("VECTOR_INDEX_FILENAME", "kb.index")
 MAP_DIR = os.getenv("VECTOR_MAP_DIR", "./data/maps")
 MAP_FILE = os.getenv("VECTOR_MAP_FILENAME", "kb_map.json")
-DIM = 768  # text-embedding-004 returns 768-dim
+DIM = int(os.getenv("EMBEDDING_DIM", "3072"))  # gemini-embedding-001 returns 3072-dim
 
 class VectorStoreError(Exception):
     """Custom exception for vector store operations"""

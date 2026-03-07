@@ -1,0 +1,78 @@
+TicketPilot Troubleshooting Guide
+
+AI RESPONSE ISSUES
+
+Problem: AI is not responding to tickets
+Causes and fixes:
+1. Missing Gemini API key — Go to Admin > Settings > Integrations and add your Google Gemini API key. Get one at https://aistudio.google.com/apikey
+2. No KB documents — The AI needs at least one indexed document to generate responses. Upload documents under Knowledge Base > Upload.
+3. KB documents not indexed — Check Knowledge Base page for documents with status "error". Try re-uploading them.
+4. Rate limit hit — Gemini free tier allows 60 requests/minute. Upgrade your Google API quota if you're on a high-volume plan.
+
+Problem: AI responses are inaccurate or off-topic
+Fixes:
+- Upload more specific documentation. Vague documents produce vague answers.
+- Ensure your KB documents are in plain text format — avoid heavy formatting, tables, or images-only PDFs.
+- Check the confidence score. Scores below 55% indicate the AI couldn't find relevant context.
+- Add an FAQ document that directly mirrors the questions customers ask.
+
+Problem: AI always escalates to human
+Cause: Confidence threshold is too high, or KB doesn't cover the topics customers ask about.
+Fix: Lower the confidence threshold in Admin > Settings (try 40%), and upload more targeted documents.
+
+TICKET ISSUES
+
+Problem: Tickets not appearing in rep console
+Fix: Ensure the rep's account has the "rep" or "admin" role. Go to Admin > Roles to check and update roles.
+
+Problem: Customer can't submit a ticket
+Fixes:
+1. Check the customer's account exists and is confirmed in Supabase Dashboard > Authentication > Users
+2. Verify the customer is a member of the organization
+3. Check browser console for API errors — most common is 401 (session expired), which requires re-login
+
+Problem: Ticket status not updating
+Fix: Hard refresh the page (Ctrl+Shift+R). Status updates are real-time but require an active connection.
+
+AUTHENTICATION ISSUES
+
+Problem: "Invalid token" error after login
+Cause: JWT secret mismatch between Supabase and your backend.
+Fix: Ensure SUPABASE_JWT_SECRET in your backend environment matches the JWT Secret in Supabase Dashboard > Settings > API > JWT Settings (click Reveal).
+
+Problem: Magic link expired
+Fix: Magic links expire after 1 hour. Request a new one from the login page. For local development, disable email confirmation in Supabase Dashboard > Authentication > Providers > Email.
+
+Problem: Users redirected to marketing page instead of dashboard after login
+Fix: Update Supabase Site URL to your auth callback URL in Supabase Dashboard > Authentication > URL Configuration > Site URL.
+
+KNOWLEDGE BASE ISSUES
+
+Problem: Document upload fails
+Fixes:
+- Ensure file is under 50MB
+- Supported formats: PDF, DOCX, TXT, MD only
+- For PDFs: ensure the PDF contains actual text (not scanned images). Use OCR software first for image-based PDFs.
+- Check backend logs for specific error messages
+
+Problem: Search returns no results
+Causes:
+1. FAISS index is empty (no documents uploaded)
+2. Query is too vague — try more specific search terms
+3. MIN_SCORE threshold too high — default is 0.25, lower it in environment settings
+
+PERFORMANCE ISSUES
+
+Problem: Slow ticket loading
+Fixes:
+- Check database connection pool settings
+- Verify DATABASE_URL uses the transaction-mode pooler (port 6543), not the session-mode pooler (port 5432)
+- Check Supabase dashboard for high database load
+
+Problem: Embeddings take too long to generate
+Fix: Large documents (>50 pages) take longer to process. Split large documents into smaller files. Average processing time: 30-60 seconds per document.
+
+GETTING MORE HELP
+- Check our status page for known outages
+- Email: support@ticketpilot.io
+- In-app: Create a ticket tagged "support" in your TicketPilot dashboard

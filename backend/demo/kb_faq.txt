@@ -1,0 +1,46 @@
+TicketPilot Frequently Asked Questions
+
+Q: How does TicketPilot's AI work?
+A: TicketPilot uses a Retrieval-Augmented Generation (RAG) pipeline. When a customer submits a ticket, the AI searches your knowledge base using semantic similarity (FAISS vector search), retrieves the most relevant document chunks, and generates a cited response using Google Gemini. The AI includes confidence scores and auto-escalates to human agents when it's unsure.
+
+Q: Can I use TicketPilot without AI?
+A: Yes. You can use TicketPilot purely as a ticketing platform. The AI features are optional — if you don't configure a Gemini API key, tickets route directly to your human agents.
+
+Q: How many agents can I have?
+A: Starter supports 3 agents, Growth supports 15 agents. Enterprise plans have no agent limit.
+
+Q: Is my customer data secure?
+A: Yes. TicketPilot uses Row-Level Security (RLS) to ensure each organization's data is completely isolated. Data is encrypted at rest and in transit. We are SOC 2 Type II compliant and GDPR-ready.
+
+Q: Can customers track their ticket status?
+A: Yes. After submitting a ticket, customers receive an email with a tracking link. They can view responses, add messages, and see the current status (Open, In Progress, Resolved, Closed) without needing to log in.
+
+Q: What file types does the Knowledge Base support?
+A: PDF, DOCX, TXT, and Markdown files. We recommend keeping documents under 50MB. Larger documents are automatically split into processable chunks.
+
+Q: How long does it take to process a KB document?
+A: Most documents are processed and indexed within 30-60 seconds. You'll see the status change from "processing" to "indexed" in your KB dashboard.
+
+Q: Can I have multiple organizations?
+A: Yes. Each TicketPilot account can belong to multiple organizations. You can switch between organizations from the top navigation bar. Each organization has its own tickets, KB, and agent team.
+
+Q: What happens to my data if I cancel?
+A: Your data is retained for 30 days after cancellation. During this period you can export everything. After 30 days, all data is permanently and securely deleted.
+
+Q: How do I escalate a ticket to a senior agent?
+A: On any ticket, click the "Escalate" button. This changes the priority to Urgent and notifies all admins. The ticket appears in the Escalated queue in the Rep Console.
+
+Q: Does the AI learn from my responses?
+A: The AI uses your uploaded KB documents as its knowledge source — it doesn't learn from individual ticket conversations. To improve AI accuracy, upload more detailed documentation and FAQs to your knowledge base.
+
+Q: Can I customize the AI's personality and tone?
+A: Enterprise plans allow custom system prompts. Contact support to configure this.
+
+Q: Is there a free trial?
+A: Yes. New accounts get a 14-day free trial of the Growth plan with no credit card required. After the trial, you can choose a paid plan or downgrade to the free Starter plan.
+
+Q: How do I reset my password?
+A: Go to the login page and click "Forgot password". Enter your email and we'll send a password reset link. The link expires after 1 hour.
+
+Q: What integrations does TicketPilot support?
+A: Current integrations: Slack (notifications), email (ticket creation), Zapier (automation), and REST API. Roadmap: Jira, Linear, Intercom, Zendesk migration tool.

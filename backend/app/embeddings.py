@@ -4,7 +4,7 @@ import logging
 import google.generativeai as genai
 from typing import List, Optional
 
-MODEL = "models/text-embedding-004"
+MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-001")
 MAX_RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 1.0
 MAX_TEXT_LENGTH = 20000  # Google's text-embedding-004 limit
@@ -138,8 +138,8 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
                 # Use same dimension as successful embeddings
                 fallback_embedding = [0.0] * len(embeddings[0])
             else:
-                # Use standard dimension for text-embedding-004
-                fallback_embedding = [0.0] * 768
+                # Use standard dimension for gemini-embedding-001
+                fallback_embedding = [0.0] * int(os.getenv("EMBEDDING_DIM", "3072"))
             
             embeddings.append(fallback_embedding)
             logger.warning(f"Using zero vector fallback for text {i}")

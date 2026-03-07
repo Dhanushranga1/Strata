@@ -1,0 +1,34 @@
+TicketPilot Billing & Subscription Guide
+
+PLANS AND PRICING
+TicketPilot offers three plans:
+- Starter: $29/month — up to 3 agents, 500 tickets/month, email support
+- Growth: $99/month — up to 15 agents, 5,000 tickets/month, AI responses, KB integration
+- Enterprise: Custom pricing — unlimited agents, unlimited tickets, SLA guarantees, dedicated support
+
+BILLING CYCLE
+All plans are billed monthly on the anniversary of your signup date. Annual billing is available at a 20% discount. Invoices are sent to the account owner's email address on the billing date.
+
+HOW TO UPGRADE OR DOWNGRADE
+1. Go to Settings > Billing in your TicketPilot dashboard
+2. Click "Change Plan"
+3. Select your new plan and confirm
+Upgrades take effect immediately and are prorated. Downgrades take effect at the end of the current billing period.
+
+PAYMENT METHODS
+We accept Visa, Mastercard, American Express, and PayPal. Bank transfers are available for Enterprise plans. All transactions are processed securely via Stripe.
+
+REFUND POLICY
+We offer a 14-day money-back guarantee for new subscriptions. Refunds are not provided for partial months or after the 14-day window. To request a refund, contact billing@ticketpilot.io with your account email and reason.
+
+FAILED PAYMENTS
+If a payment fails, we retry after 3 days and again after 7 days. You will receive an email notification for each failed attempt. After 3 failed attempts, your account will be downgraded to the free tier until payment is resolved.
+
+CANCELLATION
+You can cancel at any time from Settings > Billing > Cancel Subscription. Your account remains active until the end of the current billing period. Data is retained for 30 days after cancellation, after which it is permanently deleted.
+
+TAX AND VAT
+TicketPilot charges applicable taxes based on your billing address. EU customers with a valid VAT ID can enter it in Settings > Billing to receive VAT-exempt invoices.
+
+ADDING SEATS
+On the Growth and Enterprise plans, you can add agent seats at any time. Additional seats are billed at the per-seat rate prorated for the remainder of the billing period. Go to Settings > Team > Add Seat to add agents.

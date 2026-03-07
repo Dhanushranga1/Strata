@@ -1,0 +1,51 @@
+TicketPilot Getting Started Guide
+
+WELCOME TO TICKETPILOT
+TicketPilot is an AI-powered customer support platform that combines smart ticketing with a Retrieval-Augmented Generation (RAG) pipeline. Your support team gets AI-drafted responses backed by your own documentation, and customers get faster, more accurate answers.
+
+STEP 1: CREATE YOUR ORGANIZATION
+After signing up, you'll be prompted to create your first organization. This is your workspace — all tickets, agents, and knowledge base documents belong to an organization. You can belong to multiple organizations (e.g., different clients or departments).
+
+STEP 2: INVITE YOUR TEAM
+Go to Organizations → click the invite icon on your org card. Enter your agent's email and assign them a role:
+- Owner: full access, billing, can delete the org
+- Admin: manage agents, KB, analytics — cannot access billing
+- Rep: handle tickets, use the rep console, cannot manage team
+- Member: read-only access to tickets and analytics
+
+STEP 3: UPLOAD KNOWLEDGE BASE DOCUMENTS
+Navigate to Knowledge Base → Upload. Drag and drop your support documentation (PDF, DOCX, TXT, or Markdown). The system will:
+1. Extract and normalize the text
+2. Split it into overlapping chunks (~2400 characters each)
+3. Generate vector embeddings using Google text-embedding-004
+4. Store embeddings in a FAISS index for fast semantic search
+
+Best practice: Upload 5-15 documents covering your product FAQs, billing policies, technical guides, and troubleshooting steps.
+
+STEP 4: CONFIGURE AI SETTINGS
+Go to Admin → Settings to configure:
+- Confidence threshold (default 55%): below this, tickets are flagged for human review
+- Auto-escalation: enable to automatically assign low-confidence tickets to a rep
+- Response tone: professional, friendly, or technical
+
+STEP 5: TEST WITH A TICKET
+Create a test ticket from the Tickets page. Open it and use the "Chat with AI" button to ask a question. You'll see:
+- The AI response with numbered citations [1], [2] referencing your KB documents
+- A confidence score (0-100%)
+- An escalation flag if the AI isn't confident enough
+
+STEP 6: MONITOR WITH ANALYTICS
+Go to Analytics to see:
+- Total tickets by status and priority
+- AI confidence distribution
+- Escalation rate (lower is better)
+- Average response time
+- Top ticket categories
+
+YOUR FIRST WEEK CHECKLIST
+[ ] Create organization
+[ ] Invite at least one rep
+[ ] Upload 5+ knowledge base documents
+[ ] Create a test ticket and verify AI responses
+[ ] Review analytics after 10 tickets
+[ ] Set up email integration (Settings > Email)

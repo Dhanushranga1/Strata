@@ -1,0 +1,84 @@
+TicketPilot Roles & Permissions Guide
+
+ROLE OVERVIEW
+TicketPilot has two role systems that work together:
+1. Global role (app.user_roles): determines system-wide access level — admin, rep, or customer
+2. Organization role (app.organization_members): determines access within a specific organization — owner, admin, rep, or member
+
+GLOBAL ROLES
+
+Admin
+- Full access to all features within their organization
+- Can view all tickets, manage the knowledge base, view analytics
+- Can manage organization members and invite new users
+- Cannot access other organizations' data
+
+Rep (Support Agent)
+- Can view and respond to tickets assigned to them or their queue
+- Can use the AI chat interface on tickets
+- Can search and view the knowledge base
+- Cannot manage organization settings or view billing
+
+Customer
+- Can create tickets and view their own tickets
+- Can chat with the AI on their tickets
+- Cannot see other customers' tickets
+- Cannot access admin or rep console
+
+ORGANIZATION ROLES
+
+Owner
+- Created automatically when you create an organization
+- Full control: can delete the organization, manage billing, change all settings
+- Can promote members to admin or owner
+- Cannot be removed by other admins (only by themselves)
+
+Admin
+- Can invite new members and change roles (except cannot change owner's role)
+- Can manage Knowledge Base: upload, delete, re-index documents
+- Can view all tickets in the organization
+- Can access analytics and admin dashboard
+
+Rep
+- Can view and respond to tickets in the rep console
+- Can update ticket status (open, in_progress, resolved, closed, escalated)
+- Can use AI chat and view AI confidence scores
+- Cannot manage members or access KB management
+
+Member
+- Read-only access to ticket list and analytics
+- Cannot respond to tickets or manage anything
+- Useful for stakeholders who need visibility without edit access
+
+PERMISSION MATRIX
+
+Feature                  | Owner | Admin | Rep | Member | Customer
+-------------------------|-------|-------|-----|--------|----------
+Create tickets           | ✓     | ✓     | ✓   | ✓      | ✓
+View own tickets         | ✓     | ✓     | ✓   | ✓      | ✓
+View all org tickets     | ✓     | ✓     | ✓   | ✓      | ✗
+Respond to tickets       | ✓     | ✓     | ✓   | ✗      | ✗
+Escalate tickets         | ✓     | ✓     | ✓   | ✗      | ✗
+Resolve/close tickets    | ✓     | ✓     | ✓   | ✗      | ✗
+Use AI chat              | ✓     | ✓     | ✓   | ✗      | ✓
+Upload KB documents      | ✓     | ✓     | ✗   | ✗      | ✗
+Delete KB documents      | ✓     | ✓     | ✗   | ✗      | ✗
+View analytics           | ✓     | ✓     | ✗   | ✓      | ✗
+Manage members           | ✓     | ✓     | ✗   | ✗      | ✗
+Invite users             | ✓     | ✓     | ✗   | ✗      | ✗
+Organization settings    | ✓     | ✓     | ✗   | ✗      | ✗
+Delete organization      | ✓     | ✗     | ✗   | ✗      | ✗
+
+CHANGING ROLES
+Admins and owners can change member roles from Organizations > Members. Select a member and choose their new role from the dropdown. Role changes take effect immediately on next API request.
+
+SECURITY MODEL
+All role checks are enforced server-side using PostgreSQL Row-Level Security (RLS). Even if a user modifies their browser requests, the database will reject unauthorized queries. The frontend role checks are for UI only — the database is the authoritative source of truth.
+
+INVITING NEW MEMBERS
+1. Go to Organizations page
+2. Click the invite icon on your org card (only visible to owners and admins)
+3. Enter the invitee's email and select their role
+4. An invite link is generated (and emailed in production)
+5. The invitee clicks the link, signs up or logs in, and accepts the invite
+6. They are automatically added to the organization with the assigned role

@@ -1,0 +1,53 @@
+TicketPilot Technical Support Guide
+
+GETTING STARTED
+After signing up, complete these steps to get TicketPilot working:
+1. Create your organization from the Organizations page
+2. Invite your support agents via Settings > Team > Invite Agent
+3. Upload your knowledge base documents under Knowledge Base > Upload
+4. Configure your widget code on your website (Settings > Widget)
+
+WIDGET INSTALLATION
+Paste this snippet before the closing </body> tag on your website:
+<script src="https://cdn.ticketpilot.io/widget.js" data-org="YOUR_ORG_ID"></script>
+Replace YOUR_ORG_ID with your organization ID found in Settings > General.
+
+EMAIL INTEGRATION
+TicketPilot can receive tickets via email. Go to Settings > Email and add your support email address. All emails to that address will automatically create tickets. Supported formats: Gmail, Outlook, and custom SMTP.
+
+API ACCESS
+The TicketPilot REST API is available at https://api.ticketpilot.io/v1. Authenticate with your API key from Settings > API Keys. Rate limits: 100 requests/minute on Starter, 500/minute on Growth, unlimited on Enterprise.
+
+KNOWLEDGE BASE SETUP
+For best AI performance, upload documents in these formats: PDF, DOCX, TXT, MD.
+- Documents are split into chunks of ~2400 characters with 400-character overlap
+- Embeddings are generated automatically using Google text-embedding-004
+- FAISS vector index is updated in real time after each upload
+- Recommended: Upload 5-20 documents covering your product, FAQs, and policies
+
+AI CHAT CONFIGURATION
+The AI assistant uses Retrieval-Augmented Generation (RAG) to answer customer questions:
+- It searches your KB for relevant chunks using semantic similarity
+- Responses include citations like [1], [2] referencing the source documents
+- Confidence threshold: responses below 55% confidence are flagged for human review
+- Escalation: tickets are auto-escalated when the AI cannot confidently resolve the issue
+
+TROUBLESHOOTING: AI NOT RESPONDING
+1. Check that your Gemini API key is set in Settings > Integrations
+2. Ensure you have at least one document in the Knowledge Base
+3. Verify the document was processed (status: "indexed" in KB list)
+4. Try re-uploading the document if status shows "error"
+
+TROUBLESHOOTING: SLOW TICKET LOADING
+- Clear your browser cache
+- Check your internet connection
+- If the issue persists, check our status page at status.ticketpilot.io
+
+SSO AND SAML
+Enterprise plans include SAML 2.0 SSO. Configure it under Settings > Security > SSO. Supported providers: Okta, Azure AD, Google Workspace, and any SAML 2.0-compatible provider.
+
+DATA EXPORT
+Export all your data from Settings > Data > Export. The export includes tickets, messages, KB documents, and user data in JSON format. Exports are processed within 24 hours and sent to your account email.
+
+WEBHOOKS
+Configure webhooks to receive real-time events at Settings > Integrations > Webhooks. Supported events: ticket.created, ticket.updated, ticket.resolved, message.received, escalation.triggered.
