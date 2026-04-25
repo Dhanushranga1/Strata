@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm show next versions --json)",
+      "Bash(python3 -c \"import sys,json; vs=[v for v in json.load\\(sys.stdin\\) if v.startswith\\(''15.''\\)]; print\\(''\\\\n''.join\\(vs[-10:]\\)\\)\")",
+      "Bash(curl -s http://127.0.0.1:8000/api/health)"
+    ]
+  }
+}

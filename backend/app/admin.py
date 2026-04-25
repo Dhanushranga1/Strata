@@ -5,12 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from typing import Optional, List
 from datetime import datetime
 import logging
-import asyncpg
 
 from .observability import get_rag_analytics
 from .schemas import (
-    UserRoleItem, SetRoleRequest, RoleRequestCreate, RoleRequestItem, 
-    DecideRoleRequest, DiagnosticInfo, Role
+    UserRoleItem, SetRoleRequest, RoleRequestCreate, RoleRequestItem,
+    DecideRoleRequest, DiagnosticInfo, Role, AutoAssignResponse,
 )
 from .auth import get_current_user, User
 from .roles import get_database_connection, set_user_role, normalize_role, invalidate_cache
@@ -38,31 +37,32 @@ def require_admin(user: User):
 @router.get("/users", response_model=List[UserRoleItem])
 async def list_users(
     q: Optional[str] = Query(None, description="Search by email"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     user: User = Depends(get_current_user)
 ):
     """List all users with their roles (admin only)"""
     require_admin(user)
-    
+
     conn = await get_database_connection()
     try:
-        # Query the convenience view with optional email filter
         if q:
             query = """
-                SELECT user_id, email, role, role_updated_at 
-                FROM app.v_users_roles 
+                SELECT user_id, email, role, role_updated_at
+                FROM app.v_users_roles
                 WHERE email ILIKE $1
                 ORDER BY email
-                LIMIT 200
+                LIMIT $2 OFFSET $3
             """
-            rows = await conn.fetch(query, f"%{q}%")
+            rows = await conn.fetch(query, f"%{q}%", limit, offset)
         else:
             query = """
-                SELECT user_id, email, role, role_updated_at 
-                FROM app.v_users_roles 
+                SELECT user_id, email, role, role_updated_at
+                FROM app.v_users_roles
                 ORDER BY email
-                LIMIT 200
+                LIMIT $1 OFFSET $2
             """
-            rows = await conn.fetch(query)
+            rows = await conn.fetch(query, limit, offset)
         
         return [
             UserRoleItem(
@@ -317,48 +317,124 @@ async def db_diagnostics(user: User = Depends(get_current_user)):
 
 # Analytics Endpoints
 @router.get("/analytics/summary")
-async def get_analytics_summary(request: Request, user: User = Depends(get_current_user)):
+async def get_analytics_summary(
+    request: Request,
+    days: int = Query(default=30, ge=1, le=365),
+    user: User = Depends(get_current_user)
+):
     """Get summary analytics for admin dashboard"""
     org_id = require_org_context(request)
     require_admin(user)
-    
+
     conn = await get_database_connection()
     try:
-        # Total tickets
         total_tickets = await conn.fetchval(
-            "SELECT count(*) FROM app.tickets WHERE organization_id = $1", org_id
+            "SELECT count(*) FROM app.tickets WHERE organization_id = $1"
+            " AND created_at >= NOW() - ($2 || ' days')::interval",
+            org_id, str(days)
         )
-        
-        # Resolution rate (resolved + closed / total)
+
         resolved_count = await conn.fetchval(
-            "SELECT count(*) FROM app.tickets WHERE organization_id = $1 AND status IN ('resolved', 'closed')",
-            org_id
+            "SELECT count(*) FROM app.tickets WHERE organization_id = $1"
+            " AND status IN ('resolved','closed')"
+            " AND created_at >= NOW() - ($2 || ' days')::interval",
+            org_id, str(days)
         )
         resolution_rate = (resolved_count / total_tickets * 100) if total_tickets > 0 else 0
-        
-        # Average response time (simplified calculation)
-        # Using time between ticket creation and first response
-        avg_response_query = """
+
+        avg_response_hours = await conn.fetchval("""
             SELECT AVG(
                 EXTRACT(EPOCH FROM (
-                    (SELECT MIN(created_at) FROM app.messages 
-                     WHERE ticket_id = t.id AND sender_role IN ('rep', 'admin') AND organization_id = $1)
+                    (SELECT MIN(created_at) FROM app.messages
+                     WHERE ticket_id = t.id AND sender_role IN ('rep','admin')
+                       AND organization_id = $1)
                     - t.created_at
                 )) / 3600
-            ) as avg_hours
-            FROM app.tickets t
-            WHERE t.organization_id = $1 AND EXISTS (
-                SELECT 1 FROM app.messages m 
-                WHERE m.ticket_id = t.id AND m.sender_role IN ('rep', 'admin') AND m.organization_id = $1
             )
-        """
-        avg_response_hours = await conn.fetchval(avg_response_query, org_id) or 0
-        
+            FROM app.tickets t
+            WHERE t.organization_id = $1
+              AND t.created_at >= NOW() - ($2 || ' days')::interval
+              AND EXISTS (
+                SELECT 1 FROM app.messages m
+                WHERE m.ticket_id = t.id AND m.sender_role IN ('rep','admin')
+                  AND m.organization_id = $1
+              )
+        """, org_id, str(days)) or 0
+
+        avg_rating = await conn.fetchval(
+            "SELECT AVG(customer_rating) FROM app.tickets"
+            " WHERE organization_id = $1 AND customer_rating IS NOT NULL"
+            " AND created_at >= NOW() - ($2 || ' days')::interval",
+            org_id, str(days)
+        )
+
         return {
-            "total_tickets": total_tickets,
+            "total_tickets": int(total_tickets),
             "resolution_rate": round(resolution_rate, 1),
-            "avg_response_hours": round(avg_response_hours, 1)
+            "avg_response_hours": round(float(avg_response_hours), 1),
+            "avg_customer_rating": round(float(avg_rating), 2) if avg_rating else None,
         }
+    finally:
+        await conn.close()
+
+
+@router.get("/activity")
+async def get_activity_feed(
+    request: Request,
+    limit: int = Query(default=25, ge=1, le=100),
+    user: User = Depends(get_current_user)
+):
+    """Get recent activity feed for the organization"""
+    org_id = require_org_context(request)
+    require_admin(user)
+
+    conn = await get_database_connection()
+    try:
+        ticket_rows = await conn.fetch("""
+            SELECT t.id::text AS ref_id, 'ticket_created' AS event_type,
+                   u.email AS actor, t.title AS detail, t.created_at AS occurred_at
+            FROM app.tickets t
+            JOIN auth.users u ON u.id = t.created_by
+            WHERE t.organization_id = $1
+            ORDER BY t.created_at DESC LIMIT $2
+        """, org_id, limit)
+
+        message_rows = await conn.fetch("""
+            SELECT m.ticket_id::text AS ref_id, 'message_sent' AS event_type,
+                   u.email AS actor, t.title AS detail, m.created_at AS occurred_at
+            FROM app.messages m
+            JOIN auth.users u ON u.id = m.sender_id
+            JOIN app.tickets t ON t.id = m.ticket_id
+            WHERE m.organization_id = $1 AND m.sender_role IN ('rep','admin')
+            ORDER BY m.created_at DESC LIMIT $2
+        """, org_id, limit)
+
+        resolved_rows = await conn.fetch("""
+            SELECT t.id::text AS ref_id, 'ticket_resolved' AS event_type,
+                   COALESCE(u.email, 'system') AS actor,
+                   t.title AS detail, t.updated_at AS occurred_at
+            FROM app.tickets t
+            LEFT JOIN auth.users u ON u.id = t.assignee_id
+            WHERE t.organization_id = $1 AND t.status IN ('resolved','closed')
+            ORDER BY t.updated_at DESC LIMIT $2
+        """, org_id, limit)
+
+        all_events = [dict(r) for r in ticket_rows] + \
+                     [dict(r) for r in message_rows] + \
+                     [dict(r) for r in resolved_rows]
+        all_events.sort(key=lambda x: x["occurred_at"], reverse=True)
+
+        return [
+            {
+                "id": f"{e['event_type']}_{e['ref_id']}_{e['occurred_at'].isoformat()}",
+                "type": e["event_type"],
+                "ticket_id": e["ref_id"],
+                "user": e["actor"],
+                "detail": (e["detail"] or "")[:80],
+                "ts": e["occurred_at"].isoformat(),
+            }
+            for e in all_events[:limit]
+        ]
     finally:
         await conn.close()
 
@@ -490,3 +566,105 @@ def get_rag_system_analytics(
     except Exception as e:
         logger.error(f"Failed to get RAG analytics: {e}")
         raise HTTPException(status_code=500, detail=f"Analytics retrieval failed: {str(e)}")
+
+# ── Auto-assignment ───────────────────────────────────────────────────────────
+
+async def _get_db():
+    from .db import get_connection
+    return await get_connection()
+
+
+@router.post("/auto-assign", response_model=AutoAssignResponse)
+async def auto_assign_tickets(request: Request, user: User = Depends(get_current_user)):
+    """
+    Assign every unassigned open/in-progress ticket in the org to the rep
+    with the current lowest active workload (round-robin by load).
+    """
+    require_admin(user)
+    org_id = require_org_context(request)
+
+    conn = await _get_db()
+    try:
+        import uuid as uuid_lib
+        org_uuid = uuid_lib.UUID(org_id)
+
+        # 1) Get all reps/admins in org, ordered by open ticket count ASC
+        rep_rows = await conn.fetch("""
+            SELECT om.user_id::text, au.email,
+                   COUNT(t.id) FILTER (
+                       WHERE t.assignee_id = om.user_id
+                         AND t.status IN ('open','in_progress','escalated')
+                   ) AS load
+            FROM app.organization_members om
+            JOIN auth.users au ON au.id = om.user_id
+            JOIN app.user_roles ur ON ur.user_id = om.user_id
+            LEFT JOIN app.tickets t ON t.organization_id = $1
+            WHERE om.organization_id = $1
+              AND ur.role IN ('rep', 'admin')
+            GROUP BY om.user_id, au.email
+            ORDER BY load ASC, au.email ASC
+        """, org_uuid)
+
+        if not rep_rows:
+            raise HTTPException(400, "No reps/admins found in this organisation")
+
+        # 2) Get all unassigned open tickets
+        unassigned = await conn.fetch("""
+            SELECT id::text, title FROM app.tickets
+            WHERE organization_id = $1
+              AND status IN ('open','in_progress','escalated')
+              AND assignee_id IS NULL
+            ORDER BY
+              CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2
+                            WHEN 'normal' THEN 3 ELSE 4 END ASC,
+              created_at ASC
+        """, org_uuid)
+
+        if not unassigned:
+            return AutoAssignResponse(assigned=0, skipped=0, details=[])
+
+        # 3) Round-robin assignment weighted by current load
+        # Build mutable load map
+        load_map = {r["user_id"]: r["load"] for r in rep_rows}
+        details = []
+
+        async with conn.transaction():
+            for ticket in unassigned:
+                # Pick rep with lowest current load
+                best_rep_id = min(load_map, key=lambda uid: load_map[uid])
+                best_rep_email = next(r["email"] for r in rep_rows if r["user_id"] == best_rep_id)
+
+                await conn.execute("""
+                    UPDATE app.tickets
+                    SET assignee_id = $1, updated_at = NOW()
+                    WHERE id = $2
+                """, best_rep_id, ticket["id"])
+
+                await conn.execute("""
+                    INSERT INTO app.messages
+                      (ticket_id, sender_id, sender_role, organization_id, body, created_at)
+                    VALUES ($1, $2, 'system', $3, $4, NOW())
+                """, ticket["id"], user.id, org_id,
+                    f"[system] Auto-assigned to {best_rep_email}")
+
+                await conn.execute(
+                    "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
+                    ticket["id"]
+                )
+
+                load_map[best_rep_id] += 1
+                details.append({
+                    "ticket_id": ticket["id"],
+                    "ticket_title": ticket["title"],
+                    "assigned_to": best_rep_email,
+                })
+
+        result = AutoAssignResponse(assigned=len(details), skipped=0, details=details)
+        logger.info("auto_assign returning: assigned=%d", result.assigned)
+        return result
+
+    except Exception as exc:
+        logger.error("auto_assign internal error: %s", exc, exc_info=True)
+        raise
+    finally:
+        await conn.close()

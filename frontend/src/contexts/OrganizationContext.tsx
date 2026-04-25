@@ -31,17 +31,18 @@ interface OrganizationContextType {
   organizations: Organization[]
   currentOrganization: Organization | null
   defaultOrganizationId: string | null
-  
+
   // Loading states
   loading: boolean
   switchingOrg: boolean
-  
+
   // Actions
   switchOrganization: (orgId: string) => void
   refreshOrganizations: () => Promise<void>
-  
-  // Helper
+
+  // Helpers
   isReady: boolean
+  isOrgMissing: boolean  // true when auth succeeded but no org exists yet
 }
 
 const OrganizationContext = createContext<OrganizationContextType | undefined>(undefined)
@@ -59,6 +60,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   const [defaultOrganizationId, setDefaultOrganizationId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [switchingOrg, setSwitchingOrg] = useState(false)
+  const [isOrgMissing, setIsOrgMissing] = useState(false)
 
   // Load auth context from backend
   const loadAuthContext = async () => {
@@ -93,22 +95,24 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
       setOrganizations(data.organizations)
       setDefaultOrganizationId(data.default_organization_id)
 
-      const savedOrgId = localStorage.getItem('currentOrganizationId')
-      let orgToUse: Organization | null = null
+      if (data.organizations.length === 0) {
+        // Authenticated but no org yet — show onboarding rather than a broken state
+        setIsOrgMissing(true)
+        setCurrentOrganization(null)
+      } else {
+        setIsOrgMissing(false)
+        const savedOrgId = localStorage.getItem('currentOrganizationId')
+        let orgToUse: Organization | null = null
 
-      if (savedOrgId) {
-        orgToUse = data.organizations.find(org => org.id === savedOrgId) || null
-      }
-
-      if (!orgToUse && data.default_organization_id) {
-        orgToUse = data.organizations.find(org => org.id === data.default_organization_id) || null
-      }
-
-      if (!orgToUse && data.organizations.length > 0) {
-        orgToUse = data.organizations[0]
-      }
-
-      if (orgToUse) {
+        if (savedOrgId) {
+          orgToUse = data.organizations.find(org => org.id === savedOrgId) || null
+        }
+        if (!orgToUse && data.default_organization_id) {
+          orgToUse = data.organizations.find(org => org.id === data.default_organization_id) || null
+        }
+        if (!orgToUse) {
+          orgToUse = data.organizations[0]
+        }
         setCurrentOrganization(orgToUse)
         localStorage.setItem('currentOrganizationId', orgToUse.id)
       }
@@ -144,7 +148,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
 
   // Listen for auth state changes
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN') {
         loadAuthContext()
       } else if (event === 'SIGNED_OUT') {
@@ -152,14 +156,24 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
         setOrganizations([])
         setCurrentOrganization(null)
         setDefaultOrganizationId(null)
+        setIsOrgMissing(false)
         localStorage.removeItem('currentOrganizationId')
       }
     })
-
-    return () => {
-      subscription.unsubscribe()
-    }
+    return () => subscription.unsubscribe()
   }, [])
+
+  // Cross-tab org switch sync via storage events
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'currentOrganizationId' && e.newValue && e.newValue !== currentOrganization?.id) {
+        const org = organizations.find(o => o.id === e.newValue)
+        if (org) setCurrentOrganization(org)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [organizations, currentOrganization])
 
   const isReady = !loading && user !== null && currentOrganization !== null
 
@@ -172,7 +186,8 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     switchingOrg,
     switchOrganization,
     refreshOrganizations,
-    isReady
+    isReady,
+    isOrgMissing,
   }
 
   return (

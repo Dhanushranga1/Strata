@@ -1,21 +1,22 @@
 from fastapi import Depends, HTTPException, status, Request, APIRouter
 from pydantic import BaseModel
 import os
+import logging
 import jwt
-import json
 from supabase import create_client, Client
 from dotenv import load_dotenv
-import asyncpg
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
 # Supabase configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_JWT_SECRET")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-    raise RuntimeError("SUPABASE_URL and SUPABASE_JWT_SECRET are required in .env")
+    raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in .env")
 
 # Create Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -92,45 +93,24 @@ async def get_current_user(request: Request) -> User:
     from .roles import get_user_role
     user_role = await get_user_role(user_id)
     
-    # Log for debugging
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"User authenticated - ID: {user_id}, Email: {email}, Role: {user_role}")
-    
-    # Return user object with actual role from DB
     return User(id=user_id, email=email, role=user_role)
 
 async def get_db_connection():
-    """Get database connection with statement caching disabled"""
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL environment variable is required")
-    # Disable statement caching to avoid prepared statement conflicts
-    # Add SSL configuration for Supabase
-    return await asyncpg.connect(
-        database_url, 
-        statement_cache_size=0,
-        ssl='require'
-    )
+    from .db import get_connection
+    return await get_connection()
 
 async def get_user_organizations(user_id: str) -> List[UserOrganization]:
     """
     Fetch all organizations the user is a member of.
     Returns list with role and default organization flag.
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     conn = await get_db_connection()
     try:
-        # Convert to UUID for query
         import uuid as uuid_lib
         user_uuid = uuid_lib.UUID(user_id)
-        
-        logger.info(f"🔍 Fetching organizations for user: {user_id}")
-        
+
         rows = await conn.fetch("""
-            SELECT 
+            SELECT
                 o.id,
                 o.name,
                 o.slug,
@@ -141,24 +121,19 @@ async def get_user_organizations(user_id: str) -> List[UserOrganization]:
             WHERE om.user_id = $1
             ORDER BY o.name ASC
         """, user_uuid)
-        
-        logger.info(f"✅ Found {len(rows)} organizations for user {user_id}")
-        
-        # Mark first org as default for now (until we add default_organization_id column)
-        result = [
+
+        return [
             UserOrganization(
                 id=str(row['id']),
                 name=row['name'],
                 slug=row['slug'],
                 your_role=row['your_role'],
-                is_default=(i == 0)  # First org is default
+                is_default=(i == 0)
             )
             for i, row in enumerate(rows)
         ]
-        
-        return result
     except Exception as e:
-        logger.error(f"❌ Error fetching organizations for user {user_id}: {e}", exc_info=True)
+        logger.error("Error fetching organizations for user %s: %s", user_id, e, exc_info=True)
         raise
     finally:
         await conn.close()
@@ -170,12 +145,10 @@ async def auto_create_organization_for_new_user(user_id: str, user_email: str) -
     
     Returns: organization_id
     """
-    import logging
     import re
     import uuid as uuid_lib
-    
-    logger = logging.getLogger(__name__)
-    logger.info(f"🏢 Auto-creating organization for new user: {user_email}")
+
+    logger.info("Auto-creating organization for new user: %s", user_email)
     
     # Generate organization name and slug from email
     org_name = f"{user_email}'s Organization"
@@ -201,15 +174,18 @@ async def auto_create_organization_for_new_user(user_id: str, user_email: str) -
     try:
         user_uuid = uuid_lib.UUID(user_id)
         
-        # CRITICAL FIX: Ensure user exists in user_roles table first
-        # This is required because organization_members has a foreign key to user_roles
+        # Ensure user exists in user_roles. Self-signing-up users become org owners,
+        # so elevate them to 'admin'. If they were already set to something higher
+        # (e.g. accepted an invite earlier) DO NOT downgrade them.
         await conn.execute("""
             INSERT INTO app.user_roles (user_id, role)
-            VALUES ($1, 'customer')
-            ON CONFLICT (user_id) DO NOTHING
+            VALUES ($1, 'admin')
+            ON CONFLICT (user_id) DO UPDATE
+              SET role = 'admin'
+              WHERE app.user_roles.role = 'customer'
         """, user_uuid)
         
-        logger.info(f"✅ Ensured user {user_id} exists in user_roles table")
+        logger.debug("Ensured user %s exists in user_roles as admin", user_id)
         
         # Check if slug exists, if so add suffix
         while attempt < 10:
@@ -242,12 +218,12 @@ async def auto_create_organization_for_new_user(user_id: str, user_email: str) -
             VALUES ($1, $2, $3)
         """, org_id, user_uuid, "owner")
         
-        logger.info(f"✅ Created organization '{org_name}' (slug: {slug}) for user {user_email}")
-        
+        logger.info("Created organisation '%s' for user %s", org_name, user_email)
+
         return str(org_id)
-        
+
     except Exception as e:
-        logger.error(f"❌ Failed to auto-create organization: {e}")
+        logger.error("Failed to auto-create organisation: %s", e)
         raise HTTPException(500, f"Failed to create default organization: {str(e)}")
     finally:
         await conn.close()
@@ -261,40 +237,28 @@ async def get_auth_context(user: User = Depends(get_current_user)):
     
     If user has no organizations, automatically creates a default one.
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         organizations = await get_user_organizations(user.id)
         
-        # 🚨 CRITICAL FIX: Auto-create organization for new users
         if not organizations:
-            logger.warning(f"⚠️ User {user.email} has no organizations! Auto-creating default org...")
-            
+            logger.warning("User %s has no organisations — auto-creating default org", user.email)
+
             try:
-                # Create default organization
-                org_id = await auto_create_organization_for_new_user(user.id, user.email or "user")
-                
-                # Fetch the newly created organization
+                await auto_create_organization_for_new_user(user.id, user.email or "user")
+
                 organizations = await get_user_organizations(user.id)
-                
+
                 if not organizations:
                     raise HTTPException(500, "Failed to create default organization for new user")
                 
-                logger.info(f"✅ Successfully created default organization for {user.email}")
-                
+                logger.info("Created default organisation for %s", user.email)
+
             except Exception as e:
-                logger.error(f"❌ Failed to auto-create organization: {e}")
-                # Don't fail the request, but log the error
-                # Frontend will show "no organization" state
-        
-        # Find default organization
-        default_org_id = None
-        for org in organizations:
-            if org.is_default:
-                default_org_id = org.id
-                break
-        
+                logger.error("Failed to auto-create organisation: %s", e)
+                # Frontend will show "no organisation" state — don't blow up the request
+
+        default_org_id = next((org.id for org in organizations if org.is_default), None)
+
         return AuthContextResponse(
             user=user,
             organizations=organizations,
@@ -303,5 +267,5 @@ async def get_auth_context(user: User = Depends(get_current_user)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error in get_auth_context: {e}", exc_info=True)
+        logger.error("Error in get_auth_context: %s", e, exc_info=True)
         raise HTTPException(500, f"Failed to get auth context: {str(e)}")

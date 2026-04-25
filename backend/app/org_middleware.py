@@ -13,23 +13,16 @@ Features:
 from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Optional, Set
+from datetime import datetime, timedelta
 import logging
-import os
-import psycopg
-from psycopg.rows import dict_row
 
 from .exceptions import ForbiddenError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-
-def get_db_connection():
-    """Get database connection."""
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL not configured")
-    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+# Cache org membership to avoid a DB hit on every request (60 s TTL).
+_org_cache: dict[str, tuple[str | None, datetime]] = {}
+_ORG_CACHE_TTL = 60  # seconds
 
 
 class OrganizationContextMiddleware(BaseHTTPMiddleware):
@@ -224,36 +217,33 @@ class OrganizationContextMiddleware(BaseHTTPMiddleware):
     async def _get_user_role_in_org(
         self, user_id: str, org_id: str
     ) -> Optional[str]:
-        """
-        Get user's role in an organization.
-        
-        Args:
-            user_id: User UUID
-            org_id: Organization UUID
-            
-        Returns:
-            Role string (owner/admin/rep/member) or None if not a member
-        """
+        """Return user's role in the org, with a 60 s in-memory cache."""
+        import uuid as uuid_lib
+        cache_key = f"{user_id}:{org_id}"
+        cached = _org_cache.get(cache_key)
+        if cached:
+            role, expires = cached
+            if datetime.utcnow() < expires:
+                return role
+
         try:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT role FROM app.organization_members WHERE organization_id = %s AND user_id = %s",
-                    (org_id, user_id)
+            from .db import get_connection
+            conn = await get_connection()
+            try:
+                row = await conn.fetchrow(
+                    "SELECT role FROM app.organization_members"
+                    " WHERE organization_id = $1 AND user_id = $2",
+                    uuid_lib.UUID(org_id), uuid_lib.UUID(user_id),
                 )
-                result = cursor.fetchone()
-                
-                if result:
-                    return result["role"]
-                
-                return None
-            
+                role = row["role"] if row else None
+            finally:
+                await conn.close()
         except Exception as e:
-            self.logger.error(
-                f"Failed to get user role in org: {str(e)}",
-                extra={"user_id": user_id, "org_id": org_id, "error": str(e)}
-            )
+            self.logger.error("Failed to get user role in org: %s", e)
             return None
+
+        _org_cache[cache_key] = (role, datetime.utcnow() + timedelta(seconds=_ORG_CACHE_TTL))
+        return role
 
 
 def add_organization_context(app):

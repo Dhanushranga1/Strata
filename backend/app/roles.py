@@ -2,10 +2,10 @@
 Role management helpers with optional caching for Phase 5A
 """
 import asyncpg
-import os
 from typing import Optional
 from datetime import datetime, timedelta
 import logging
+from .db import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -38,22 +38,8 @@ async def get_user_role(user_id: str) -> str:
         logger.info(f"Returning cached role for {user_id}: {cached_role}")
         return cached_role
 
-    # Query database
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        logger.warning("DATABASE_URL not set, defaulting to customer role")
-        return "customer"
-
     try:
-        # Disable statement caching to avoid prepared statement conflicts with pgbouncer
-        conn = await asyncpg.connect(
-            database_url,
-            statement_cache_size=0,
-            ssl='require',
-            server_settings={
-                'application_name': 'ticketpilot_backend'
-            }
-        )
+        conn = await get_connection()
         try:
             role = await conn.fetchval(
                 "SELECT coalesce(role, 'customer') FROM app.user_roles WHERE user_id = $1",
@@ -87,20 +73,8 @@ async def set_user_role(user_id: str, role: str):
     if role not in ["customer", "rep", "admin"]:
         raise ValueError(f"Invalid role: {role}")
     
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL not configured")
-    
     try:
-        # Disable statement caching to avoid prepared statement conflicts with pgbouncer
-        conn = await asyncpg.connect(
-            database_url,
-            statement_cache_size=0,
-            ssl='require',
-            server_settings={
-                'application_name': 'ticketpilot_backend'
-            }
-        )
+        conn = await get_connection()
         try:
             # Use transaction for consistency
             async with conn.transaction():
@@ -125,33 +99,8 @@ async def set_user_role(user_id: str, role: str):
         raise
 
 async def get_database_connection():
-    """Get a database connection for admin operations"""
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL not configured")
-    
-    # Use connection pooler with session pooling mode
-    # CRITICAL FIX: Disable statement caching to avoid prepared statement conflicts with pgbouncer
-    if ':6543/' in database_url:
-        # Connection pooler mode - disable SSL for pooler
-        return await asyncpg.connect(
-            database_url,
-            statement_cache_size=0,
-            ssl='disable',
-            server_settings={
-                'application_name': 'ticketpilot_backend'
-            }
-        )
-    else:
-        # Direct connection mode - require SSL
-        return await asyncpg.connect(
-            database_url,
-            statement_cache_size=0,
-            ssl='require',
-            server_settings={
-                'application_name': 'ticketpilot_backend'
-            }
-        )
+    """Get a database connection for admin operations."""
+    return await get_connection()
 
 def normalize_role(role: str) -> str:
     """Normalize role string to lowercase and validate"""

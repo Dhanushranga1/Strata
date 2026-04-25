@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Plus, Search, Filter, Download, AlertCircle, Eye, Edit } from 'lucide-react'
@@ -39,9 +39,15 @@ interface TicketSummary {
   id: string;
   title: string;
   status: string;
+  priority: string;
+  priority_level: number | null;
+  is_overdue: boolean;
+  needs_attention: boolean;
   message_count: number;
   last_message_at: string;
   created_at: string;
+  assignee_email: string | null;
+  tags: string[];
 }
 
 interface TicketListResponse {
@@ -51,27 +57,57 @@ interface TicketListResponse {
   limit: number;
 }
 
+const PRIORITY_COLORS: Record<string, string> = {
+  urgent: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  high:   'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+  medium: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+  low:    'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  normal: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+}
+
+const P_LEVEL_COLORS = [
+  '', // 0 unused
+  'bg-red-600 text-white',      // P1
+  'bg-red-500 text-white',      // P2
+  'bg-orange-500 text-white',   // P3
+  'bg-yellow-500 text-white',   // P4
+  'bg-blue-500 text-white',     // P5
+  'bg-indigo-500 text-white',   // P6
+  'bg-slate-400 text-white',    // P7
+]
+
 const columns = [
-  {
-    id: 'id',
-    accessorKey: 'id',
-    header: 'Ticket ID',
-    cell: ({ row }: { row: { original: TicketSummary } }) => (
-      <Link
-        href={`/tickets/${row.original.id}`}
-        className="font-medium text-primary hover:underline"
-      >
-        {row.original.id}
-      </Link>
-    ),
-  },
   {
     id: 'title',
     accessorKey: 'title',
-    header: 'Title',
-    cell: ({ row }: { row: { original: TicketSummary } }) => (
-      <div className="max-w-[300px] truncate">{row.original.title}</div>
-    ),
+    header: 'Subject',
+    cell: ({ row }: { row: { original: TicketSummary } }) => {
+      const t = row.original
+      return (
+        <div className="max-w-[340px]">
+          <Link href={`/tickets/${t.id}`} className="font-medium hover:text-primary hover:underline line-clamp-1">
+            {t.title}
+          </Link>
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            {t.is_overdue && (
+              <span className="inline-flex items-center px-1.5 py-px rounded text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                OVERDUE
+              </span>
+            )}
+            {t.needs_attention && !t.is_overdue && (
+              <span className="inline-flex items-center px-1.5 py-px rounded text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                ATTENTION
+              </span>
+            )}
+            {t.tags.slice(0, 2).map(tag => (
+              <span key={tag} className="inline-flex items-center px-1.5 py-px rounded text-[10px] bg-muted text-muted-foreground">
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      )
+    },
   },
   {
     id: 'status',
@@ -83,11 +119,41 @@ const columns = [
     },
   },
   {
+    id: 'priority',
+    accessorKey: 'priority',
+    header: 'Priority',
+    cell: ({ row }: { row: { original: TicketSummary } }) => {
+      const t = row.original
+      return (
+        <div className="flex items-center gap-1.5">
+          {t.priority_level != null && (
+            <span className={`inline-flex items-center px-1.5 py-px rounded text-[10px] font-bold ${P_LEVEL_COLORS[t.priority_level] ?? ''}`}>
+              P{t.priority_level}
+            </span>
+          )}
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${PRIORITY_COLORS[t.priority] ?? PRIORITY_COLORS.normal}`}>
+            {t.priority}
+          </span>
+        </div>
+      )
+    },
+  },
+  {
+    id: 'assignee',
+    accessorKey: 'assignee_email',
+    header: 'Assigned To',
+    cell: ({ row }: { row: { original: TicketSummary } }) => {
+      const email = row.original.assignee_email
+      if (!email) return <span className="text-xs text-muted-foreground italic">Unassigned</span>
+      return <span className="text-xs truncate max-w-[120px] block">{email.split('@')[0]}</span>
+    },
+  },
+  {
     id: 'message_count',
     accessorKey: 'message_count',
-    header: 'Messages',
+    header: 'Msgs',
     cell: ({ row }: { row: { original: TicketSummary } }) => (
-      <div className="text-sm">{row.original.message_count}</div>
+      <div className="text-sm text-center">{row.original.message_count}</div>
     ),
   },
   {
@@ -185,16 +251,19 @@ const EmptyTicketState = ({ onCreateClick }: { onCreateClick: () => void }) => (
   </motion.div>
 );
 
-export default function TicketsPage() {
+function TicketsPageInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const filterParam = searchParams.get('filter')
   
   // Organization context
-  const { currentOrganization, isReady, switchingOrg } = useOrganization()
+  const { currentOrganization, isReady, switchingOrg, user } = useOrganization()
   const orgId = currentOrganization?.id
-  
+  const userRole = user?.role ?? 'customer'
+  const isRepOrAdmin = userRole === 'rep' || userRole === 'admin'
+
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState(filterParam || 'all')
   const [newTicketOpen, setNewTicketOpen] = useState(false)
   const [tickets, setTickets] = useState<TicketSummary[]>([])
@@ -204,16 +273,23 @@ export default function TicketsPage() {
   const [newTicket, setNewTicket] = useState({
     title: '',
     description: '',
-    priority: 'medium'
+    priority: 'normal',
+    customer_email: '',
   })
   const [validationErrors, setValidationErrors] = useState({
     title: '',
-    description: ''
+    description: '',
+    customer_email: '',
   })
+
+  // Debounce search input — avoids an API call on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
 
   // Load tickets from API
   useEffect(() => {
-    // Wait for org context to be ready
     if (!isReady || !orgId) {
       setLoading(true)
       return
@@ -221,41 +297,35 @@ export default function TicketsPage() {
 
     const loadTickets = async () => {
       try {
-        console.log('🎫 Tickets: Loading tickets from API for org:', orgId);
-        setLoading(true);
-        
-        const params = new URLSearchParams();
-        if (statusFilter !== 'all') {
-          params.append('status_filter', statusFilter);
-        }
-        if (searchTerm) {
-          params.append('q', searchTerm);
-        }
-        
-        const response = await api.get<TicketListResponse>(`/api/tickets?${params.toString()}`, orgId);
-        console.log('✅ Tickets: Loaded tickets:', response);
-        setTickets(response.items || []);
-        setError(null);
+        setLoading(true)
+        const params = new URLSearchParams()
+        if (statusFilter !== 'all') params.append('status_filter', statusFilter)
+        if (debouncedSearch) params.append('q', debouncedSearch)
+        const response = await api.get<TicketListResponse>(`/api/tickets?${params.toString()}`, orgId)
+        setTickets(response.items || [])
+        setError(null)
       } catch (err) {
-        console.error('❌ Tickets: Failed to load tickets:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load tickets');
-        setTickets([]);
+        setError(err instanceof Error ? err.message : 'Failed to load tickets')
+        setTickets([])
       } finally {
-        setLoading(false);
+        setLoading(false)
       }
-    };
+    }
 
-    loadTickets();
-  }, [statusFilter, searchTerm, isReady, orgId]);
+    loadTickets()
+  }, [statusFilter, debouncedSearch, isReady, orgId])
+
+  const resetForm = () => {
+    setNewTicket({ title: '', description: '', priority: 'normal', customer_email: '' })
+    setValidationErrors({ title: '', description: '', customer_email: '' })
+  }
 
   // Create ticket function
   const createTicket = async () => {
-    // Reset validation errors
-    setValidationErrors({ title: '', description: '' })
+    setValidationErrors({ title: '', description: '', customer_email: '' })
 
-    // Validate title
-    const errors: { title: string; description: string } = { title: '', description: '' }
-    
+    const errors = { title: '', description: '', customer_email: '' }
+
     if (!newTicket.title.trim()) {
       errors.title = 'Title is required'
     } else if (newTicket.title.trim().length < 5) {
@@ -264,21 +334,19 @@ export default function TicketsPage() {
       errors.title = 'Title must be less than 200 characters'
     }
 
-    // Validate description
     if (!newTicket.description.trim()) {
       errors.description = 'Description is required'
     } else if (newTicket.description.trim().length < 20) {
       errors.description = 'Please provide more detail (at least 20 characters)'
     }
 
-    // If there are validation errors, show them
-    if (errors.title || errors.description) {
+    if (isRepOrAdmin && newTicket.customer_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newTicket.customer_email)) {
+      errors.customer_email = 'Enter a valid email address'
+    }
+
+    if (errors.title || errors.description || errors.customer_email) {
       setValidationErrors(errors)
-      if (errors.title) {
-        toast.error(errors.title)
-      } else if (errors.description) {
-        toast.error(errors.description)
-      }
+      toast.error(errors.title || errors.description || errors.customer_email)
       return
     }
 
@@ -288,32 +356,37 @@ export default function TicketsPage() {
     }
 
     try {
-      setCreating(true);
-      const response = await api.post<{ id: string }>('/api/tickets', {
+      setCreating(true)
+      const body: Record<string, unknown> = {
         title: newTicket.title,
         description: newTicket.description,
-      }, orgId);
-      
-      // Show success toast
-      toast.success('✅ Ticket created! Our AI is analyzing your question...', {
-        duration: 4000,
-      });
-      
-      // Reset form and validation
-      setNewTicket({ title: '', description: '', priority: 'medium' });
-      setValidationErrors({ title: '', description: '' })
-      setNewTicketOpen(false);
-      
-      // Redirect with slight delay for toast visibility
+        priority: newTicket.priority,
+      }
+      if (isRepOrAdmin && newTicket.customer_email.trim()) {
+        body.customer_email = newTicket.customer_email.trim()
+      }
+      const response = await api.post<{ id: string }>('/api/tickets', body, orgId)
+
+      const sentToCustomer = isRepOrAdmin && newTicket.customer_email.trim()
+      toast.success(
+        sentToCustomer
+          ? `Ticket created and sent to ${newTicket.customer_email}`
+          : 'Ticket created! Our AI is analyzing your question…',
+        { duration: 4000 }
+      )
+
+      resetForm()
+      setNewTicketOpen(false)
+
       setTimeout(() => {
-        router.push(`/tickets/${response.id}`);
-      }, 500);
-      
+        router.push(`/tickets/${response.id}`)
+      }, 500)
+
     } catch (error) {
-      toast.error('Failed to create ticket. Please try again.');
-      setError(error instanceof Error ? error.message : 'Failed to create ticket');
+      toast.error('Failed to create ticket. Please try again.')
+      setError(error instanceof Error ? error.message : 'Failed to create ticket')
     } finally {
-      setCreating(false);
+      setCreating(false)
     }
   };
 
@@ -526,25 +599,68 @@ export default function TicketsPage() {
                     </p>
                   )}
                 </div>
+
+                {/* Priority */}
+                <div className="space-y-2">
+                  <Label htmlFor="priority">Priority</Label>
+                  <Select
+                    value={newTicket.priority}
+                    onValueChange={(v) => setNewTicket({ ...newTicket, priority: v })}
+                  >
+                    <SelectTrigger id="priority">
+                      <SelectValue placeholder="Select priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="normal">Normal</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="urgent">Urgent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Customer email — only shown to reps / admins */}
+                {isRepOrAdmin && (
+                  <div className="space-y-2">
+                    <Label htmlFor="customer_email">
+                      Create on behalf of customer <span className="text-muted-foreground font-normal">(optional)</span>
+                    </Label>
+                    <Input
+                      id="customer_email"
+                      type="email"
+                      placeholder="customer@example.com"
+                      value={newTicket.customer_email}
+                      onChange={(e) => {
+                        setNewTicket({ ...newTicket, customer_email: e.target.value })
+                        if (validationErrors.customer_email) {
+                          setValidationErrors({ ...validationErrors, customer_email: '' })
+                        }
+                      }}
+                      className={validationErrors.customer_email ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                    />
+                    {validationErrors.customer_email && (
+                      <p className="text-sm text-red-500">{validationErrors.customer_email}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      The ticket will be owned by this customer and they'll receive an email notification.
+                    </p>
+                  </div>
+                )}
               </div>
               <DialogFooter>
-                <Button 
-                  variant="outline" 
-                  onClick={() => {
-                    setNewTicketOpen(false);
-                    setNewTicket({ title: '', description: '', priority: 'medium' });
-                    setValidationErrors({ title: '', description: '' });
-                  }}
+                <Button
+                  variant="outline"
+                  onClick={() => { setNewTicketOpen(false); resetForm(); }}
                   disabled={creating}
                 >
                   Cancel
                 </Button>
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   onClick={createTicket}
                   disabled={
-                    creating || 
-                    !newTicket.title.trim() || 
+                    creating ||
+                    !newTicket.title.trim() ||
                     !newTicket.description.trim() ||
                     newTicket.title.trim().length < 5 ||
                     newTicket.description.trim().length < 20
@@ -556,10 +672,10 @@ export default function TicketsPage() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
-                      Creating...
+                      Creating…
                     </>
                   ) : (
-                    'Create Ticket'
+                    isRepOrAdmin && newTicket.customer_email.trim() ? 'Create & Notify Customer' : 'Create Ticket'
                   )}
                 </Button>
               </DialogFooter>
@@ -612,5 +728,13 @@ export default function TicketsPage() {
         </>
       )}
     </div>
+  )
+}
+
+export default function TicketsPage() {
+  return (
+    <Suspense>
+      <TicketsPageInner />
+    </Suspense>
   )
 }

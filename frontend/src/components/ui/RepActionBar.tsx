@@ -69,10 +69,13 @@ const RepActionBar = forwardRef<HTMLDivElement, RepActionBarProps>(
     compact = false,
     ...props
   }, ref) => {
-    const priorityConfig = {
+    const priorityConfig: Record<string, { color: string; bg: string; label: string }> = {
       low: { color: "text-green-600", bg: "bg-green-50 dark:bg-green-950/20", label: "Low" },
       normal: { color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/20", label: "Normal" },
       high: { color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-950/20", label: "High" },
+      medium: { color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/20", label: "Medium" },
+      urgent: { color: "text-red-600", bg: "bg-red-50 dark:bg-red-950/20", label: "Urgent" },
+      critical: { color: "text-red-700", bg: "bg-red-100 dark:bg-red-950/30", label: "Critical" },
     };
 
     const statusConfig = {
@@ -115,7 +118,9 @@ const RepActionBar = forwardRef<HTMLDivElement, RepActionBarProps>(
     ];
 
     const allQuickActions = quickActions.length > 0 ? quickActions : defaultQuickActions;
-    const StatusIcon = statusConfig[status].icon;
+    const currentStatusConfig = statusConfig[status] ?? statusConfig.open;
+    const currentPriorityConfig = priorityConfig[String(priority).toLowerCase()] ?? priorityConfig.normal;
+    const StatusIcon = currentStatusConfig.icon;
 
     return (
       <div
@@ -140,21 +145,16 @@ const RepActionBar = forwardRef<HTMLDivElement, RepActionBarProps>(
               )}
               
               <div className="flex items-center gap-2">
-                <StatusIcon className={cn("h-4 w-4", statusConfig[status].color)} />
+                <StatusIcon className={cn("h-4 w-4", currentStatusConfig.color)} />
                 <Badge variant="outline" className="text-xs">
-                  {statusConfig[status].label}
+                  {currentStatusConfig.label}
                 </Badge>
-                {(() => {
-                  const config = priorityConfig[priority];
-                  return (
-                    <Badge
-                      variant="outline"
-                      className={cn("text-xs", config.color, config.bg)}
-                    >
-                      {config.label} Priority
-                    </Badge>
-                  );
-                })()}
+                <Badge
+                  variant="outline"
+                  className={cn("text-xs", currentPriorityConfig.color, currentPriorityConfig.bg)}
+                >
+                  {currentPriorityConfig.label} Priority
+                </Badge>
               </div>
 
               {assignedTo && (

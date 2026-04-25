@@ -117,6 +117,7 @@ class OrganizationMemberResponse(BaseModel):
     joined_at: datetime
     invited_by: Optional[str]
     user_email: Optional[str]
+    last_sign_in_at: Optional[datetime] = None
 
 
 # ============================================================================
@@ -330,8 +331,8 @@ def update_organization(
     org_update: OrganizationUpdate,
     user: User = Depends(get_current_user),
 ):
-    """Update organization details (owners only)."""
-    verify_org_permission(user.id, org_id, ["owner"])
+    """Update organization details (owners and admins)."""
+    verify_org_permission(user.id, org_id, ["owner", "admin"])
 
     # Build update query dynamically
     updates = []
@@ -382,6 +383,7 @@ def update_organization(
         )
         count_result = cursor.fetchone()
 
+        caller_role = get_user_role_in_org(user.id, org_id)
         return OrganizationResponse(
             id=str(org["id"]),
             name=org["name"],
@@ -392,14 +394,17 @@ def update_organization(
             created_at=org["created_at"],
             updated_at=org["updated_at"],
             member_count=count_result["count"] if count_result else 0,
-            your_role="owner",
+            your_role=caller_role,
         )
 
 
 @router.get("/{org_id}/members", response_model=List[OrganizationMemberResponse])
-def list_organization_members(org_id: str, user: User = Depends(get_current_user)):
-    """List all members of an organization."""
-    # Verify user is a member
+def list_organization_members(
+    org_id: str,
+    q: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """List all members of an organization. Supports ?q= search by email."""
     role = get_user_role_in_org(user.id, org_id)
     if role is None:
         raise HTTPException(404, "Organization not found or you are not a member")
@@ -407,21 +412,28 @@ def list_organization_members(org_id: str, user: User = Depends(get_current_user
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
+        search_filter = ""
+        params: list = [org_id]
+        if q:
+            search_filter = "AND u.email ILIKE %s"
+            params.append(f"%{q.lstrip('@')}%")
+
         cursor.execute(
-            """
-            SELECT 
+            f"""
+            SELECT
                 om.organization_id,
                 om.user_id,
                 om.role,
                 om.joined_at,
                 om.invited_by,
-                u.email as user_email
+                u.email        AS user_email,
+                u.last_sign_in_at
             FROM app.organization_members om
             LEFT JOIN auth.users u ON u.id = om.user_id
-            WHERE om.organization_id = %s
+            WHERE om.organization_id = %s {search_filter}
             ORDER BY om.joined_at
             """,
-            (org_id,),
+            tuple(params),
         )
 
         members = cursor.fetchall()
@@ -434,6 +446,7 @@ def list_organization_members(org_id: str, user: User = Depends(get_current_user
                 joined_at=member["joined_at"],
                 invited_by=str(member.get("invited_by")) if member.get("invited_by") else None,
                 user_email=member.get("user_email"),
+                last_sign_in_at=member.get("last_sign_in_at"),
             )
             for member in members
         ]

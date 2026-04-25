@@ -6,7 +6,6 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import api from "@/lib/api-client";
-import { getBearer } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { 
@@ -72,44 +71,27 @@ export default function AdminPage() {
 
   const loadAdminStats = async () => {
     if (!orgId) return;
-    
-    console.log('📊 Admin: Loading real stats from backend for org:', orgId);
     setStatsLoading(true);
     setError(null);
-    
+
     try {
-      console.log('🔑 Admin: Making API calls with org context...');
-      
-      // Parallel API calls for better performance
       const [analytics, users, roleRequests] = await Promise.all([
         api.get<AdminAnalytics>('/api/admin/analytics/summary', orgId),
         api.get<UserItem[]>('/api/admin/users', orgId),
         api.get<RoleRequest[]>('/api/admin/role-requests', orgId)
       ]);
 
-      console.log('📈 Admin: Analytics received:', analytics);
-      console.log('👥 Admin: Users received:', users.length, 'users');
-      console.log('📋 Admin: Role requests received:', roleRequests.length, 'requests');
-
-      // Count active reps from users
       const activeReps = users.filter((u: UserItem) => u.role === 'rep').length;
-      
-      // Count pending role requests
       const pendingRequests = roleRequests.filter((r: RoleRequest) => r.status === 'pending').length;
 
-      const newStats: AdminStats = {
+      setStats({
         totalUsers: users.length,
-        activeReps: activeReps,
+        activeReps,
         pendingRoleRequests: pendingRequests,
         totalTickets: analytics.total_tickets || 0
-      };
-
-      console.log('✅ Admin: Final stats compiled:', newStats);
-      setStats(newStats);
-      
+      });
     } catch (error) {
-      console.error('💥 Admin: Stats loading failed:', error);
-      setError(`Failed to load admin statistics: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setError(`Failed to load statistics: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setStatsLoading(false);
     }
@@ -117,40 +99,25 @@ export default function AdminPage() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      console.log('🛡️ Admin: Starting authentication check...');
       try {
-        // Use Supabase session instead of localStorage
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
-        
-        console.log('🔑 Admin: Token from Supabase session:', token ? 'EXISTS' : 'NOT_FOUND');
-        
+
         if (!token) {
-          console.log('❌ Admin: No session found, redirecting to login');
           router.push('/login');
           return;
         }
 
-        console.log('🌐 Admin: Making API request to /api/me...');
         const userData = await api.get('/api/me');
-
-        console.log('✅ Admin: User data received:', { id: userData.id, email: userData.email, role: userData.role });
         setUser(userData);
-        
-        // Check if user is admin
+
         if (userData.role !== 'admin') {
-          console.log('❌ Admin: User is not admin, redirecting to dashboard');
           router.push('/dashboard');
           return;
         }
-        
-        console.log('✅ Admin: Admin access confirmed');
-      } catch (error) {
-        console.error('💥 Admin: Auth check failed:', error);
+      } catch {
         router.push('/login');
-        return;
       } finally {
-        console.log('🏁 Admin: Authentication check complete');
         setLoading(false);
       }
     };
@@ -158,17 +125,23 @@ export default function AdminPage() {
     checkAuth();
   }, [router]);
 
-  // Load stats when org context is ready
   useEffect(() => {
     if (user && isReady && orgId) {
-      console.log('✅ Admin: Org context ready, loading stats...');
       loadAdminStats();
     }
   }, [user, isReady, orgId]);
 
   const adminSections = [
     {
-      title: "User Management",
+      title: "Team Members",
+      description: "Manage members, roles, and invites",
+      icon: UserCheck,
+      href: "/admin/users",
+      color: "bg-indigo-500",
+      stats: `${stats.totalUsers} members`
+    },
+    {
+      title: "User Roles",
       description: "Manage user roles and permissions",
       icon: Users,
       href: "/admin/roles",
@@ -358,36 +331,23 @@ export default function AdminPage() {
           ))}
         </div>
 
-        {/* Recent Activity */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent System Activity</CardTitle>
-            <CardDescription>
-              Latest admin actions and system events
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">
-                <UserCheck className="h-4 w-4 text-blue-500" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium">New role request submitted</p>
-                  <p className="text-xs text-muted-foreground">User requested rep access</p>
+        {stats.pendingRoleRequests > 0 && (
+          <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                  <UserCheck className="h-4 w-4" />
+                  <span className="text-sm font-medium">
+                    {stats.pendingRoleRequests} pending role request{stats.pendingRoleRequests !== 1 ? 's' : ''} need review
+                  </span>
                 </div>
-                <span className="text-xs text-muted-foreground">2 hours ago</span>
+                <Link href="/admin/roles">
+                  <Button variant="outline" size="sm">Review</Button>
+                </Link>
               </div>
-              
-              <div className="flex items-center gap-4 p-3 bg-muted/50 rounded-lg">
-                <Users className="h-4 w-4 text-green-500" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium">User role updated</p>
-                  <p className="text-xs text-muted-foreground">Rep access granted</p>
-                </div>
-                <span className="text-xs text-muted-foreground">4 hours ago</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </PageShell>
   );

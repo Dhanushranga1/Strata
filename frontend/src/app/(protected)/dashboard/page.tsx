@@ -12,10 +12,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { FieldError } from '@/components/FieldError'
 import { DashboardSkeleton } from '@/components/skeletons/DashboardSkeleton'
-import { 
-  TicketIcon, 
-  TrendingUp, 
-  Clock, 
+import {
+  TicketIcon,
+  TrendingUp,
+  Clock,
   AlertTriangle,
   MessageSquare,
   BarChart3,
@@ -23,7 +23,9 @@ import {
   ArrowUpRight,
   Activity,
   Zap,
-  Settings
+  Settings,
+  BookOpen,
+  Users,
 } from 'lucide-react'
 import { PageShell } from '@/ui/motion/PageShell'
 
@@ -261,19 +263,86 @@ export default function DashboardPage() {
             {(loading || switchingOrg) ? (
               <DashboardSkeleton />
             ) : stats && stats.tickets.total === 0 ? (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="text-center py-16"
+                className="space-y-8 py-4"
               >
-                <h1 className="text-4xl font-bold mb-4">Welcome to TicketPilot! 🎉</h1>
-                <p className="text-xl text-muted-foreground mb-8">
-                  Let&apos;s get you started with AI-powered support
-                </p>
-                <Button size="lg" onClick={() => router.push('/tickets')}>
-                  Create Your First Ticket
-                  <ArrowUpRight className="ml-2 w-5 h-5" />
-                </Button>
+                <div className="text-center">
+                  <h1 className="text-3xl font-bold mb-2">Welcome to TicketPilot!</h1>
+                  <p className="text-muted-foreground">
+                    {me?.role === 'admin' ? 'Set up your workspace to get started.' : 'Your support workspace is ready.'}
+                  </p>
+                </div>
+
+                {me?.role === 'admin' ? (
+                  <div className="max-w-2xl mx-auto grid gap-4 sm:grid-cols-3">
+                    <div
+                      onClick={() => router.push('/kb')}
+                      className="group cursor-pointer rounded-xl border border-border bg-card p-5 hover:border-primary/50 hover:shadow-md transition-all"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center mb-3">
+                        <BookOpen className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <p className="font-semibold text-sm mb-1">Upload Knowledge Base</p>
+                      <p className="text-xs text-muted-foreground">Add docs so the AI can answer questions automatically.</p>
+                      <p className="text-xs text-primary mt-2 group-hover:underline">Upload docs →</p>
+                    </div>
+
+                    <div
+                      onClick={() => router.push('/admin/users')}
+                      className="group cursor-pointer rounded-xl border border-border bg-card p-5 hover:border-primary/50 hover:shadow-md transition-all"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-green-100 dark:bg-green-900/40 flex items-center justify-center mb-3">
+                        <Users className="w-5 h-5 text-green-600 dark:text-green-400" />
+                      </div>
+                      <p className="font-semibold text-sm mb-1">Invite Your Team</p>
+                      <p className="text-xs text-muted-foreground">Add support reps who will handle incoming tickets.</p>
+                      <p className="text-xs text-primary mt-2 group-hover:underline">Invite members →</p>
+                    </div>
+
+                    <div
+                      onClick={() => router.push('/tickets')}
+                      className="group cursor-pointer rounded-xl border border-border bg-card p-5 hover:border-primary/50 hover:shadow-md transition-all"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center mb-3">
+                        <TicketIcon className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                      </div>
+                      <p className="font-semibold text-sm mb-1">Create a Test Ticket</p>
+                      <p className="text-xs text-muted-foreground">Try submitting a ticket to see how the AI responds.</p>
+                      <p className="text-xs text-primary mt-2 group-hover:underline">Open tickets →</p>
+                    </div>
+                  </div>
+                ) : me?.role === 'rep' ? (
+                  <div className="text-center">
+                    <p className="text-muted-foreground mb-6">Your queue is empty. New tickets will appear here.</p>
+                    <Button size="lg" onClick={() => router.push('/rep')}>
+                      Open Rep Console
+                      <ArrowUpRight className="ml-2 w-5 h-5" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-center space-y-4">
+                    <p className="text-muted-foreground">Get instant AI-powered help for any issue.</p>
+                    <Button size="lg" onClick={() => router.push('/tickets')}>
+                      Create Your First Ticket
+                      <ArrowUpRight className="ml-2 w-5 h-5" />
+                    </Button>
+                    <div className="max-w-lg mx-auto grid grid-cols-3 gap-3 text-sm mt-4">
+                      {[
+                        { icon: '📝', title: 'Be Specific', desc: 'Describe your issue clearly' },
+                        { icon: '🤖', title: 'AI Helps First', desc: 'Searches our help docs instantly' },
+                        { icon: '👤', title: 'Human Backup', desc: 'Escalate to our support team' },
+                      ].map(item => (
+                        <div key={item.title} className="rounded-lg border border-border bg-card p-3 text-center">
+                          <div className="text-xl mb-1">{item.icon}</div>
+                          <div className="font-medium text-xs mb-0.5">{item.title}</div>
+                          <div className="text-xs text-muted-foreground">{item.desc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             ) : stats ? (
               <BentoGrid>

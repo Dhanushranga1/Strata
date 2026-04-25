@@ -5,22 +5,14 @@ Part of Phase 3: Strategic Improvements (SI-2).
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 import asyncpg
-import os
 from datetime import datetime
 import uuid
 from .auth import User, get_current_user
 from .schemas import FeedbackRequest, FeedbackResponse
 from .org_middleware import require_org_context
+from .db import get_connection
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
-
-async def get_db_connection():
-    """Get database connection"""
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL environment variable is required")
-    # Disable statement caching to avoid prepared statement conflicts with pgbouncer
-    return await asyncpg.connect(database_url, statement_cache_size=0, ssl='require')
 
 @router.post("/feedback", response_model=FeedbackResponse)
 async def submit_feedback(
@@ -35,7 +27,7 @@ async def submit_feedback(
     - Returns ok=true on success, ok=false if duplicate feedback
     """
     org_id = require_org_context(request)
-    conn = await get_db_connection()
+    conn = await get_connection()
     try:
         # First, verify the message exists and belongs to a ticket the user has access to
         message_check = await conn.fetchrow("""

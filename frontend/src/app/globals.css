@@ -6,26 +6,26 @@
 :root,
 :root[data-theme="v2-dark"] {
   /* Base neutrals (dark mode) */
-  --bg:           9 9 11;     /* #09090B  zinc-950 */
-  --surface:      24 24 27;   /* #18181B  zinc-900 */
-  --surface2:     39 39 42;   /* #27272A  zinc-800 */
-  --border:       63 63 70;   /* #3F3F46  zinc-700 */
+  --bg:           9 9 11;      /* #09090B  zinc-950 */
+  --surface:      24 24 27;    /* #18181B  zinc-900 */
+  --surface2:     39 39 42;    /* #27272A  zinc-800 */
+  --border-v2:    63 63 70;    /* #3F3F46  zinc-700 — V2 rgb border, no shadcn conflict */
   --text:         250 250 250; /* #FAFAFA  zinc-50 */
   --muted:        161 161 170; /* #A1A1AA  zinc-400 */
-  
+
   /* Brand (indigo -> rose gradient system) */
-  --primary:      91 124 255; /* #5B7CFF  indigo-400 */
-  --primary2:     139 92 246; /* #8B5CF6  violet-500 */
-  --ring:         91 124 255; /* #5B7CFF  (same as primary) */
-  
-  /* Semantic colors (desaturated for dark) */
-  --success:      34 197 94;  /* #22C55E  green-500 */
-  --warning:      251 191 36; /* #FBBF24  amber-400 */
+  --primary:      91 124 255;  /* #5B7CFF  indigo-400 */
+  --primary2:     139 92 246;  /* #8B5CF6  violet-500 */
+  --ring:         91 124 255;  /* #5B7CFF  (same as primary) */
+
+  /* Semantic colors */
+  --success:      34 197 94;   /* #22C55E  green-500 */
+  --warning:      251 191 36;  /* #FBBF24  amber-400 */
   --danger:       248 113 113; /* #F87171  red-400 */
-  --info:         56 189 248; /* #38BDF8  sky-400 */
-  
+  --info:         56 189 248;  /* #38BDF8  sky-400 */
+
   /* Overlay for modals/scrims */
-  --overlay:      0 0 0;      /* rgba(0 0 0 / 0.60) for scrims */
+  --overlay:      0 0 0;
 }
 
 /* Optional light mode scaffold (keep tokens consistent) */
@@ -46,80 +46,71 @@
   --overlay:     0 0 0;       /* rgba(0 0 0 / 0.40) lighter for light mode */
 }
 
-/* Legacy brand tokens for backward compatibility */
+/* Shared design system tokens — app is always-dark so these mirror .dark values */
 :root {
-  --brand: 59 130 246;      /* #3B82F6 */
-  --accent: 236 72 153;     /* #EC4899 */
-
-  /* Design System */
-  --radius: 16px;
+  --brand: 59 130 246;
+  --radius: 0.5rem;
   --shadow-md: 0 8px 30px rgba(2,12,27,0.06);
+  --heroui-primary: 59 130 246;
 
-  /* HeroUI Theme Mapping */
-  --heroui-primary: 59 130 246; /* maps to brand blue */
-
-  /* Legacy shadcn tokens (preserve for existing app) */
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted-legacy: 210 40% 96%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent-legacy: 210 40% 96%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 72.2% 50.6%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
-}
-
-:root.dark {
-  /* Dark mode brand tokens */
-  --bg: 17 18 20;           /* #111214 */
-  --surface: 26 27 30;      /* #1A1B1E */
-  --text: 226 232 240;      /* slate-200 */
-  --muted: 148 163 184;     /* slate-400 */
+  --background:           240 10% 3.9%;
+  --foreground:           0 0% 98%;
+  --card:                 240 6% 10%;
+  --card-foreground:      0 0% 98%;
+  --popover:              240 6% 10%;
+  --popover-foreground:   0 0% 98%;
+  --primary-foreground:   0 0% 100%;
+  --secondary:            240 5% 17%;
+  --secondary-foreground: 0 0% 98%;
+  --muted-foreground:     240 5% 64.9%;
+  --accent:               240 5% 17%;
+  --accent-foreground:    0 0% 98%;
+  --destructive:          0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border:               240 5% 26%;
+  --input:                240 5% 17%;
+  --ring:                 240 5% 64.9%;
 }
 
 /* Font Variables */
-.font-geist {
-  font-family: var(--font-geist), sans-serif;
-}
+.font-geist { font-family: var(--font-geist), sans-serif; }
+.font-inter  { font-family: var(--font-inter), sans-serif; }
 
-.font-inter {
-  font-family: var(--font-inter), sans-serif;
-}
-
+/* Dark class — V2 RGB tokens + shadcn HSL tokens (no --border conflict) */
 .dark {
-  --bg: #111214;
-  --surface: #1A1B1E;
-  --text: 229, 231, 235; /* zinc-200 */
-  --background: 222.2 84% 4.9%;
-  --foreground: 210 40% 98%;
-  --card: 222.2 84% 4.9%;
-  --card-foreground: 210 40% 98%;
-  --popover: 222.2 84% 4.9%;
-  --popover-foreground: 210 40% 98%;
-  --primary: 210 40% 98%;
-  --primary-foreground: 222.2 84% 4.9%;
-  --secondary: 217.2 32.6% 17.5%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
-  --accent: 217.2 32.6% 17.5%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 212.7 26.8% 83.9%;
+  /* V2 tokens (space-separated RGB — used with rgb() in Tailwind config) */
+  --bg:        9 9 11;        /* zinc-950 */
+  --surface:   24 24 27;      /* zinc-900 */
+  --surface2:  39 39 42;      /* zinc-800 */
+  --text:      250 250 250;   /* zinc-50  */
+  --primary:   99 102 241;    /* indigo-500 */
+  --muted:     39 39 42;      /* zinc-800 — bg-muted section backgrounds */
+  --border-v2: 63 63 70;      /* zinc-700 — explicit V2 rgb border */
+
+  /* Shadcn HSL tokens
+   * --card and --border are intentionally lighter than --background so
+   * cards and borders are visually distinct from the page background.
+   *
+   * These use specificity (0,1,0) — they win because :root[data-theme="v2-dark"]
+   * no longer sets --border (renamed to --border-v2 above), removing the conflict.
+   */
+  --background:           240 10% 3.9%;   /* zinc-950 — page bg */
+  --foreground:           0 0% 98%;
+  --card:                 240 6% 10%;     /* zinc-900 — lifted above bg */
+  --card-foreground:      0 0% 98%;
+  --popover:              240 6% 10%;     /* zinc-900 */
+  --popover-foreground:   0 0% 98%;
+  --primary-foreground:   0 0% 100%;
+  --secondary:            240 5% 17%;     /* zinc-800 */
+  --secondary-foreground: 0 0% 98%;
+  --muted-foreground:     240 5% 64.9%;
+  --accent:               240 5% 17%;
+  --accent-foreground:    0 0% 98%;
+  --destructive:          0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border:               240 5% 26%;     /* zinc-700 — visible border */
+  --input:                240 5% 17%;     /* zinc-800 */
+  --ring:                 240 4.9% 83.9%;
 }
 
 html, body { 
@@ -154,13 +145,13 @@ html, body {
 }
 
 /* V2 Surface Helpers */
-[data-surface="1"] { 
-  background: rgb(var(--surface)); 
-  border: 1px solid rgb(var(--border)); 
+[data-surface="1"] {
+  background: rgb(var(--surface));
+  border: 1px solid rgb(var(--border-v2));
 }
-[data-surface="2"] { 
-  background: rgb(var(--surface2)); 
-  border: 1px solid rgb(var(--border)); 
+[data-surface="2"] {
+  background: rgb(var(--surface2));
+  border: 1px solid rgb(var(--border-v2));
 }
 
 /* Hero Gradient Utility */

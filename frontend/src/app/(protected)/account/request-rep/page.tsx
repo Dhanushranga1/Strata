@@ -62,8 +62,7 @@ export default function RequestRepPage() {
 
       const userData = await response.json()
       setUser(userData)
-    } catch (error) {
-      console.error('Auth check failed:', error)
+    } catch {
       router.replace('/login')
     } finally {
       setLoading(false)
@@ -84,20 +83,18 @@ export default function RequestRepPage() {
 
       if (response.ok) {
         const requests = await response.json()
-        // Find any request for this user
         const userRequest = requests.find((req: RoleRequestItem) => req.user_id === user?.id)
         if (userRequest) {
           setExistingRequest(userRequest)
         }
       }
-    } catch (error) {
-      console.error('Failed to check existing requests:', error)
+    } catch {
+      // silently ignore
     }
   }
 
   const submitRequest = async (e: React.FormEvent) => {
     e.preventDefault()
-    
     if (!user) return
 
     setSubmitting(true)
@@ -121,8 +118,7 @@ export default function RequestRepPage() {
         const error = await response.text()
         alert(`Failed to submit request: ${error}`)
       }
-    } catch (error) {
-      console.error('Failed to submit request:', error)
+    } catch {
       alert('Failed to submit request')
     } finally {
       setSubmitting(false)
@@ -145,36 +141,36 @@ export default function RequestRepPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'pending': return 'text-yellow-600 bg-yellow-50 border-yellow-200'
-      case 'approved': return 'text-green-600 bg-green-50 border-green-200'
-      case 'denied': return 'text-red-600 bg-red-50 border-red-200'
-      default: return 'text-gray-600 bg-gray-50 border-gray-200'
+      case 'pending':  return 'text-amber-400 bg-amber-950/30 border-amber-800'
+      case 'approved': return 'text-green-400 bg-green-950/30 border-green-800'
+      case 'denied':   return 'text-red-400 bg-red-950/30 border-red-800'
+      default:         return 'text-zinc-400 bg-zinc-800/50 border-zinc-700'
     }
   }
 
   const getStatusMessage = (status: string) => {
     switch (status) {
-      case 'pending': return 'Your request is being reviewed by an administrator.'
+      case 'pending':  return 'Your request is being reviewed by an administrator.'
       case 'approved': return 'Your request has been approved! You now have rep access.'
-      case 'denied': return 'Your request has been denied. You can submit a new request with additional information.'
+      case 'denied':   return 'Your request has been denied. You can submit a new request with additional information.'
       default: return ''
     }
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen grid place-items-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen grid place-items-center bg-[rgb(var(--bg))]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[rgb(var(--primary))]" />
       </div>
     )
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen grid place-items-center">
+      <div className="min-h-screen grid place-items-center bg-[rgb(var(--bg))]">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-600 mb-4">Authentication Required</h1>
-          <Link href="/login" className="text-blue-600 hover:underline">
+          <h1 className="text-2xl font-bold text-destructive mb-4">Authentication Required</h1>
+          <Link href="/login" className="text-[rgb(var(--primary))] hover:underline">
             Please log in
           </Link>
         </div>
@@ -182,25 +178,28 @@ export default function RequestRepPage() {
     )
   }
 
-  // If user is already rep or admin, no need for this page
   if (user.role === 'rep' || user.role === 'admin') {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-[rgb(var(--bg))]">
         <div className="max-w-2xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-          <div className="bg-white rounded-lg shadow p-6 text-center">
-            <h1 className="text-2xl font-bold text-gray-900 mb-4">Access Already Granted</h1>
-            <p className="text-gray-600 mb-6">
-              You already have {user.role} access to TicketPilot.
+          <div className="bg-card border border-border rounded-lg p-6 text-center">
+            <h1 className="text-2xl font-bold text-foreground mb-4">Access Already Granted</h1>
+            <p className="text-muted-foreground mb-6">
+              You already have <span className="font-medium text-foreground">{user.role}</span> access to TicketPilot.
             </p>
-            <div className="flex justify-center space-x-4">
-              <Link href="/dashboard" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+            <div className="flex justify-center gap-3">
+              <Link
+                href="/dashboard"
+                className="px-4 py-2 bg-[rgb(var(--primary))] text-white rounded-md hover:opacity-90 transition-opacity"
+              >
                 Go to Dashboard
               </Link>
-              {user.role === 'rep' || user.role === 'admin' ? (
-                <Link href="/rep" className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">
-                  Rep Console
-                </Link>
-              ) : null}
+              <Link
+                href="/rep"
+                className="px-4 py-2 bg-[rgb(var(--surface2))] text-foreground border border-border rounded-md hover:bg-[rgb(var(--border-v2))] transition-colors"
+              >
+                Rep Console
+              </Link>
             </div>
           </div>
         </div>
@@ -209,94 +208,98 @@ export default function RequestRepPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[rgb(var(--bg))]">
       {/* Header */}
-      <div className="bg-white border-b">
+      <div className="bg-card border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Request Rep Access</h1>
-              <p className="text-gray-600">Submit a request for customer service representative access</p>
+              <h1 className="text-2xl font-bold text-foreground">Request Rep Access</h1>
+              <p className="text-muted-foreground text-sm">Submit a request for customer service representative access</p>
             </div>
-            <Link href="/dashboard" className="px-4 py-2 text-gray-600 hover:text-gray-800">
-              Back to Dashboard
+            <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              ← Back to Dashboard
             </Link>
           </div>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-2xl mx-auto py-10 px-4 sm:px-6 lg:px-8 space-y-6">
         {/* Existing Request Status */}
         {existingRequest && (
-          <div className={`mb-8 p-4 border rounded-lg ${getStatusColor(existingRequest.status)}`}>
+          <div className={`p-4 border rounded-lg ${getStatusColor(existingRequest.status)}`}>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-medium">Request Status: {existingRequest.status.toUpperCase()}</h3>
-              <span className="text-sm">
+              <h3 className="font-semibold capitalize">Status: {existingRequest.status}</h3>
+              <span className="text-xs opacity-75">
                 Submitted {formatTimeAgo(existingRequest.created_at)}
               </span>
             </div>
-            <p className="text-sm mb-2">
-              {getStatusMessage(existingRequest.status)}
-            </p>
+            <p className="text-sm mb-2">{getStatusMessage(existingRequest.status)}</p>
             {existingRequest.reason && (
-              <div className="text-sm">
-                <strong>Your reason:</strong> {existingRequest.reason}
-              </div>
+              <p className="text-sm opacity-75">
+                <span className="font-medium">Your reason:</span> {existingRequest.reason}
+              </p>
             )}
             {existingRequest.decided_at && (
-              <div className="text-sm mt-2">
+              <p className="text-xs opacity-60 mt-1">
                 Decided {formatTimeAgo(existingRequest.decided_at)}
-              </div>
+              </p>
             )}
           </div>
         )}
 
         {/* Request Form */}
         {(!existingRequest || existingRequest.status === 'denied') && (
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-card border border-border rounded-lg p-6">
             {submitted ? (
-              <div className="text-center">
-                <div className="text-green-600 mb-4">
+              <div className="text-center py-4">
+                <div className="text-green-400 mb-4">
                   <svg className="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Request Submitted!</h3>
-                <p className="text-gray-600 mb-4">
-                  Your request for rep access has been submitted successfully. 
-                  An administrator will review your request and get back to you.
+                <h3 className="text-lg font-semibold text-foreground mb-2">Request Submitted!</h3>
+                <p className="text-muted-foreground mb-4">
+                  Your request for rep access has been submitted. An administrator will review it shortly.
                 </p>
                 <button
-                  onClick={() => {setSubmitted(false); checkExistingRequest()}}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  onClick={() => { setSubmitted(false); checkExistingRequest() }}
+                  className="px-4 py-2 bg-[rgb(var(--primary))] text-white rounded-md hover:opacity-90 transition-opacity"
                 >
                   View Status
                 </button>
               </div>
             ) : (
               <>
-                <h2 className="text-xl font-medium text-gray-900 mb-6">
+                <h2 className="text-xl font-semibold text-foreground mb-6">
                   {existingRequest?.status === 'denied' ? 'Submit New Request' : 'Request Rep Access'}
                 </h2>
-                
-                <div className="mb-6">
-                  <h3 className="text-lg font-medium text-gray-900 mb-3">Why Rep Access?</h3>
-                  <p className="text-gray-600 mb-4">
-                    Rep access allows you to:
-                  </p>
-                  <ul className="list-disc list-inside text-gray-600 space-y-1 mb-4">
-                    <li>View and manage all customer tickets</li>
-                    <li>Access the rep console with queue management</li>
-                    <li>Escalate tickets and change priorities</li>
-                    <li>Assign tickets to yourself or other reps</li>
-                    <li>Access knowledge base management tools</li>
+
+                <div className="mb-6 p-4 bg-[rgb(var(--surface2))] rounded-lg">
+                  <h3 className="text-sm font-semibold text-foreground mb-2">What rep access gives you</h3>
+                  <ul className="space-y-1 text-sm text-muted-foreground">
+                    <li className="flex items-center gap-2">
+                      <span className="text-green-400">✓</span> View and manage all customer tickets
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-green-400">✓</span> Access the rep console with queue management
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-green-400">✓</span> Escalate tickets and change priorities
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-green-400">✓</span> Assign tickets to yourself or other reps
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-green-400">✓</span> Access knowledge base management tools
+                    </li>
                   </ul>
                 </div>
 
-                <form onSubmit={submitRequest}>
-                  <div className="mb-6">
-                    <label htmlFor="reason" className="block text-sm font-medium text-gray-700 mb-2">
-                      Reason for Request (Optional)
+                <form onSubmit={submitRequest} className="space-y-4">
+                  <div>
+                    <label htmlFor="reason" className="block text-sm font-medium text-foreground mb-1.5">
+                      Reason for Request <span className="text-muted-foreground font-normal">(optional)</span>
                     </label>
                     <textarea
                       id="reason"
@@ -305,26 +308,24 @@ export default function RequestRepPage() {
                       placeholder="Please explain why you need rep access..."
                       rows={4}
                       maxLength={400}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-[rgb(var(--surface2))] border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[rgb(var(--primary))/0.5] focus:border-[rgb(var(--primary))] resize-none"
                     />
-                    <p className="mt-1 text-sm text-gray-500">
-                      {reason.length}/400 characters
-                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{reason.length}/400 characters</p>
                   </div>
 
-                  <div className="flex justify-end space-x-4">
-                    <Link 
+                  <div className="flex justify-end gap-3 pt-2">
+                    <Link
                       href="/dashboard"
-                      className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                      className="px-4 py-2 border border-border rounded-md text-muted-foreground hover:text-foreground hover:bg-[rgb(var(--surface2))] transition-colors text-sm"
                     >
                       Cancel
                     </Link>
                     <button
                       type="submit"
                       disabled={submitting}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                      className="px-4 py-2 bg-[rgb(var(--primary))] text-white rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity text-sm font-medium"
                     >
-                      {submitting ? 'Submitting...' : 'Submit Request'}
+                      {submitting ? 'Submitting…' : 'Submit Request'}
                     </button>
                   </div>
                 </form>
@@ -334,35 +335,43 @@ export default function RequestRepPage() {
         )}
 
         {/* Already Pending */}
-        {existingRequest && existingRequest.status === 'pending' && (
-          <div className="bg-white rounded-lg shadow p-6 text-center">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Request Under Review</h3>
-            <p className="text-gray-600 mb-4">
-              You already have a pending request for rep access. Please wait for an administrator to review your request.
-            </p>
-            <p className="text-sm text-gray-500">
-              You cannot submit a new request while one is pending.
+        {existingRequest?.status === 'pending' && (
+          <div className="bg-card border border-border rounded-lg p-6 text-center">
+            <div className="text-amber-400 mb-3">
+              <svg className="mx-auto h-10 w-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-foreground mb-2">Request Under Review</h3>
+            <p className="text-muted-foreground text-sm">
+              You already have a pending request. Please wait for an administrator to review it.
             </p>
           </div>
         )}
 
         {/* Already Approved */}
-        {existingRequest && existingRequest.status === 'approved' && (
-          <div className="bg-white rounded-lg shadow p-6 text-center">
-            <div className="text-green-600 mb-4">
-              <svg className="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {existingRequest?.status === 'approved' && (
+          <div className="bg-card border border-border rounded-lg p-6 text-center">
+            <div className="text-green-400 mb-3">
+              <svg className="mx-auto h-10 w-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Access Granted!</h3>
-            <p className="text-gray-600 mb-4">
+            <h3 className="text-lg font-semibold text-foreground mb-2">Access Granted!</h3>
+            <p className="text-muted-foreground text-sm mb-4">
               Your request has been approved. You now have rep access to TicketPilot.
             </p>
-            <div className="flex justify-center space-x-4">
-              <Link href="/rep" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+            <div className="flex justify-center gap-3">
+              <Link
+                href="/rep"
+                className="px-4 py-2 bg-[rgb(var(--primary))] text-white rounded-md hover:opacity-90 transition-opacity text-sm"
+              >
                 Go to Rep Console
               </Link>
-              <Link href="/dashboard" className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">
+              <Link
+                href="/dashboard"
+                className="px-4 py-2 bg-[rgb(var(--surface2))] text-foreground border border-border rounded-md hover:opacity-90 transition-opacity text-sm"
+              >
                 Dashboard
               </Link>
             </div>

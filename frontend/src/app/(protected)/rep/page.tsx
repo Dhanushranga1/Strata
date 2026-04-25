@@ -11,6 +11,10 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { StatusBadge } from '@/components/StatusBadge'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { RepActionBar } from '@/components/ui/RepActionBar'
 import { AIMessage } from '@/components/ui/AIMessage'
 import { AIResponseModal } from '@/components/rep/AIResponseModal'
@@ -21,7 +25,7 @@ import { useOrganization } from '@/contexts/OrganizationContext'
 import api from '@/lib/api-client'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { Clock, MessageSquare, User, AlertTriangle, ExternalLink, Upload, CheckCircle, Phone, Mail, Bot } from 'lucide-react'
+import { Clock, MessageSquare, User, AlertTriangle, ExternalLink, Upload, CheckCircle, Phone, Mail, Bot, CheckCheck } from 'lucide-react'
 import { m } from 'framer-motion'
 import { v } from '@/ui/motion/variants'
 import { PageShell } from '@/ui/motion/PageShell'
@@ -31,6 +35,7 @@ interface QueueItem {
   title: string
   status: string
   priority: string
+  priority_level?: number
   needs_attention: boolean
   assignee_id?: string
   message_count: number
@@ -38,6 +43,10 @@ interface QueueItem {
   created_at: string
   customer_email?: string
   customer_phone?: string
+  escalated_to_name?: string
+  escalated_at?: string
+  expected_resolve_at?: string
+  etr_set_at?: string
 }
 
 interface QueueCounts {
@@ -45,6 +54,7 @@ interface QueueCounts {
   open_active: number
   escalated: number
   all: number
+  resolved_today: number
 }
 
 interface User {
@@ -110,7 +120,7 @@ export default function RepConsolePage() {
   const [ticketsLoading, setTicketsLoading] = useState(false)
   const [countsLoading, setCountsLoading] = useState(false)
   const [tickets, setTickets] = useState<QueueItem[]>([])
-  const [counts, setCounts] = useState<QueueCounts>({ needs_attention: 0, open_active: 0, escalated: 0, all: 0 })
+  const [counts, setCounts] = useState<QueueCounts>({ needs_attention: 0, open_active: 0, escalated: 0, all: 0, resolved_today: 0 })
   const [currentLane, setCurrentLane] = useState('needs_attention')
   const [searchQuery, setSearchQuery] = useState('')
   const [mineOnly, setMineOnly] = useState(false)
@@ -125,6 +135,24 @@ export default function RepConsolePage() {
   const [aiResponse, setAiResponse] = useState<any>(null)
   const [aiCooldowns, setAiCooldowns] = useState<Record<string, number>>({})
   const [currentAiTicket, setCurrentAiTicket] = useState<string | null>(null)
+
+  // Escalation dialog state
+  const [escalateDialog, setEscalateDialog] = useState<{
+    open: boolean
+    ticketId: string | null
+    reason: string
+    toUserId: string
+  }>({ open: false, ticketId: null, reason: '', toUserId: '' })
+  const [orgMembers, setOrgMembers] = useState<Array<{ user_id: string; user_email: string; role: string }>>([])
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [bulkAssigning, setBulkAssigning] = useState(false)
+
+  // ETR dialog state
+  const [etrDialog, setEtrDialog] = useState<{
+    open: boolean
+    ticketId: string | null
+    value: string   // datetime-local string
+  }>({ open: false, ticketId: null, value: '' })
 
   const limit = 20
 
@@ -495,6 +523,24 @@ export default function RepConsolePage() {
     }
   }
 
+  const runBulkAutoAssign = async () => {
+    if (!orgId) return
+    try {
+      setBulkAssigning(true)
+      const result = await api.post<{ assigned: number }>('/api/admin/auto-assign', {}, orgId)
+      if (result.assigned === 0) {
+        toast.info('No unassigned tickets — everything is already routed')
+      } else {
+        toast.success(`Auto-assigned ${result.assigned} ticket${result.assigned !== 1 ? 's' : ''} to your team`)
+        loadTickets()
+      }
+    } catch {
+      toast.error('Auto-assign failed')
+    } finally {
+      setBulkAssigning(false)
+    }
+  }
+
   const performAction = async (ticketId: string, action: string, payload: any = {}) => {
     if (!orgId) {
       toast.error('Organization context not loaded', { id: 'action-' + ticketId })
@@ -548,11 +594,46 @@ export default function RepConsolePage() {
     }
   }
 
-  const handleEscalate = async (ticketId: string) => {
-    const reason = prompt('Escalation reason (optional):')
-    if (reason !== null) { // User didn't cancel
-      await performAction(ticketId, 'escalate', { reason: reason || null })
+  const loadOrgMembers = async () => {
+    if (!orgId || orgMembers.length > 0) return
+    try {
+      setMembersLoading(true)
+      const data: Array<{ user_id: string; user_email: string; role: string }> = await api.get(`/api/organizations/${orgId}/members`, orgId)
+      setOrgMembers(data.filter(m => ['rep', 'admin', 'owner'].includes(m.role)))
+    } catch (e) {
+      console.error('Failed to load org members:', e)
+    } finally {
+      setMembersLoading(false)
     }
+  }
+
+  const handleEscalate = (ticketId: string) => {
+    setEscalateDialog({ open: true, ticketId, reason: '', toUserId: '' })
+    loadOrgMembers()
+  }
+
+  const submitEscalation = async () => {
+    if (!escalateDialog.ticketId) return
+    await performAction(escalateDialog.ticketId, 'escalate', {
+      reason: escalateDialog.reason || null,
+      escalated_to_user_id: escalateDialog.toUserId || null,
+    })
+    setEscalateDialog({ open: false, ticketId: null, reason: '', toUserId: '' })
+  }
+
+  const handleSetETR = (ticketId: string) => {
+    const suggested = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    const pad = (n: number) => n.toString().padStart(2, '0')
+    const local = `${suggested.getFullYear()}-${pad(suggested.getMonth()+1)}-${pad(suggested.getDate())}T${pad(suggested.getHours())}:${pad(suggested.getMinutes())}`
+    setEtrDialog({ open: true, ticketId, value: local })
+  }
+
+  const submitETR = async () => {
+    if (!etrDialog.ticketId || !etrDialog.value) return
+    await performAction(etrDialog.ticketId, 'etr', {
+      expected_resolve_at: new Date(etrDialog.value).toISOString()
+    })
+    setEtrDialog({ open: false, ticketId: null, value: '' })
   }
 
   const handleManualRefresh = async () => {
@@ -665,6 +746,30 @@ export default function RepConsolePage() {
     return colors[priority as keyof typeof colors] || 'bg-gray-100 text-gray-800'
   }
 
+  const getPriorityLevelBadge = (level: number): { label: string; className: string } => {
+    const map: Record<number, { label: string; className: string }> = {
+      1: { label: 'P1', className: 'bg-red-100 text-red-800 border border-red-300' },
+      2: { label: 'P2', className: 'bg-orange-100 text-orange-800 border border-orange-300' },
+      3: { label: 'P3', className: 'bg-yellow-100 text-yellow-800 border border-yellow-300' },
+      4: { label: 'P4', className: 'bg-blue-100 text-blue-800 border border-blue-300' },
+      5: { label: 'P5', className: 'bg-indigo-100 text-indigo-800 border border-indigo-300' },
+      6: { label: 'P6', className: 'bg-purple-100 text-purple-800 border border-purple-300' },
+      7: { label: 'P7', className: 'bg-gray-100 text-gray-700 border border-gray-300' },
+    }
+    return map[level] ?? { label: `P${level}`, className: 'bg-gray-100 text-gray-700' }
+  }
+
+  const formatETR = (etrStr: string): { text: string; className: string } => {
+    const etr = new Date(etrStr)
+    const now = new Date()
+    const diffMs = etr.getTime() - now.getTime()
+    const diffHours = diffMs / (1000 * 60 * 60)
+    const formatted = etr.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    if (diffMs < 0) return { text: `ETR: ${formatted} (overdue)`, className: 'text-red-600' }
+    if (diffHours < 2) return { text: `ETR: ${formatted}`, className: 'text-amber-600' }
+    return { text: `ETR: ${formatted}`, className: 'text-muted-foreground' }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen grid place-items-center">
@@ -706,9 +811,20 @@ export default function RepConsolePage() {
                   Dashboard
                 </Link>
               </Button>
+              {user?.role === 'admin' && (
+                <Button
+                  variant="outline"
+                  className="min-h-[44px]"
+                  onClick={runBulkAutoAssign}
+                  disabled={bulkAssigning}
+                >
+                  <CheckCheck className="mr-2 h-4 w-4" />
+                  {bulkAssigning ? 'Assigning…' : 'Auto-assign'}
+                </Button>
+              )}
               <Button onClick={() => setShowKBModal(true)} className="min-h-[44px]">
                 <Upload className="mr-2 h-4 w-4" />
-                KB Ingest
+                Upload Documents
               </Button>
               <KBIngestModal
                 open={showKBModal}
@@ -728,9 +844,101 @@ export default function RepConsolePage() {
                 onEscalate={handleAiEscalate}
                 onFeedback={handleAiFeedback}
               />
+
+              {/* Escalation dialog */}
+              <Dialog
+                open={escalateDialog.open}
+                onOpenChange={(open) => !open && setEscalateDialog(prev => ({ ...prev, open: false }))}
+              >
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Escalate Ticket</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="escalate-to">Escalate to (optional)</Label>
+                      <Select
+                        value={escalateDialog.toUserId}
+                        onValueChange={(v) => setEscalateDialog(prev => ({ ...prev, toUserId: v }))}
+                        disabled={membersLoading}
+                      >
+                        <SelectTrigger id="escalate-to">
+                          <SelectValue placeholder={membersLoading ? 'Loading members…' : 'Select a rep or admin…'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {orgMembers.map(m => (
+                            <SelectItem key={m.user_id} value={m.user_id}>
+                              {m.user_email} <span className="text-muted-foreground">({m.role})</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="escalate-reason">Reason (optional)</Label>
+                      <Textarea
+                        id="escalate-reason"
+                        placeholder="Why is this being escalated?"
+                        value={escalateDialog.reason}
+                        onChange={(e) => setEscalateDialog(prev => ({ ...prev, reason: e.target.value }))}
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setEscalateDialog(prev => ({ ...prev, open: false }))}
+                    >
+                      Cancel
+                    </Button>
+                    <Button variant="destructive" onClick={submitEscalation}>
+                      <AlertTriangle className="h-4 w-4 mr-2" />
+                      Escalate
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* ETR dialog */}
+              <Dialog
+                open={etrDialog.open}
+                onOpenChange={(open) => !open && setEtrDialog(prev => ({ ...prev, open: false }))}
+              >
+                <DialogContent className="max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle>Set Expected Time to Resolve</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="etr-datetime">Expected resolve by</Label>
+                      <input
+                        id="etr-datetime"
+                        type="datetime-local"
+                        title="Expected resolve date and time"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        value={etrDialog.value}
+                        onChange={(e) => setEtrDialog(prev => ({ ...prev, value: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setEtrDialog(prev => ({ ...prev, open: false }))}
+                    >
+                      Cancel
+                    </Button>
+                    <Button onClick={submitETR} disabled={!etrDialog.value}>
+                      <Clock className="h-4 w-4 mr-2" />
+                      Confirm ETR
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
-          
+
           {/* Refresh Controls */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pt-2 border-t">
             <span className="text-xs sm:text-sm text-muted-foreground">
@@ -749,7 +957,7 @@ export default function RepConsolePage() {
         </div>
 
         {/* Stats Overview - Mobile Optimized */}
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
           <Card className="relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 to-red-600/5" />
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative">
@@ -826,6 +1034,25 @@ export default function RepConsolePage() {
             </p>
           </CardContent>
         </Card>
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-emerald-600/5" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative">
+            <CardTitle className="text-sm font-medium">Resolved Today</CardTitle>
+            <CheckCheck className="h-4 w-4 text-emerald-600" />
+          </CardHeader>
+          <CardContent className="relative">
+            <div className="text-2xl font-bold text-emerald-600">
+              {countsLoading ? (
+                <div className="h-8 bg-gray-200 rounded animate-pulse w-12"></div>
+              ) : (
+                counts.resolved_today
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Resolved since midnight
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Filters and Queue Management */}
@@ -840,7 +1067,7 @@ export default function RepConsolePage() {
           <div className="flex flex-col gap-4">
             {/* Lane Tabs - Mobile Optimized */}
             <Tabs value={currentLane} onValueChange={(value) => { setCurrentLane(value); setOffset(0) }}>
-              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto">
+              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5 h-auto">
                 <TabsTrigger value="needs_attention" className="text-xs sm:text-sm min-h-[44px] whitespace-normal py-2">
                   <span className="hidden sm:inline">Needs Attention</span>
                   <span className="sm:hidden">Attention</span>
@@ -851,6 +1078,10 @@ export default function RepConsolePage() {
                 </TabsTrigger>
                 <TabsTrigger value="escalated" className="text-xs sm:text-sm min-h-[44px] whitespace-normal py-2">
                   Escalated
+                </TabsTrigger>
+                <TabsTrigger value="resolved_today" className="text-xs sm:text-sm min-h-[44px] whitespace-normal py-2">
+                  <span className="hidden sm:inline">Resolved Today</span>
+                  <span className="sm:hidden">Done</span>
                 </TabsTrigger>
                 <TabsTrigger value="all" className="text-xs sm:text-sm min-h-[44px] whitespace-normal py-2">
                   <span className="hidden sm:inline">All Tickets</span>
@@ -933,10 +1164,33 @@ export default function RepConsolePage() {
                   {/* Metadata - Mobile Optimized */}
                   <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm">
                     <StatusBadge status={ticket.status as "escalated" | "open" | "in_progress" | "resolved" | "closed"} />
-                    <Badge variant={ticket.priority === 'high' ? 'destructive' : 
+                    <Badge variant={ticket.priority === 'high' ? 'destructive' :
                                    ticket.priority === 'normal' ? 'default' : 'secondary'}>
                       {ticket.priority}
                     </Badge>
+                    {ticket.priority_level != null && (() => {
+                      const { label, className } = getPriorityLevelBadge(ticket.priority_level!)
+                      return (
+                        <span className={cn('text-xs font-semibold px-1.5 py-0.5 rounded', className)}>
+                          {label}
+                        </span>
+                      )
+                    })()}
+                    {ticket.status === 'escalated' && ticket.escalated_to_name && (
+                      <Badge variant="outline" className="text-xs border-orange-400 text-orange-700">
+                        <User className="mr-1 h-3 w-3" />
+                        Escalated to: {ticket.escalated_to_name}
+                      </Badge>
+                    )}
+                    {ticket.expected_resolve_at && (() => {
+                      const { text, className } = formatETR(ticket.expected_resolve_at)
+                      return (
+                        <div className={cn('flex items-center gap-1 text-xs font-medium', className)}>
+                          <Clock className="h-3 w-3" />
+                          {text}
+                        </div>
+                      )
+                    })()}
                     <div className="flex items-center gap-1 text-muted-foreground">
                       <User className="h-3 w-3" />
                       <span className="hidden sm:inline">{ticket.assignee_id ? 'Assigned' : 'Unassigned'}</span>
@@ -967,8 +1221,8 @@ export default function RepConsolePage() {
                 {/* Action Bar */}
                 <RepActionBar
                   ticketId={ticket.id}
-                  status={ticket.status as "open" | "resolved" | "closed" | "pending"}
-                  priority={ticket.priority as "low" | "high" | "medium" | "urgent"}
+                  status={ticket.status as "open" | "resolved" | "closed" | "in_progress" | "escalated"}
+                  priority={ticket.priority as "low" | "normal" | "high"}
                   quickActions={[
                     {
                       id: "respond",
@@ -1047,6 +1301,14 @@ export default function RepConsolePage() {
                       icon: AlertTriangle,
                       variant: 'destructive',
                       onClick: () => handleEscalate(ticket.id),
+                      disabled: actionLoading?.startsWith(ticket.id) || false
+                    },
+                    {
+                      id: 'set-etr',
+                      label: ticket.expected_resolve_at ? 'Update ETR' : 'Set ETR',
+                      icon: Clock,
+                      variant: 'outline' as const,
+                      onClick: () => handleSetETR(ticket.id),
                       disabled: actionLoading?.startsWith(ticket.id) || false
                     }
                   ]}

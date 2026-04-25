@@ -13,9 +13,9 @@ export const metadata = { title: "TicketPilot", description: "Customer support w
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning data-theme="v2-dark">
+    <html lang="en" suppressHydrationWarning data-theme="v2-dark" className="dark">
       <body className={`${geist.variable} ${inter.variable} antialiased bg-[color:var(--bg)] text-[rgb(var(--text))] font-inter`} suppressHydrationWarning>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark">
           <MotionProvider>
             <OrganizationProvider>
               <AuthHashHandler />

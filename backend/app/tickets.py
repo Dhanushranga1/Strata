@@ -6,23 +6,66 @@ import json
 import time
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 import uuid
 
 from .schemas import (
     TicketCreate, TicketSummary, TicketDetail, TicketListResponse,
     MessageCreate, MessageOut, TicketWithMessages,
-    ChatRequest, ChatResponse, Citation
+    ChatRequest, ChatResponse, Citation,
+    TagsRequest, ResolutionRequest, RatingRequest,
 )
 from .auth import User, get_current_user
 from .observability import get_observer, log_rag_metrics
 from .org_middleware import require_org_context
+from .email import (
+    send_new_ticket_email, send_ai_failure_email,
+    send_rep_reply_email, send_ticket_resolved_email,
+    send_ticket_created_for_customer_email,
+)
 
 router = APIRouter(prefix="/api", tags=["tickets"])
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+import logging as _logging
+_pool_logger = _logging.getLogger(__name__)
+
+# Pool is created at module-load time so the first user request doesn't pay the
+# connection setup cost. Connections are established lazily (open=False) but
+# check_connection() warms them during startup via app lifespan.
+_pool: ConnectionPool | None = None
+
+def _build_pool() -> ConnectionPool | None:
+    if not DATABASE_URL:
+        return None
+    try:
+        pool = ConnectionPool(
+            DATABASE_URL,
+            min_size=1,
+            max_size=8,
+            max_idle=300,
+            kwargs={"row_factory": dict_row},
+            open=True,   # establishes min_size connections synchronously
+        )
+        # Fire one warm-up query so the first request doesn't see 1.3s latency
+        with pool.connection() as _c:
+            _c.execute("SELECT 1")
+        _pool_logger.info("[db] Connection pool ready (min=1, max=8)")
+        return pool
+    except Exception as exc:
+        _pool_logger.warning("[db] Pool init failed, will fall back to per-request connect: %s", exc)
+        return None
+
+try:
+    _pool = _build_pool()
+except Exception:
+    _pool = None
+
 def get_db_connection():
-    """Get database connection."""
+    """Return a pool connection or a fresh direct connection as fallback."""
+    if _pool is not None:
+        return _pool.connection()
     if not DATABASE_URL:
         raise HTTPException(500, "DATABASE_URL not configured")
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
@@ -45,46 +88,165 @@ def create_ticket(payload: TicketCreate, request: Request, user: User = Depends(
     """Create a new ticket with initial message."""
     org_id = require_org_context(request)
     user_role = get_user_role(user.id)
-    
+
     # Map admin to rep for messages (DB constraint only allows: customer, rep, ai, system)
     message_sender_role = "rep" if user_role == "admin" else user_role
-    
+
+    # Rep/Admin can create a ticket on behalf of a customer
+    ticket_owner_id = user.id
+    ticket_owner_email = user.email
+    if payload.customer_email and user_role in ("rep", "admin"):
+        with get_db_connection() as lookup_conn:
+            lc = lookup_conn.cursor()
+            lc.execute("SELECT id, email FROM auth.users WHERE email = %s LIMIT 1", (payload.customer_email,))
+            customer_row = lc.fetchone()
+        if customer_row:
+            ticket_owner_id = customer_row["id"]
+            ticket_owner_email = customer_row["email"]
+        else:
+            raise HTTPException(status_code=404, detail="Customer email not found in this organisation")
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         # 1) Insert ticket
         cursor.execute("""
-            INSERT INTO app.tickets (created_by, organization_id, title, description, status, message_count)
-            VALUES (%s, %s, %s, %s, 'open', 0)
-            RETURNING id, created_by, organization_id, assignee_id, title, description, status, 
-                      message_count, last_message_at, created_at, updated_at
-        """, (user.id, org_id, payload.title, payload.description))
-        
+            INSERT INTO app.tickets (created_by, organization_id, title, description, status, priority, message_count, tags)
+            VALUES (%s, %s, %s, %s, 'open', %s, 0, %s)
+            RETURNING id, created_by, organization_id, assignee_id, title, description, status,
+                      message_count, last_message_at, created_at, updated_at,
+                      priority, priority_level, needs_attention, is_overdue, tags, expected_resolve_at
+        """, (ticket_owner_id, org_id, payload.title, payload.description,
+              payload.priority, payload.tags or []))
+
         ticket_row = cursor.fetchone()
         ticket_id = ticket_row["id"]
-        
+
         # 2) Insert initial message
         cursor.execute("""
             INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body)
             VALUES (%s, %s, %s, %s, %s)
             RETURNING id, ticket_id, sender_id, sender_role, body, created_at
-        """, (ticket_id, user.id, message_sender_role, org_id, payload.description))
-        
+        """, (ticket_id, ticket_owner_id, message_sender_role, org_id, payload.description))
+
         message_row = cursor.fetchone()
-        
+
         # 3) Update ticket message_count and last_message_at
         cursor.execute("""
-            UPDATE app.tickets 
+            UPDATE app.tickets
             SET message_count = 1, last_message_at = %s, updated_at = %s
             WHERE id = %s
             RETURNING last_message_at
         """, (message_row["created_at"], datetime.utcnow(), ticket_id))
-        
+
         updated_ticket = cursor.fetchone()
-        
+
+        # 4) Apply org default ETR if configured and not already set
+        if not ticket_row.get("expected_resolve_at"):
+            cursor.execute("SELECT settings FROM app.organizations WHERE id = %s", (org_id,))
+            org_row = cursor.fetchone()
+            if org_row:
+                org_settings = org_row.get("settings") or {}
+                default_etr_hours = org_settings.get("default_etr_hours")
+                if default_etr_hours:
+                    try:
+                        cursor.execute("""
+                            UPDATE app.tickets
+                            SET expected_resolve_at = NOW() + (%s || ' hours')::interval
+                            WHERE id = %s
+                            RETURNING expected_resolve_at
+                        """, (str(int(default_etr_hours)), ticket_id))
+                        etr_row = cursor.fetchone()
+                        if etr_row:
+                            ticket_row = dict(ticket_row)
+                            ticket_row["expected_resolve_at"] = etr_row["expected_resolve_at"]
+                    except Exception:
+                        pass
+
+        # 5) Auto-assign to least-loaded rep if org has auto_assign_on_create enabled
+        if org_row is None:
+            cursor.execute("SELECT settings FROM app.organizations WHERE id = %s", (org_id,))
+            org_row = cursor.fetchone()
+        org_settings_check = (org_row.get("settings") or {}) if org_row else {}
+        if org_settings_check.get("auto_assign_on_create"):
+            try:
+                cursor.execute("""
+                    SELECT om.user_id::text, au.email,
+                           COUNT(t.id) FILTER (
+                               WHERE t.assignee_id = om.user_id
+                                 AND t.status IN ('open','in_progress','escalated')
+                           ) AS load
+                    FROM app.organization_members om
+                    JOIN auth.users au ON au.id = om.user_id
+                    JOIN app.user_roles ur ON ur.user_id = om.user_id
+                    LEFT JOIN app.tickets t ON t.organization_id = %s
+                    WHERE om.organization_id = %s AND ur.role IN ('rep','admin')
+                    GROUP BY om.user_id, au.email
+                    ORDER BY load ASC, au.email ASC
+                    LIMIT 1
+                """, (org_id, org_id))
+                best = cursor.fetchone()
+                if best:
+                    cursor.execute(
+                        "UPDATE app.tickets SET assignee_id = %s WHERE id = %s",
+                        (best["user_id"], ticket_id)
+                    )
+                    cursor.execute("""
+                        INSERT INTO app.messages
+                          (ticket_id, sender_id, sender_role, organization_id, body)
+                        VALUES (%s, %s, 'system', %s, %s)
+                    """, (ticket_id, user.id, org_id,
+                          f"[system] Auto-assigned to {best['email']}"))
+                    cursor.execute(
+                        "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = %s",
+                        (ticket_id,)
+                    )
+                    ticket_row = dict(ticket_row)
+                    ticket_row["assignee_id"] = best["user_id"]
+            except Exception:
+                pass  # auto-assign failure never blocks ticket creation
+
         conn.commit()
-        
-        # Return TicketDetail
+
+        # Fire email notifications (background thread — never blocks ticket creation)
+        import threading
+        def _notify():
+            try:
+                with get_db_connection() as nc:
+                    nc_cursor = nc.cursor()
+                    nc_cursor.execute("""
+                        SELECT DISTINCT au.email
+                        FROM app.organization_members om
+                        JOIN auth.users au ON au.id = om.user_id
+                        WHERE om.organization_id = %s AND om.role IN ('owner', 'admin', 'rep')
+                          AND au.email IS NOT NULL
+                        LIMIT 10
+                    """, (org_id,))
+                    for row in nc_cursor.fetchall():
+                        send_new_ticket_email(
+                            row["email"], str(ticket_id), payload.title,
+                            user.email or "unknown",
+                        )
+            except Exception:
+                pass
+
+        def _notify_customer():
+            try:
+                send_ticket_created_for_customer_email(
+                    ticket_owner_email or "",
+                    str(ticket_id),
+                    payload.title,
+                    user.email or "support",
+                    payload.priority,
+                )
+            except Exception:
+                pass
+
+        threading.Thread(target=_notify, daemon=True).start()
+        # Email the customer only when a rep/admin creates on their behalf
+        if payload.customer_email and user_role in ("rep", "admin") and ticket_owner_email:
+            threading.Thread(target=_notify_customer, daemon=True).start()
+
         return TicketDetail(
             id=str(ticket_row["id"]),
             created_by=str(ticket_row["created_by"]),
@@ -92,9 +254,16 @@ def create_ticket(payload: TicketCreate, request: Request, user: User = Depends(
             title=ticket_row["title"],
             description=ticket_row["description"],
             status=ticket_row["status"],
+            priority=ticket_row.get("priority", "normal"),
+            priority_level=ticket_row.get("priority_level"),
+            needs_attention=ticket_row.get("needs_attention", False),
+            is_overdue=ticket_row.get("is_overdue", False),
+            tags=ticket_row.get("tags") or [],
             message_count=1,
             last_message_at=updated_ticket["last_message_at"],
-            created_at=ticket_row["created_at"]
+            created_at=ticket_row["created_at"],
+            expected_resolve_at=ticket_row.get("expected_resolve_at"),
+            customer_email=ticket_owner_email,
         )
 
 @router.get("/tickets", response_model=TicketListResponse)
@@ -114,56 +283,69 @@ def list_tickets(
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        # Build WHERE conditions
-        where_conditions = ["organization_id = %s"]
+        # Build WHERE conditions (using t. alias since list query joins)
+        where_conditions = ["t.organization_id = %s"]
         params = [org_id]
-        
-        # Access control
+
         if not user_is_rep:
-            # Customers only see their tickets
-            where_conditions.append("created_by = %s")
+            where_conditions.append("t.created_by = %s")
             params.append(user.id)
-        elif user_is_rep and mine:
-            # Reps can filter to their own tickets
-            where_conditions.append("created_by = %s")
+        elif mine:
+            where_conditions.append("t.assignee_id = %s")
             params.append(user.id)
-        
-        # Status filter
+
         if status_filter != "all":
-            where_conditions.append("status = %s")
+            where_conditions.append("t.status = %s")
             params.append(status_filter)
-        
-        # Search in title
+
         if q:
-            where_conditions.append("title ILIKE %s")
+            where_conditions.append("t.title ILIKE %s")
             params.append(f"%{q}%")
-        
+
         where_clause = "WHERE " + " AND ".join(where_conditions)
-        
+
         # Get total count
-        count_query = f"SELECT COUNT(*) as total FROM app.tickets {where_clause}"
+        count_query = f"SELECT COUNT(*) as total FROM app.tickets t {where_clause}"
         cursor.execute(count_query, params)
         total = cursor.fetchone()["total"]
         
         # Get paginated results
         list_query = f"""
-            SELECT id, title, status, message_count, last_message_at, created_at
-            FROM app.tickets 
+            SELECT t.id, t.title, t.status, t.priority, t.priority_level,
+                   t.needs_attention, t.is_overdue, t.message_count,
+                   t.last_message_at, t.created_at, t.assignee_id,
+                   t.tags, t.organization_id,
+                   au.email AS assignee_email,
+                   cu.email AS customer_email
+            FROM app.tickets t
+            LEFT JOIN auth.users au ON au.id = t.assignee_id
+            LEFT JOIN auth.users cu ON cu.id = t.created_by
             {where_clause}
-            ORDER BY last_message_at DESC
+            ORDER BY t.last_message_at DESC
             LIMIT %s OFFSET %s
         """
         cursor.execute(list_query, params + [limit, offset])
         tickets = cursor.fetchall()
-        
+
+        # Fix WHERE clause — list_query uses aliases now
+        # (already done above with t. prefix; params match org_id / user.id)
+
         items = [
             TicketSummary(
                 id=str(ticket["id"]),
                 title=ticket["title"],
                 status=ticket["status"],
+                priority=ticket.get("priority", "normal"),
+                priority_level=ticket.get("priority_level"),
+                needs_attention=ticket.get("needs_attention", False),
+                is_overdue=ticket.get("is_overdue", False),
                 message_count=ticket["message_count"],
                 last_message_at=ticket["last_message_at"],
-                created_at=ticket["created_at"]
+                created_at=ticket["created_at"],
+                assignee_id=str(ticket["assignee_id"]) if ticket.get("assignee_id") else None,
+                assignee_email=ticket.get("assignee_email"),
+                customer_email=ticket.get("customer_email"),
+                tags=ticket.get("tags") or [],
             )
             for ticket in tickets
         ]
@@ -183,44 +365,73 @@ def get_ticket(ticket_id: str, request: Request, user: User = Depends(get_curren
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
-        # Get ticket
+
         cursor.execute("""
-            SELECT id, created_by, organization_id, assignee_id, title, description, status, 
-                   message_count, last_message_at, created_at, updated_at
-            FROM app.tickets WHERE id = %s AND organization_id = %s
+            SELECT t.id, t.created_by, t.organization_id, t.assignee_id,
+                   t.title, t.description, t.status, t.priority, t.priority_level,
+                   t.needs_attention, t.is_overdue, t.message_count,
+                   t.last_message_at, t.created_at, t.updated_at,
+                   t.escalated_to, t.escalated_at,
+                   t.expected_resolve_at, t.resolved_at,
+                   t.resolution_note, t.customer_rating,
+                   t.tags,
+                   au.email AS assignee_email,
+                   cu.email AS customer_email,
+                   eu.email AS escalated_to_email
+            FROM app.tickets t
+            LEFT JOIN auth.users au ON au.id = t.assignee_id
+            LEFT JOIN auth.users cu ON cu.id = t.created_by
+            LEFT JOIN auth.users eu ON eu.id = t.escalated_to
+            WHERE t.id = %s AND t.organization_id = %s
         """, (ticket_id, org_id))
-        
+
         ticket_row = cursor.fetchone()
         if not ticket_row:
             raise HTTPException(status_code=404, detail="Ticket not found")
-        
-        # Check access
-        if not user_is_rep and ticket_row["created_by"] != uuid.UUID(user.id):
+
+        # Access check — customers only see their own tickets
+        if not user_is_rep and str(ticket_row["created_by"]) != user.id:
             raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Get messages
-        cursor.execute("""
-            SELECT id, ticket_id, sender_id, sender_role, body, created_at
-            FROM app.messages 
-            WHERE ticket_id = %s AND organization_id = %s
-            ORDER BY created_at ASC
+
+        # Messages — customers never see internal notes
+        internal_filter = "" if user_is_rep else "AND m.is_internal = false"
+        cursor.execute(f"""
+            SELECT m.id, m.ticket_id, m.sender_id, m.sender_role,
+                   m.body, m.created_at, m.is_internal, m.meta
+            FROM app.messages m
+            WHERE m.ticket_id = %s AND m.organization_id = %s {internal_filter}
+            ORDER BY m.created_at ASC
         """, (ticket_id, org_id))
-        
+
         message_rows = cursor.fetchall()
-        
+
         ticket = TicketDetail(
             id=str(ticket_row["id"]),
             created_by=str(ticket_row["created_by"]),
-            assignee_id=str(ticket_row["assignee_id"]) if ticket_row["assignee_id"] else None,
+            assignee_id=str(ticket_row["assignee_id"]) if ticket_row.get("assignee_id") else None,
+            assignee_email=ticket_row.get("assignee_email"),
+            customer_email=ticket_row.get("customer_email"),
             title=ticket_row["title"],
             description=ticket_row["description"],
             status=ticket_row["status"],
+            priority=ticket_row.get("priority", "normal"),
+            priority_level=ticket_row.get("priority_level"),
+            needs_attention=ticket_row.get("needs_attention", False),
+            is_overdue=ticket_row.get("is_overdue", False),
+            tags=ticket_row.get("tags") or [],
             message_count=ticket_row["message_count"],
             last_message_at=ticket_row["last_message_at"],
-            created_at=ticket_row["created_at"]
+            created_at=ticket_row["created_at"],
+            updated_at=ticket_row.get("updated_at"),
+            escalated_to=str(ticket_row["escalated_to"]) if ticket_row.get("escalated_to") else None,
+            escalated_to_email=ticket_row.get("escalated_to_email"),
+            escalated_at=ticket_row.get("escalated_at"),
+            expected_resolve_at=ticket_row.get("expected_resolve_at"),
+            resolved_at=ticket_row.get("resolved_at"),
+            resolution_note=ticket_row.get("resolution_note"),
+            customer_rating=ticket_row.get("customer_rating"),
         )
-        
+
         messages = [
             MessageOut(
                 id=str(msg["id"]),
@@ -228,11 +439,13 @@ def get_ticket(ticket_id: str, request: Request, user: User = Depends(get_curren
                 sender_id=str(msg["sender_id"]),
                 sender_role=msg["sender_role"],
                 body=msg["body"],
-                created_at=msg["created_at"]
+                created_at=msg["created_at"],
+                is_internal=msg.get("is_internal", False),
+                meta=msg.get("meta"),
             )
             for msg in message_rows
         ]
-        
+
         return TicketWithMessages(ticket=ticket, messages=messages)
 
 @router.get("/tickets/{ticket_id}/messages", response_model=List[MessageOut])
@@ -263,31 +476,32 @@ def get_messages(
         if not user_is_rep and ticket_row["created_by"] != uuid.UUID(user.id):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Get messages with limit and order
         order_clause = "ASC" if order == "asc" else "DESC"
+        user_is_rep_msg = is_rep(user)
+        internal_filter = "" if user_is_rep_msg else "AND is_internal = false"
         cursor.execute(f"""
-            SELECT id, ticket_id, sender_id, sender_role, body, created_at
-            FROM app.messages 
-            WHERE ticket_id = %s AND organization_id = %s
+            SELECT id, ticket_id, sender_id, sender_role, body, created_at, is_internal, meta
+            FROM app.messages
+            WHERE ticket_id = %s AND organization_id = %s {internal_filter}
             ORDER BY created_at {order_clause}
             LIMIT %s
         """, (ticket_id, org_id, limit))
-        
+
         message_rows = cursor.fetchall()
-        
-        messages = [
+
+        return [
             MessageOut(
                 id=str(msg["id"]),
                 ticket_id=str(msg["ticket_id"]),
                 sender_id=str(msg["sender_id"]),
                 sender_role=msg["sender_role"],
                 body=msg["body"],
-                created_at=msg["created_at"]
+                created_at=msg["created_at"],
+                is_internal=msg.get("is_internal", False),
+                meta=msg.get("meta"),
             )
             for msg in message_rows
         ]
-        
-        return messages
 
 @router.post("/tickets/{ticket_id}/messages", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
 def post_message(ticket_id: str, payload: MessageCreate, request: Request, user: User = Depends(get_current_user)):
@@ -304,7 +518,7 @@ def post_message(ticket_id: str, payload: MessageCreate, request: Request, user:
         
         # Check ticket exists and access
         cursor.execute("""
-            SELECT id, created_by, message_count
+            SELECT id, created_by, message_count, title
             FROM app.tickets WHERE id = %s AND organization_id = %s
         """, (ticket_id, org_id))
         
@@ -316,33 +530,60 @@ def post_message(ticket_id: str, payload: MessageCreate, request: Request, user:
         if not user_is_rep and ticket_row["created_by"] != uuid.UUID(user.id):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Insert message
+        # Internal notes only allowed for reps/admins
+        is_internal = bool(payload.is_internal) and user_is_rep
+
         cursor.execute("""
-            INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id, ticket_id, sender_id, sender_role, body, created_at
-        """, (ticket_id, user.id, message_sender_role, org_id, payload.body))
-        
+            INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, is_internal)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id, ticket_id, sender_id, sender_role, body, created_at, is_internal
+        """, (ticket_id, user.id, message_sender_role, org_id, payload.body, is_internal))
+
         message_row = cursor.fetchone()
-        
-        # Update ticket message_count and last_message_at
+
         cursor.execute("""
-            UPDATE app.tickets 
-            SET message_count = message_count + 1, 
-                last_message_at = %s, 
+            UPDATE app.tickets
+            SET message_count = message_count + 1,
+                last_message_at = %s,
                 updated_at = %s
             WHERE id = %s
         """, (message_row["created_at"], datetime.utcnow(), ticket_id))
-        
+
         conn.commit()
-        
+
+        # Notify customer when a rep posts a public reply (fire-and-forget)
+        if user_is_rep and not is_internal:
+            import threading
+            ticket_title = ticket_row["title"] if ticket_row else ""
+            ticket_id_str = str(ticket_row["id"]) if ticket_row else ticket_id
+            def _notify_customer():
+                try:
+                    with get_db_connection() as nc:
+                        nc_cur = nc.cursor()
+                        nc_cur.execute(
+                            "SELECT au.email FROM app.tickets t JOIN auth.users au ON au.id = t.created_by WHERE t.id = %s",
+                            (ticket_id_str,)
+                        )
+                        row = nc_cur.fetchone()
+                        if row and row["email"]:
+                            send_rep_reply_email(
+                                row["email"],
+                                ticket_id_str,
+                                ticket_title,
+                                payload.body[:200],
+                            )
+                except Exception:
+                    pass
+            threading.Thread(target=_notify_customer, daemon=True).start()
+
         return MessageOut(
             id=str(message_row["id"]),
             ticket_id=str(message_row["ticket_id"]),
             sender_id=str(message_row["sender_id"]),
             sender_role=message_row["sender_role"],
             body=message_row["body"],
-            created_at=message_row["created_at"]
+            created_at=message_row["created_at"],
+            is_internal=message_row.get("is_internal", False),
         )
 
 # Phase 4: AI Chat endpoint
@@ -702,7 +943,46 @@ def chat_with_ai(
     metrics = observer.finish_operation()
     if metrics:
         log_rag_metrics(metrics)
-    
+
+    # Email the assigned rep if AI suggested escalation or had low confidence
+    if should_escalate_flag:
+        import threading
+        _ticket_id_str = str(ticket_id)
+        _confidence = confidence
+        def _notify_ai_failure():
+            try:
+                with get_db_connection() as nc:
+                    nc_cursor = nc.cursor()
+                    # Fetch ticket title + assigned rep email in one query
+                    nc_cursor.execute("""
+                        SELECT t.title, au.email AS rep_email
+                        FROM app.tickets t
+                        LEFT JOIN auth.users au ON au.id = t.assignee_id
+                        WHERE t.id = %s
+                    """, (_ticket_id_str,))
+                    row = nc_cursor.fetchone()
+                    if not row:
+                        return
+                    title = row["title"]
+                    if row["rep_email"]:
+                        send_ai_failure_email(row["rep_email"], _ticket_id_str, title, _confidence)
+                    else:
+                        # No assignee — notify org admins
+                        nc_cursor.execute("""
+                            SELECT DISTINCT au.email
+                            FROM app.tickets t
+                            JOIN app.organization_members om ON om.organization_id = t.organization_id
+                            JOIN auth.users au ON au.id = om.user_id
+                            WHERE t.id = %s AND om.role IN ('owner', 'admin')
+                              AND au.email IS NOT NULL
+                            LIMIT 5
+                        """, (_ticket_id_str,))
+                        for admin in nc_cursor.fetchall():
+                            send_ai_failure_email(admin["email"], _ticket_id_str, title, _confidence)
+            except Exception:
+                pass
+        threading.Thread(target=_notify_ai_failure, daemon=True).start()
+
     return ChatResponse(
         message_id=message_id,
         content=ai_response,
@@ -710,3 +990,126 @@ def chat_with_ai(
         confidence=confidence,
         suggest_escalation=should_escalate_flag
     )
+
+
+# ── Tags ─────────────────────────────────────────────────────────────────────
+
+@router.patch("/tickets/{ticket_id}/tags", response_model=TicketDetail)
+def update_tags(
+    ticket_id: str,
+    payload: TagsRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Update ticket tags (reps/admins only)."""
+    org_id = require_org_context(request)
+    if not is_rep(user):
+        raise HTTPException(403, "Rep/admin access required")
+
+    # Normalise: lowercase, strip whitespace, deduplicate, max 10
+    clean_tags = list(dict.fromkeys(t.strip().lower() for t in payload.tags if t.strip()))[:10]
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE app.tickets
+            SET tags = %s, updated_at = NOW()
+            WHERE id = %s AND organization_id = %s
+            RETURNING id
+        """, (clean_tags, ticket_id, org_id))
+        if not cursor.fetchone():
+            raise HTTPException(404, "Ticket not found")
+        conn.commit()
+
+    # Return full ticket detail
+    from fastapi import Request as _R
+    return get_ticket(ticket_id, request, user)
+
+
+# ── Resolve (with optional resolution note) ──────────────────────────────────
+
+@router.post("/tickets/{ticket_id}/resolve", response_model=TicketWithMessages)
+def resolve_ticket(
+    ticket_id: str,
+    payload: ResolutionRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Resolve a ticket with an optional closing note (reps/admins only)."""
+    org_id = require_org_context(request)
+    if not is_rep(user):
+        raise HTTPException(403, "Rep/admin access required")
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE app.tickets
+            SET status = %s,
+                resolution_note = %s,
+                resolved_at = CASE WHEN status NOT IN ('resolved','closed') THEN NOW() ELSE resolved_at END,
+                updated_at = NOW()
+            WHERE id = %s AND organization_id = %s
+            RETURNING id, created_by, title
+        """, (payload.status, payload.resolution_note, ticket_id, org_id))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(404, "Ticket not found")
+        conn.commit()
+
+    # Notify customer (fire-and-forget)
+    import threading
+    _tid = str(row["id"])
+    _title = row["title"]
+    _note = payload.resolution_note
+    def _notify_resolved():
+        try:
+            with get_db_connection() as nc:
+                nc_cur = nc.cursor()
+                nc_cur.execute(
+                    "SELECT au.email FROM app.tickets t JOIN auth.users au ON au.id = t.created_by WHERE t.id = %s",
+                    (_tid,)
+                )
+                r = nc_cur.fetchone()
+                if r and r["email"]:
+                    send_ticket_resolved_email(r["email"], _tid, _title, _note)
+        except Exception:
+            pass
+    threading.Thread(target=_notify_resolved, daemon=True).start()
+
+    return get_ticket(ticket_id, request, user)
+
+
+# ── CSAT rating (customer only) ───────────────────────────────────────────────
+
+@router.post("/tickets/{ticket_id}/rating")
+def rate_ticket(
+    ticket_id: str,
+    payload: RatingRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Submit CSAT rating 1-5 (ticket owner only, ticket must be resolved/closed)."""
+    org_id = require_org_context(request)
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT created_by, status FROM app.tickets
+            WHERE id = %s AND organization_id = %s
+        """, (ticket_id, org_id))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(404, "Ticket not found")
+        if str(row["created_by"]) != user.id:
+            raise HTTPException(403, "Only the ticket owner can rate")
+        if row["status"] not in ("resolved", "closed"):
+            raise HTTPException(400, "Ticket must be resolved before rating")
+
+        cursor.execute("""
+            UPDATE app.tickets
+            SET customer_rating = %s, updated_at = NOW()
+            WHERE id = %s
+        """, (payload.rating, ticket_id))
+        conn.commit()
+
+    return {"ok": True, "rating": payload.rating}

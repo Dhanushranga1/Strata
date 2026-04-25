@@ -1,258 +1,240 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Activity, 
+import {
+  Activity,
   Clock,
-  User,
   MessageSquare,
   CheckCircle,
   AlertTriangle,
   ArrowUpRight,
-  Filter
+  Loader2,
+  RefreshCw
 } from "lucide-react";
+import api from "@/lib/api-client";
+import { useOrganization } from "@/contexts/OrganizationContext";
 
 interface ActivityItem {
   id: string;
-  type: 'ticket_created' | 'ticket_resolved' | 'message_sent' | 'status_changed';
-  ticketId: string;
+  type: "ticket_created" | "ticket_resolved" | "message_sent" | "status_changed";
+  ticket_id: string;
   user: string;
-  action: string;
-  timestamp: string;
-  status?: string;
+  detail: string;
+  ts: string;
 }
 
+function timeAgo(isoStr: string): string {
+  const secs = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  return `${Math.floor(secs / 86400)}d ago`;
+}
+
+const TYPE_ICON: Record<string, React.ReactNode> = {
+  ticket_created: <MessageSquare className="h-4 w-4" />,
+  ticket_resolved: <CheckCircle className="h-4 w-4" />,
+  message_sent: <ArrowUpRight className="h-4 w-4" />,
+  status_changed: <AlertTriangle className="h-4 w-4" />,
+};
+
+const TYPE_COLOR: Record<string, string> = {
+  ticket_created: "text-blue-400",
+  ticket_resolved: "text-green-400",
+  message_sent: "text-violet-400",
+  status_changed: "text-amber-400",
+};
+
+const TYPE_LABEL: Record<string, string> = {
+  ticket_created: "Created",
+  ticket_resolved: "Resolved",
+  message_sent: "Replied",
+  status_changed: "Updated",
+};
+
+const FILTERS = [
+  { value: "all", label: "All" },
+  { value: "ticket_created", label: "Created" },
+  { value: "ticket_resolved", label: "Resolved" },
+  { value: "message_sent", label: "Messages" },
+] as const;
+
 export default function ActivityPage() {
-  const [activities, setActivities] = useState<ActivityItem[]>([
-    {
-      id: '1',
-      type: 'ticket_created',
-      ticketId: '#1234',
-      user: 'john@example.com',
-      action: 'created a new ticket',
-      timestamp: '2 minutes ago',
-    },
-    {
-      id: '2',
-      type: 'ticket_resolved',
-      ticketId: '#1232',
-      user: 'sarah@company.com',
-      action: 'resolved ticket',
-      timestamp: '15 minutes ago',
-      status: 'resolved'
-    },
-    {
-      id: '3',
-      type: 'message_sent',
-      ticketId: '#1231',
-      user: 'rep@company.com',
-      action: 'sent a response',
-      timestamp: '32 minutes ago',
-    },
-    {
-      id: '4',
-      type: 'status_changed',
-      ticketId: '#1230',
-      user: 'admin@company.com',
-      action: 'changed status to in-progress',
-      timestamp: '1 hour ago',
-      status: 'in-progress'
-    },
-    {
-      id: '5',
-      type: 'ticket_created',
-      ticketId: '#1229',
-      user: 'customer@domain.com',
-      action: 'created a new ticket',
-      timestamp: '2 hours ago',
-    },
-  ]);
+  const { currentOrganization } = useOrganization();
+  const orgId = currentOrganization?.id;
+
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState('all');
+  const [refreshing, setRefreshing] = useState(false);
+  const [filterType, setFilterType] = useState("all");
+  const [error, setError] = useState(false);
 
-  useEffect(() => {
-    // Simulate loading
-    setTimeout(() => setLoading(false), 500);
-  }, []);
-
-  const getActivityIcon = (type: string) => {
-    switch (type) {
-      case 'ticket_created': return <MessageSquare className="h-4 w-4" />;
-      case 'ticket_resolved': return <CheckCircle className="h-4 w-4" />;
-      case 'message_sent': return <ArrowUpRight className="h-4 w-4" />;
-      case 'status_changed': return <AlertTriangle className="h-4 w-4" />;
-      default: return <Activity className="h-4 w-4" />;
+  const load = useCallback(async (showSpinner = true) => {
+    if (!orgId) return;
+    if (showSpinner) setLoading(true);
+    else setRefreshing(true);
+    setError(false);
+    try {
+      const data = await api.get<ActivityItem[]>("/api/admin/activity?limit=50", orgId);
+      setActivities(data);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [orgId]);
 
-  const getActivityColor = (type: string) => {
-    switch (type) {
-      case 'ticket_created': return 'text-blue-600';
-      case 'ticket_resolved': return 'text-green-600';
-      case 'message_sent': return 'text-purple-600';
-      case 'status_changed': return 'text-orange-600';
-      default: return 'text-gray-600';
-    }
-  };
+  useEffect(() => { load(); }, [load]);
 
-  const filteredActivities = filterType === 'all' 
-    ? activities 
-    : activities.filter(activity => activity.type === filterType);
+  const filtered = filterType === "all"
+    ? activities
+    : activities.filter((a) => a.type === filterType);
+
+  // Today / yesterday / older grouping
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const yesterdayStart = todayStart - 86400000;
+
+  const todayCount = activities.filter((a) => new Date(a.ts).getTime() >= todayStart).length;
+  const createdToday = activities.filter((a) => a.type === "ticket_created" && new Date(a.ts).getTime() >= todayStart).length;
+  const resolvedToday = activities.filter((a) => a.type === "ticket_resolved" && new Date(a.ts).getTime() >= todayStart).length;
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <AlertTriangle className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+          <p className="text-muted-foreground">Admin access required to view activity.</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Activity className="h-8 w-8 text-primary" />
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Activity Feed</h1>
-            <p className="text-muted-foreground">
-              Recent system activity and ticket updates
-            </p>
+            <p className="text-muted-foreground">Recent ticket events for your organization</p>
           </div>
         </div>
-        <div className="flex gap-2">
-          {[
-            { value: 'all', label: 'All' },
-            { value: 'ticket_created', label: 'Created' },
-            { value: 'ticket_resolved', label: 'Resolved' },
-            { value: 'message_sent', label: 'Messages' },
-            { value: 'status_changed', label: 'Status' },
-          ].map((filter) => (
+        <div className="flex items-center gap-2 flex-wrap">
+          {FILTERS.map((f) => (
             <Button
-              key={filter.value}
-              variant={filterType === filter.value ? 'secondary' : 'outline'}
+              key={f.value}
+              variant={filterType === f.value ? "secondary" : "outline"}
               size="sm"
-              onClick={() => setFilterType(filter.value)}
+              onClick={() => setFilterType(f.value)}
             >
-              {filter.label}
+              {f.label}
             </Button>
           ))}
+          <Button variant="outline" size="sm" onClick={() => load(false)} disabled={refreshing}>
+            {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          </Button>
         </div>
       </div>
 
-      {/* Activity Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
+      {/* Stats */}
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Today's Activity
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Today's Activity</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">47</div>
-            <p className="text-xs text-muted-foreground">
-              +12 from yesterday
-            </p>
+            <div className="text-2xl font-bold">{todayCount}</div>
+            <p className="text-xs text-muted-foreground">events since midnight</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Tickets Created
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Tickets Created Today</CardTitle>
             <MessageSquare className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">23</div>
-            <p className="text-xs text-muted-foreground">
-              +3 from yesterday
-            </p>
+            <div className="text-2xl font-bold">{createdToday}</div>
+            <p className="text-xs text-muted-foreground">new tickets today</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Tickets Resolved
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Resolved Today</CardTitle>
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">18</div>
-            <p className="text-xs text-muted-foreground">
-              +5 from yesterday
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Active Users
-            </CardTitle>
-            <User className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">12</div>
-            <p className="text-xs text-muted-foreground">
-              Currently online
-            </p>
+            <div className="text-2xl font-bold">{resolvedToday}</div>
+            <p className="text-xs text-muted-foreground">tickets resolved today</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Activity Timeline */}
+      {/* Timeline */}
       <Card>
         <CardHeader>
           <CardTitle>Activity Timeline</CardTitle>
           <CardDescription>
-            Showing {filteredActivities.length} activities
+            Showing {filtered.length} of {activities.length} events
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {filteredActivities.map((activity) => (
-              <div key={activity.id} className="flex items-start gap-4 p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                <div className={`p-2 rounded-full bg-muted ${getActivityColor(activity.type)}`}>
-                  {getActivityIcon(activity.type)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm">{activity.user}</span>
-                    <span className="text-sm text-muted-foreground">{activity.action}</span>
-                    <Badge variant="outline" className="text-xs">
-                      {activity.ticketId}
-                    </Badge>
-                    {activity.status && (
-                      <Badge variant="secondary" className="text-xs">
-                        {activity.status}
+          {filtered.length === 0 ? (
+            <div className="text-center py-10">
+              <Activity className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+              <p className="text-muted-foreground">No activity yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((activity) => (
+                <div
+                  key={activity.id}
+                  className="flex items-start gap-3 p-3 border rounded-lg hover:bg-muted/30 transition-colors"
+                >
+                  <div className={`p-2 rounded-full bg-muted shrink-0 ${TYPE_COLOR[activity.type] ?? "text-muted-foreground"}`}>
+                    {TYPE_ICON[activity.type] ?? <Activity className="h-4 w-4" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                      <span className="font-medium text-sm truncate">{activity.user}</span>
+                      <Badge
+                        variant="outline"
+                        className={`text-xs ${TYPE_COLOR[activity.type] ?? ""}`}
+                      >
+                        {TYPE_LABEL[activity.type] ?? activity.type}
                       </Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    <span>{activity.timestamp}</span>
+                      {activity.detail && (
+                        <span className="text-sm text-muted-foreground truncate max-w-[280px]">
+                          {activity.detail}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      <span>{timeAgo(activity.ts)}</span>
+                    </div>
                   </div>
                 </div>
-                <Button variant="ghost" size="sm">
-                  View
-                </Button>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
-
-      {/* Load More */}
-      <div className="text-center">
-        <Button variant="outline">
-          Load More Activity
-        </Button>
-      </div>
     </div>
   );
 }

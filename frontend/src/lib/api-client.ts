@@ -2,6 +2,22 @@ import { supabase } from '@/lib/supabaseClient'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000').replace(/\/$/, '')
 
+// Simple in-memory TTL cache for GET requests (30 s)
+const GET_CACHE_TTL_MS = 30_000
+interface CacheEntry { data: unknown; expiry: number }
+const getCache = new Map<string, CacheEntry>()
+
+function cacheKey(endpoint: string, orgId?: string | null) {
+  return `${orgId ?? ''}::${endpoint}`
+}
+
+function invalidatePrefix(endpoint: string) {
+  const base = endpoint.split('?')[0]
+  for (const k of getCache.keys()) {
+    if (k.includes(base)) getCache.delete(k)
+  }
+}
+
 interface ApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
   body?: any
@@ -49,25 +65,36 @@ export async function apiCall<T = any>(
     fetchOptions.body = JSON.stringify(body)
   }
 
-  // Make the request
   const url = `${API_BASE}${endpoint}`
+
+  // Return cached data for GET requests that haven't expired
+  if (method === 'GET') {
+    const key = cacheKey(endpoint, orgId)
+    const hit = getCache.get(key)
+    if (hit && hit.expiry > Date.now()) return hit.data as T
+  }
+
   const response = await fetch(url, fetchOptions)
 
-  // Handle response
   if (!response.ok) {
     const errorText = await response.text()
     let errorMessage = `API ${response.status}: ${errorText}`
-    
     try {
       const errorJson = JSON.parse(errorText)
       errorMessage = errorJson.message || errorJson.detail || errorMessage
     } catch {}
-
     throw new Error(errorMessage)
   }
 
-  // Return JSON response
-  return response.json()
+  const responseData = await response.json()
+
+  if (method === 'GET') {
+    getCache.set(cacheKey(endpoint, orgId), { data: responseData, expiry: Date.now() + GET_CACHE_TTL_MS })
+  } else if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    invalidatePrefix(endpoint)
+  }
+
+  return responseData as T
 }
 
 /**

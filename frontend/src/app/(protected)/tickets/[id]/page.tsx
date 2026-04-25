@@ -1,13 +1,27 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, use } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { Sparkles, Eye, EyeOff, ThumbsUp, ThumbsDown, AlertCircle } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import {
+  Sparkles, Eye, EyeOff, ThumbsUp, ThumbsDown, AlertCircle,
+  Lock, Tag, Star, CheckCircle2, X, ChevronLeft, Clock,
+  User, AlertTriangle, MessageSquare, Bot, UserCheck,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { StatusBadge } from '@/components/StatusBadge'
 import { useOrganization } from '@/contexts/OrganizationContext'
 import api from '@/lib/api-client'
+import { supabase } from '@/lib/supabaseClient'
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface MessageOut {
   id: string
@@ -16,19 +30,35 @@ interface MessageOut {
   sender_role: string
   body: string
   created_at: string
-  meta?: any // For AI messages with citations and confidence
+  is_internal: boolean
+  meta?: any
 }
 
 interface TicketDetail {
   id: string
   created_by: string
   assignee_id?: string
+  assignee_email?: string
+  customer_email?: string
   title: string
   description: string
   status: string
+  priority: string
+  priority_level?: number
+  needs_attention: boolean
+  is_overdue: boolean
   message_count: number
   last_message_at: string
   created_at: string
+  updated_at?: string
+  tags: string[]
+  escalated_to?: string
+  escalated_to_email?: string
+  escalated_at?: string
+  expected_resolve_at?: string
+  resolved_at?: string
+  resolution_note?: string
+  customer_rating?: number
 }
 
 interface TicketWithMessages {
@@ -36,7 +66,6 @@ interface TicketWithMessages {
   messages: MessageOut[]
 }
 
-// Phase 4: AI Chat interfaces
 interface Citation {
   label: string
   doc_id: string
@@ -45,68 +74,132 @@ interface Citation {
   score?: number
 }
 
-interface ChatResponse {
-  message_id: string
-  content: string
-  citations: Citation[]
-  confidence: number
-  suggest_escalation: boolean
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const isSystemMessage = (m: MessageOut) =>
+  m.sender_role === 'system' || m.body.startsWith('[system]')
+
+const formatDate = (s: string) =>
+  new Date(s).toLocaleDateString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+
+const formatShort = (s: string) => {
+  const d = new Date(s)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  const mins = Math.floor(diff / 60000)
+  const hours = Math.floor(mins / 60)
+  const days = Math.floor(hours / 24)
+  if (days > 0) return `${days}d ago`
+  if (hours > 0) return `${hours}h ago`
+  if (mins > 0) return `${mins}m ago`
+  return 'just now'
 }
 
-// Helper function to detect system messages
-const isSystemMessage = (message: MessageOut) => {
-  return message.sender_role === 'system' || message.body.startsWith('[system]');
-};
+const PRIORITY_LEVEL_COLORS: Record<number, string> = {
+  1: 'bg-red-950/40 text-red-400 border border-red-800',
+  2: 'bg-orange-950/40 text-orange-400 border border-orange-800',
+  3: 'bg-yellow-950/40 text-yellow-400 border border-yellow-800',
+  4: 'bg-blue-950/40 text-blue-400 border border-blue-800',
+  5: 'bg-indigo-950/40 text-indigo-400 border border-indigo-800',
+  6: 'bg-violet-950/40 text-violet-400 border border-violet-800',
+  7: 'bg-zinc-800/60 text-zinc-400 border border-zinc-700',
+}
 
-// System Message Component
-const SystemMessage = ({ message }: { message: MessageOut }) => (
-  <div className="my-2 text-center">
-    <div className="inline-block px-3 py-1 rounded-full bg-muted text-muted-foreground text-xs">
-      {message.body.replace('[system]', '').trim()}
+// ── Sub-components ───────────────────────────────────────────────────────────
+
+function SystemMessage({ message }: { message: MessageOut }) {
+  return (
+    <div className="my-2 text-center">
+      <span className="inline-block px-3 py-1 rounded-full bg-muted text-muted-foreground text-xs">
+        {message.body.replace('[system]', '').trim()}
+      </span>
     </div>
-  </div>
-);
+  )
+}
 
-export default function TicketDetailPage({ params }: { params: { id: string } }) {
+function StarRating({ value, onChange }: { value: number; onChange?: (v: number) => void }) {
+  const [hovered, setHovered] = useState(0)
+  return (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map(n => (
+        <Star
+          key={n}
+          className={cn(
+            'h-6 w-6 cursor-pointer transition-colors',
+            (hovered || value) >= n ? 'text-yellow-400 fill-yellow-400' : 'text-zinc-600',
+          )}
+          onMouseEnter={() => onChange && setHovered(n)}
+          onMouseLeave={() => onChange && setHovered(0)}
+          onClick={() => onChange?.(n)}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function TicketDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: ticketId } = use(params)
   const router = useRouter()
-  
-  // Organization context
   const { currentOrganization, isReady } = useOrganization()
   const orgId = currentOrganization?.id
-  
+  const bottomRef = useRef<HTMLDivElement>(null)
+
   const [ticketData, setTicketData] = useState<TicketWithMessages | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  
+  const [currentUser, setCurrentUser] = useState<any>(null)
+
   // Message composer
   const [newMessage, setNewMessage] = useState('')
+  const [isInternal, setIsInternal] = useState(false)
   const [sending, setSending] = useState(false)
-  
-  // AI Chat state
+
+  // AI chat
   const [aiQuery, setAiQuery] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
-  const [showCitations, setShowCitations] = useState<{[messageId: string]: boolean}>({})
-  
-  // System messages toggle and citation tooltip
   const [showSystemMessages, setShowSystemMessages] = useState(false)
+  const [showCitations, setShowCitations] = useState<Record<string, boolean>>({})
   const [showCitationTip, setShowCitationTip] = useState(true)
-  
-  // Phase 3: Escalation and feedback state
-  const [escalating, setEscalating] = useState(false)
-  const [feedbackGiven, setFeedbackGiven] = useState<{[messageId: string]: 'positive' | 'negative'}>({})
-  const [feedbackLoading, setFeedbackLoading] = useState<{[messageId: string]: boolean}>({})
-  
-  // Get current user ID from ticket data
-  const currentUserId = ticketData?.ticket?.created_by
+
+  // Feedback
+  const [feedbackGiven, setFeedbackGiven] = useState<Record<string, 'positive' | 'negative'>>({})
+  const [feedbackLoading, setFeedbackLoading] = useState<Record<string, boolean>>({})
+
+  // Tags editing
+  const [tagInput, setTagInput] = useState('')
+  const [savingTags, setSavingTags] = useState(false)
+
+  // Resolve dialog
+  const [resolveOpen, setResolveOpen] = useState(false)
+  const [resolveNote, setResolveNote] = useState('')
+  const [resolving, setResolving] = useState(false)
+
+  // CSAT
+  const [csat, setCsat] = useState(0)
+  const [csatSubmitted, setCsatSubmitted] = useState(false)
+
+  // Assignment
+  const [reps, setReps] = useState<{ user_id: string; email: string; open_tickets: number }[]>([])
+  const [assigning, setAssigning] = useState(false)
+
+  // ── Load data ──────────────────────────────────────────────────────────────
 
   const loadTicket = async () => {
     if (!orgId) return
-    
     try {
       setLoading(true)
       setError('')
-      const data: TicketWithMessages = await api.get(`/api/tickets/${params.id}`, orgId)
+      const data: TicketWithMessages = await api.get(`/api/tickets/${ticketId}`, orgId)
       setTicketData(data)
+      if (data.ticket.customer_rating) {
+        setCsat(data.ticket.customer_rating)
+        setCsatSubmitted(true)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load ticket')
     } finally {
@@ -115,508 +208,657 @@ export default function TicketDetailPage({ params }: { params: { id: string } })
   }
 
   useEffect(() => {
-    if (isReady && orgId) {
-      loadTicket()
+    const getUser = async () => {
+      try {
+        const u = await api.get('/api/me')
+        setCurrentUser(u)
+      } catch { /* ignore */ }
     }
-  }, [params.id, isReady, orgId])
+    getUser()
+  }, [])
+
+  useEffect(() => {
+    if (isReady && orgId) loadTicket()
+  }, [ticketId, isReady, orgId])
+
+  useEffect(() => {
+    const userIsRep = currentUser?.role === 'rep' || currentUser?.role === 'admin'
+    if (isReady && orgId && userIsRep) {
+      api.get<{ reps: { user_id: string; email: string; open_tickets: number }[] }>('/api/rep/workload', orgId)
+        .then(d => setReps(d.reps))
+        .catch(() => {})
+    }
+  }, [isReady, orgId, currentUser])
+
+  // ── Derived state ──────────────────────────────────────────────────────────
+
+  const isRep = currentUser?.role === 'rep' || currentUser?.role === 'admin'
+  const ticket = ticketData?.ticket
+  const messages = ticketData?.messages ?? []
+  const isOwner = ticket && currentUser && ticket.created_by === currentUser.id
+  const canCompose = ticket && !['resolved', 'closed'].includes(ticket.status)
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    if (!newMessage.trim() || !orgId) {
-      return
-    }
-    
+    if (!newMessage.trim() || !orgId) return
     try {
       setSending(true)
-      await api.post(`/api/tickets/${params.id}/messages`, {
-        body: newMessage.trim()
+      await api.post(`/api/tickets/${ticketId}/messages`, {
+        body: newMessage.trim(),
+        is_internal: isInternal,
       }, orgId)
-      
-      // Success feedback
-      toast.success('✅ Message sent successfully!')
-      
+      toast.success(isInternal ? 'Internal note saved' : 'Message sent')
       setNewMessage('')
-      // Refresh the ticket to show the new message
+      setIsInternal(false)
       await loadTicket()
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
     } catch (err) {
-      toast.error('Failed to send message. Please try again.')
-      setError(err instanceof Error ? err.message : 'Failed to send message')
+      toast.error('Failed to send message')
     } finally {
       setSending(false)
     }
   }
 
-  // Phase 4: AI Chat handler
   const handleAskAI = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    if (!aiQuery.trim() || !orgId) {
-      return
-    }
-    
+    if (!aiQuery.trim() || !orgId) return
     try {
       setAiLoading(true)
-      toast.loading('🤖 AI is thinking...', { id: 'ai-response' })
-      
-      const response: ChatResponse = await api.post(`/api/tickets/${params.id}/chat`, {
-        query: aiQuery.trim()
-      }, orgId)
-      
-      toast.success('✅ AI responded!', { id: 'ai-response' })
-      
+      toast.loading('AI is thinking…', { id: 'ai' })
+      await api.post(`/api/tickets/${ticketId}/chat`, { query: aiQuery.trim() }, orgId)
+      toast.success('AI responded!', { id: 'ai' })
       setAiQuery('')
-      // Refresh the ticket to show the AI response
       await loadTicket()
     } catch (err) {
-      toast.error('Failed to get AI response', { id: 'ai-response' })
-      setError(err instanceof Error ? err.message : 'Failed to get AI response')
+      toast.error('Failed to get AI response', { id: 'ai' })
     } finally {
       setAiLoading(false)
     }
   }
 
-  // Phase 3: Escalation handler
-  const handleEscalate = async () => {
-    if (!orgId) return
-    
-    if (!confirm('Request human assistance? A support agent will be assigned to help you.')) {
-      return
-    }
-    
-    try {
-      setEscalating(true)
-      await api.post(`/api/rep/tickets/${params.id}/escalate`, {
-        reason: 'Customer requested human assistance'
-      }, orgId)
-      
-      // Show success message (you can use a toast library here)
-      alert('✅ Your request has been escalated! A support agent will help you soon.')
-      
-      // Refresh to show updated status
-      await loadTicket()
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to escalate ticket'
-      alert(`❌ ${errorMsg}`)
-    } finally {
-      setEscalating(false)
-    }
-  }
-
-  // Phase 3: AI Feedback handler
   const handleFeedback = async (messageId: string, feedbackType: 'positive' | 'negative') => {
-    if (feedbackGiven[messageId] || !orgId) {
-      return // Already submitted feedback or no org context
-    }
-    
+    if (feedbackGiven[messageId] || !orgId) return
     try {
       setFeedbackLoading(prev => ({ ...prev, [messageId]: true }))
-      
-      const response = await api.post<{ok: boolean, message: string}>('/api/ai/feedback', {
-        message_id: messageId,
-        feedback_type: feedbackType
-      }, orgId)
-      
-      if (response.ok) {
-        setFeedbackGiven(prev => ({ ...prev, [messageId]: feedbackType }))
-        // Optional: Show a subtle success message
-      }
-    } catch (err) {
-      console.error('Failed to submit feedback:', err)
-    } finally {
+      await api.post('/api/ai/feedback', { message_id: messageId, feedback_type: feedbackType }, orgId)
+      setFeedbackGiven(prev => ({ ...prev, [messageId]: feedbackType }))
+    } catch { /* ignore */ } finally {
       setFeedbackLoading(prev => ({ ...prev, [messageId]: false }))
     }
   }
 
-  const toggleCitations = (messageId: string) => {
-    setShowCitations(prev => ({
-      ...prev,
-      [messageId]: !prev[messageId]
-    }))
+  const handleAddTag = async () => {
+    const tag = tagInput.trim().toLowerCase()
+    if (!tag || !ticket || !orgId) return
+    if (ticket.tags.includes(tag)) { setTagInput(''); return }
+    const newTags = [...ticket.tags, tag]
+    try {
+      setSavingTags(true)
+      await api.patch(`/api/tickets/${ticketId}/tags`, { tags: newTags }, orgId)
+      setTicketData(prev => prev ? { ...prev, ticket: { ...prev.ticket, tags: newTags } } : prev)
+      setTagInput('')
+    } catch { toast.error('Failed to save tag') } finally { setSavingTags(false) }
   }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+  const handleRemoveTag = async (tag: string) => {
+    if (!ticket || !orgId) return
+    const newTags = ticket.tags.filter(t => t !== tag)
+    try {
+      setSavingTags(true)
+      await api.patch(`/api/tickets/${ticketId}/tags`, { tags: newTags }, orgId)
+      setTicketData(prev => prev ? { ...prev, ticket: { ...prev.ticket, tags: newTags } } : prev)
+    } catch { toast.error('Failed to remove tag') } finally { setSavingTags(false) }
   }
 
-  const getStatusBadge = (status: string) => {
-    const baseClasses = "px-3 py-1 rounded-full text-sm font-medium"
-    if (status === 'open') {
-      return `${baseClasses} bg-green-100 text-green-800`
+  const handleResolve = async () => {
+    if (!orgId) return
+    try {
+      setResolving(true)
+      await api.post(`/api/tickets/${ticketId}/resolve`, {
+        status: 'resolved',
+        resolution_note: resolveNote || null,
+      }, orgId)
+      toast.success('Ticket resolved')
+      setResolveOpen(false)
+      await loadTicket()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to resolve ticket')
+    } finally {
+      setResolving(false)
     }
-    return `${baseClasses} bg-gray-100 text-gray-800`
   }
 
-  const getRoleBadge = (role: string) => {
-    const baseClasses = "px-2 py-1 rounded text-xs font-medium"
-    if (role === 'rep' || role === 'admin') {
-      return `${baseClasses} bg-blue-100 text-blue-800`
+  const handleAssign = async (repId: string) => {
+    if (!orgId) return
+    try {
+      setAssigning(true)
+      await api.post(`/api/rep/tickets/${ticketId}/assign`, { assignee_id: repId }, orgId)
+      toast.success('Ticket assigned')
+      await loadTicket()
+      // refresh workload counts
+      api.get<{ reps: { user_id: string; email: string; open_tickets: number }[] }>('/api/rep/workload', orgId)
+        .then(d => setReps(d.reps)).catch(() => {})
+    } catch {
+      toast.error('Failed to assign ticket')
+    } finally {
+      setAssigning(false)
     }
-    if (role === 'ai') {
-      return `${baseClasses} bg-purple-100 text-purple-800`
-    }
-    return `${baseClasses} bg-gray-100 text-gray-800`
   }
 
-  const getSenderName = (role: string) => {
-    if (role === 'rep' || role === 'admin') return 'Support Rep'
-    if (role === 'ai') return 'AI Assistant'
-    return 'You'
+  const handleCsatSubmit = async (rating: number) => {
+    if (!orgId || csatSubmitted) return
+    try {
+      await api.post(`/api/tickets/${ticketId}/rating`, { rating }, orgId)
+      setCsat(rating)
+      setCsatSubmitted(true)
+      toast.success('Thanks for your feedback!')
+    } catch { toast.error('Failed to submit rating') }
   }
+
+  // ── Render states ──────────────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="text-center py-8">
-          <div className="text-gray-500">Loading ticket...</div>
-        </div>
+      <div className="max-w-6xl mx-auto p-6 space-y-4">
+        {[1, 2, 3].map(i => <div key={i} className="h-20 bg-muted animate-pulse rounded-lg" />)}
       </div>
     )
   }
 
-  if (error) {
+  if (error || !ticketData) {
     return (
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">
-          {error}
+      <div className="max-w-6xl mx-auto p-6">
+        <div className="bg-red-950/30 border border-red-800 text-red-400 px-4 py-3 rounded mb-4">
+          {error || 'Ticket not found'}
         </div>
-        <button
-          onClick={() => router.push('/tickets')}
-          className="text-blue-600 hover:text-blue-800"
-        >
-          ← Back to tickets
-        </button>
+        <Button variant="ghost" onClick={() => router.push('/tickets')}>
+          <ChevronLeft className="h-4 w-4 mr-1" /> Back to tickets
+        </Button>
       </div>
     )
   }
 
-  if (!ticketData) {
-    return (
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="text-center py-8">
-          <div className="text-gray-500">Ticket not found</div>
-        </div>
-      </div>
-    )
-  }
+  // Narrow ticket — guaranteed non-null after the !ticketData guard above
+  if (!ticket) return null
 
-  const { ticket, messages } = ticketData
+  const visibleMessages = messages.filter(m => showSystemMessages || !isSystemMessage(m))
 
   return (
-    <div className="max-w-4xl mx-auto p-4 md:p-6">
-      {/* Header - Mobile Optimized */}
-      <div className="mb-4 md:mb-6">
-        <button
-          onClick={() => router.push('/tickets')}
-          className="text-blue-600 hover:text-blue-800 mb-4 flex items-center gap-2 min-h-[44px] touch-manipulation active:scale-95 transition-transform"
-        >
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-          </svg>
-          <span className="font-medium">Back to tickets</span>
-        </button>
-        
-        <div className="bg-white rounded-lg shadow p-4 md:p-6">
-          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-xl md:text-2xl font-bold text-gray-900 mb-2">{ticket.title}</h1>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-gray-500">
-                <span className="font-mono">#{ticket.id.slice(0, 8)}</span>
-                <span className="hidden sm:inline">Created {formatDate(ticket.created_at)}</span>
-                <span>{ticket.message_count} message{ticket.message_count !== 1 ? 's' : ''}</span>
-              </div>
-            </div>
-            <div className="flex-shrink-0">
-              <span className={getStatusBadge(ticket.status)}>
-                {ticket.status}
-              </span>
-            </div>
-          </div>
-          
-          <div className="border-t pt-4">
-            <h3 className="font-medium text-gray-900 mb-2">Description</h3>
-            <p className="text-gray-700 whitespace-pre-wrap text-sm md:text-base">{ticket.description}</p>
-          </div>
-        </div>
+    <div className="max-w-6xl mx-auto p-4 md:p-6">
+      {/* Back nav */}
+      <div className="mb-4">
+        <Button variant="ghost" size="sm" asChild>
+          <Link href="/tickets">
+            <ChevronLeft className="h-4 w-4 mr-1" /> Back to tickets
+          </Link>
+        </Button>
       </div>
 
-      {/* Messages */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <div className="p-6 border-b flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Messages</h2>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => setShowSystemMessages(!showSystemMessages)}
-            className="flex items-center gap-2"
-          >
-            {showSystemMessages ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            {showSystemMessages ? 'Hide' : 'Show'} System Logs
-          </Button>
+      {/* Ticket header */}
+      <div className="bg-card border rounded-xl p-5 mb-6 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl md:text-2xl font-bold mb-2">{ticket.title}</h1>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <span className="font-mono bg-muted px-2 py-0.5 rounded text-xs">#{ticket.id.slice(0, 8)}</span>
+              <span>Created {formatShort(ticket.created_at)}</span>
+              {ticket.customer_email && (
+                <span className="flex items-center gap-1">
+                  <User className="h-3 w-3" /> {ticket.customer_email}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <StatusBadge status={ticket.status as any} />
+            {ticket.is_overdue && (
+              <Badge variant="destructive" className="text-xs">OVERDUE</Badge>
+            )}
+            {ticket.needs_attention && (
+              <Badge variant="destructive" className="text-xs">
+                <AlertTriangle className="h-3 w-3 mr-1" /> FLAGGED
+              </Badge>
+            )}
+            {ticket.priority_level != null && (
+              <span className={cn('text-xs font-semibold px-1.5 py-0.5 rounded', PRIORITY_LEVEL_COLORS[ticket.priority_level!])}>
+                P{ticket.priority_level}
+              </span>
+            )}
+          </div>
         </div>
-        
-        <div className="divide-y divide-gray-200">
-          {messages
-            .filter(msg => showSystemMessages || !isSystemMessage(msg))
-            .map((message) => (
+
+        {/* Tags */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {ticket.tags.map(tag => (
+            <span key={tag} className="flex items-center gap-1 bg-secondary text-secondary-foreground text-xs px-2 py-0.5 rounded-full">
+              <Tag className="h-2.5 w-2.5" />
+              {tag}
+              {isRep && (
+                <button onClick={() => handleRemoveTag(tag)} className="hover:text-destructive ml-0.5">
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </span>
+          ))}
+          {isRep && (
+            <div className="flex items-center gap-1">
+              <Input
+                className="h-6 text-xs w-24 px-2"
+                placeholder="add tag…"
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
+                disabled={savingTags}
+              />
+              {tagInput && (
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={handleAddTag} disabled={savingTags}>
+                  Add
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t pt-3">
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{ticket.description}</p>
+        </div>
+
+        {/* Resolution note (visible when resolved) */}
+        {ticket.resolution_note && (
+          <div className="mt-3 bg-emerald-950/20 border border-emerald-800/50 rounded-lg p-3">
+            <p className="text-xs font-semibold text-emerald-400 mb-1 flex items-center gap-1">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Resolution note
+            </p>
+            <p className="text-sm text-emerald-200">{ticket.resolution_note}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Two-column layout on desktop */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Messages — left/main column */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* Thread header */}
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Conversation ({messages.filter(m => !isSystemMessage(m)).length})
+            </h2>
+            <Button variant="ghost" size="sm" onClick={() => setShowSystemMessages(!showSystemMessages)}>
+              {showSystemMessages ? <EyeOff className="h-4 w-4 mr-1" /> : <Eye className="h-4 w-4 mr-1" />}
+              {showSystemMessages ? 'Hide' : 'Show'} system logs
+            </Button>
+          </div>
+
+          {/* Message list */}
+          <div className="space-y-3">
+            {visibleMessages.map(message =>
               isSystemMessage(message) ? (
                 <SystemMessage key={message.id} message={message} />
               ) : (
-            <div key={message.id} className="p-6">
-              <div className="flex items-start space-x-3">
-                <div className="flex-shrink-0">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    message.sender_role === 'ai' ? 'bg-purple-100' : 'bg-gray-300'
-                  }`}>
-                    <span className={`text-sm font-medium ${
-                      message.sender_role === 'ai' ? 'text-purple-600' : 'text-gray-600'
-                    }`}>
-                      {message.sender_role === 'ai' ? 'AI' : 
+                <motion.div
+                  key={message.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={cn(
+                    'rounded-xl border p-4',
+                    message.is_internal
+                      ? 'bg-amber-950/20 border-amber-800/50'
+                      : message.sender_role === 'ai'
+                      ? 'bg-violet-950/20 border-violet-800/50'
+                      : message.sender_role === 'rep' || message.sender_role === 'admin'
+                      ? 'bg-blue-950/20 border-blue-800/50'
+                      : 'bg-card',
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Avatar */}
+                    <div className={cn(
+                      'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
+                      message.sender_role === 'ai' ? 'bg-violet-900/50 text-violet-300' :
+                      message.sender_role === 'rep' || message.sender_role === 'admin' ? 'bg-blue-900/50 text-blue-300' :
+                      'bg-zinc-800 text-zinc-300',
+                    )}>
+                      {message.sender_role === 'ai' ? <Bot className="h-4 w-4" /> :
                        message.sender_role === 'rep' || message.sender_role === 'admin' ? 'R' : 'U'}
-                    </span>
-                  </div>
-                </div>
-                
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-medium text-gray-900">
-                      {getSenderName(message.sender_role)}
-                    </span>
-                    <span className={getRoleBadge(message.sender_role)}>
-                      {message.sender_role}
-                    </span>
-                    
-                    {/* AI Confidence Badge */}
-                    {message.sender_role === 'ai' && message.meta && (
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        message.meta.confidence >= 0.7 ? 'bg-green-100 text-green-800' :
-                        message.meta.confidence >= 0.4 ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        Confidence: {(message.meta.confidence * 100).toFixed(0)}%
-                      </span>
-                    )}
-                    
-                    <span className="text-sm text-gray-500">
-                      {formatDate(message.created_at)}
-                    </span>
-                  </div>
-                  
-                  {/* Low confidence warning for AI messages + Escalation button */}
-                  {message.sender_role === 'ai' && message.meta?.suggest_escalation && (
-                    <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                      <div className="flex items-start justify-between">
-                        <div className="flex">
-                          <div className="flex-shrink-0">
-                            <AlertCircle className="h-5 w-5 text-yellow-600" />
-                          </div>
-                          <div className="ml-3">
-                            <p className="text-sm text-yellow-800 mb-2">
-                              Low confidence answer. Consider requesting human assistance.
-                            </p>
-                            {/* Escalation button - only show if user owns ticket and not already escalated */}
-                            {ticket.status !== 'escalated' && currentUserId === ticket.created_by && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={handleEscalate}
-                                disabled={escalating}
-                                className="border-yellow-300 text-yellow-800 hover:bg-yellow-100"
-                              >
-                                {escalating ? 'Escalating...' : '🙋 I Need Human Help'}
-                              </Button>
-                            )}
-                          </div>
-                        </div>
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      {/* Header row */}
+                      <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                        <span className="text-sm font-medium">
+                          {message.sender_role === 'ai' ? 'AI Assistant' :
+                           message.sender_role === 'rep' || message.sender_role === 'admin' ? 'Support Rep' : 'Customer'}
+                        </span>
+                        {message.is_internal && (
+                          <Badge variant="outline" className="text-xs border-amber-700 text-amber-400 bg-amber-950/30">
+                            <Lock className="h-2.5 w-2.5 mr-1" /> Internal note
+                          </Badge>
+                        )}
+                        {message.sender_role === 'ai' && message.meta?.confidence != null && (
+                          <span className={cn(
+                            'text-xs px-2 py-0.5 rounded font-medium',
+                            message.meta.confidence >= 0.7 ? 'bg-green-950/40 text-green-400' :
+                            message.meta.confidence >= 0.4 ? 'bg-yellow-950/40 text-yellow-400' :
+                            'bg-red-950/40 text-red-400',
+                          )}>
+                            {Math.round(message.meta.confidence * 100)}% confidence
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground">{formatShort(message.created_at)}</span>
                       </div>
-                    </div>
-                  )}
-                  
-                  <div className="text-gray-700 whitespace-pre-wrap">
-                    {message.body}
-                  </div>
-                  
-                  {/* Phase 3: AI Feedback Buttons */}
-                  {message.sender_role === 'ai' && (
-                    <div className="flex items-center gap-2 mt-3">
-                      <span className="text-xs text-gray-500">Was this helpful?</span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleFeedback(message.id, 'positive')}
-                        disabled={!!feedbackGiven[message.id] || feedbackLoading[message.id]}
-                        className={`h-8 px-2 ${feedbackGiven[message.id] === 'positive' ? 'bg-green-100 text-green-700' : ''}`}
-                      >
-                        <ThumbsUp className={`w-4 h-4 ${feedbackGiven[message.id] === 'positive' ? 'fill-current' : ''}`} />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleFeedback(message.id, 'negative')}
-                        disabled={!!feedbackGiven[message.id] || feedbackLoading[message.id]}
-                        className={`h-8 px-2 ${feedbackGiven[message.id] === 'negative' ? 'bg-red-100 text-red-700' : ''}`}
-                      >
-                        <ThumbsDown className={`w-4 h-4 ${feedbackGiven[message.id] === 'negative' ? 'fill-current' : ''}`} />
-                      </Button>
-                      {feedbackGiven[message.id] && (
-                        <span className="text-xs text-gray-500 ml-2">Thanks for your feedback!</span>
+
+                      {/* Low-confidence escalation prompt */}
+                      {message.sender_role === 'ai' && message.meta?.suggest_escalation && (
+                        <div className="mb-2 p-2 bg-yellow-950/30 border border-yellow-800/50 rounded text-xs text-yellow-400 flex items-center gap-2">
+                          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                          Low confidence — consider requesting human help.
+                        </div>
                       )}
-                    </div>
-                  )}
-                  
-                  {/* AI Citations */}
-                  {message.sender_role === 'ai' && message.meta?.citations?.length > 0 && (
-                    <div className="mt-3">
-                      {/* Citation Education Tooltip */}
-                      {showCitationTip && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-md flex items-start gap-2"
-                        >
-                          <Sparkles className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1 text-sm text-blue-900">
-                            <strong>💡 Tip:</strong> Blue numbers like [1], [2] are links to our help docs. Click to see the sources!
-                          </div>
+
+                      {/* Body */}
+                      <p className="text-sm whitespace-pre-wrap">{message.body}</p>
+
+                      {/* AI feedback */}
+                      {message.sender_role === 'ai' && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-xs text-muted-foreground">Helpful?</span>
                           <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setShowCitationTip(false)}
-                            className="text-blue-600 h-auto p-1"
+                            size="sm" variant="ghost"
+                            className={cn('h-7 px-2', feedbackGiven[message.id] === 'positive' && 'bg-green-950/40 text-green-400')}
+                            disabled={!!feedbackGiven[message.id] || feedbackLoading[message.id]}
+                            onClick={() => handleFeedback(message.id, 'positive')}
                           >
-                            Got it
+                            <ThumbsUp className="h-3.5 w-3.5" />
                           </Button>
-                        </motion.div>
+                          <Button
+                            size="sm" variant="ghost"
+                            className={cn('h-7 px-2', feedbackGiven[message.id] === 'negative' && 'bg-red-950/40 text-red-400')}
+                            disabled={!!feedbackGiven[message.id] || feedbackLoading[message.id]}
+                            onClick={() => handleFeedback(message.id, 'negative')}
+                          >
+                            <ThumbsDown className="h-3.5 w-3.5" />
+                          </Button>
+                          {feedbackGiven[message.id] && (
+                            <span className="text-xs text-muted-foreground">Thanks!</span>
+                          )}
+                        </div>
                       )}
-                      
-                      <button
-                        onClick={() => toggleCitations(message.id)}
-                        className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"
-                      >
-                        {showCitations[message.id] ? '▼' : '▶'} 
-                        {showCitations[message.id] ? 'Hide' : 'Show'} Sources ({message.meta.citations.length})
-                      </button>
-                      
-                      {showCitations[message.id] && (
-                        <div className="mt-2 p-3 bg-gray-50 rounded-md">
-                          <h4 className="text-sm font-medium text-gray-900 mb-2">Sources:</h4>
-                          <ul className="text-sm text-gray-600 space-y-1">
-                            {message.meta.citations.map((citation: Citation, idx: number) => (
-                              <li key={idx} className="flex justify-between">
-                                <span>{citation.label}</span>
-                                {citation.score && (
-                                  <span className="text-xs text-gray-500">
-                                    Score: {(citation.score * 100).toFixed(0)}%
-                                  </span>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
+
+                      {/* AI citations */}
+                      {message.sender_role === 'ai' && message.meta?.citations?.length > 0 && (
+                        <div className="mt-2">
+                          {showCitationTip && (
+                            <motion.div
+                              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                              className="mb-2 p-2 bg-blue-950/30 border border-blue-800/50 rounded text-xs text-blue-300 flex items-center gap-2"
+                            >
+                              <Sparkles className="h-3.5 w-3.5 flex-shrink-0" />
+                              Sources from the knowledge base are shown below.
+                              <button onClick={() => setShowCitationTip(false)} className="ml-auto text-blue-400 font-medium">Got it</button>
+                            </motion.div>
+                          )}
+                          <button
+                            onClick={() => setShowCitations(prev => ({ ...prev, [message.id]: !prev[message.id] }))}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            {showCitations[message.id] ? '▼ Hide' : '▶ Show'} sources ({message.meta.citations.length})
+                          </button>
+                          {showCitations[message.id] && (
+                            <ul className="mt-1 p-2 bg-[rgb(var(--surface2))] rounded text-xs text-muted-foreground space-y-1">
+                              {message.meta.citations.map((c: Citation, i: number) => (
+                                <li key={i} className="flex justify-between">
+                                  <span>{c.label}</span>
+                                  {c.score && <span className="text-muted-foreground">{Math.round(c.score * 100)}%</span>}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
-              </div>
-            </div>
+                  </div>
+                </motion.div>
               )
-          ))}
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* AI Chat */}
+          {canCompose && (
+            <div className="bg-violet-950/20 border border-violet-800/50 rounded-xl p-4">
+              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-violet-300">
+                <Bot className="h-4 w-4" /> Ask AI Assistant
+              </h3>
+              <form onSubmit={handleAskAI} className="flex gap-2">
+                <Textarea
+                  value={aiQuery}
+                  onChange={e => setAiQuery(e.target.value)}
+                  placeholder="Ask the AI assistant about this issue…"
+                  rows={2}
+                  maxLength={1000}
+                  disabled={aiLoading}
+                  className="flex-1 resize-none text-sm"
+                />
+                <Button type="submit" disabled={aiLoading || !aiQuery.trim()} className="self-end">
+                  {aiLoading ? '…' : 'Ask'}
+                </Button>
+              </form>
+            </div>
+          )}
+
+          {/* Message composer */}
+          {canCompose && (
+            <div className="bg-card border rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold">
+                  {isRep
+                    ? (isInternal ? '📝 Internal note (not visible to customer)' : '💬 Reply to customer')
+                    : '💬 Add a message'}
+                </h3>
+                {isRep && (
+                  <Button
+                    variant={isInternal ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={() => setIsInternal(p => !p)}
+                    className={cn('text-xs', isInternal && 'bg-amber-500 hover:bg-amber-600 text-white')}
+                  >
+                    <Lock className="h-3 w-3 mr-1" />
+                    {isInternal ? 'Internal' : 'Public'}
+                  </Button>
+                )}
+              </div>
+              <form onSubmit={handleSendMessage} className="space-y-3">
+                <Textarea
+                  value={newMessage}
+                  onChange={e => setNewMessage(e.target.value)}
+                  placeholder={isInternal ? 'Private note (only reps see this)…' : 'Type your message…'}
+                  rows={4}
+                  maxLength={8000}
+                  required
+                  className={cn('text-sm resize-none', isInternal && 'bg-amber-950/20 border-amber-800/60')}
+                />
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-muted-foreground">{newMessage.length}/8000</span>
+                  <Button type="submit" disabled={sending || !newMessage.trim()}>
+                    {sending ? 'Sending…' : isInternal ? 'Save note' : 'Send message'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Closed state */}
+          {ticket && ['closed', 'resolved'].includes(ticket.status) && !canCompose && (
+            <div className="bg-muted rounded-xl p-6 text-center text-muted-foreground text-sm">
+              This ticket is {ticket.status}.
+              {!isRep && ticket.status === 'resolved' && !csatSubmitted && (
+                <div className="mt-4">
+                  <p className="font-medium text-foreground mb-2">How satisfied are you with the resolution?</p>
+                  <div className="flex justify-center">
+                    <StarRating value={csat} onChange={handleCsatSubmit} />
+                  </div>
+                </div>
+              )}
+              {!isRep && csatSubmitted && (
+                <div className="mt-3 text-emerald-600 font-medium">
+                  ⭐ Thank you for rating ({csat}/5)
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar — right column */}
+        <div className="space-y-4">
+          {/* Ticket metadata */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Status</span>
+                <StatusBadge status={ticket.status as any} />
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Priority</span>
+                <span className="capitalize font-medium">{ticket.priority}</span>
+              </div>
+              {ticket.priority_level != null && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Level</span>
+                  <span className={cn('text-xs font-semibold px-1.5 py-0.5 rounded', PRIORITY_LEVEL_COLORS[ticket.priority_level!])}>
+                    P{ticket.priority_level}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Assignee</span>
+                <span className="font-medium text-right max-w-[140px] truncate">
+                  {ticket.assignee_email ?? 'Unassigned'}
+                </span>
+              </div>
+              {ticket.expected_resolve_at && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">ETR</span>
+                  <span className={cn(
+                    'text-xs font-medium',
+                    new Date(ticket.expected_resolve_at) < new Date() ? 'text-red-400' : 'text-muted-foreground',
+                  )}>
+                    {new Date(ticket.expected_resolve_at).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
+              {ticket.resolved_at && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Resolved</span>
+                  <span className="text-emerald-600 text-xs">{formatShort(ticket.resolved_at)}</span>
+                </div>
+              )}
+              {ticket.customer_rating && (
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">CSAT</span>
+                  <div className="flex gap-0.5">
+                    {[1,2,3,4,5].map(n => (
+                      <Star key={n} className={cn('h-3.5 w-3.5', n <= ticket.customer_rating! ? 'text-yellow-400 fill-yellow-400' : 'text-zinc-700')} />
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Created</span>
+                <span className="text-xs">{formatDate(ticket.created_at)}</span>
+              </div>
+              {ticket.escalated_to_email && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Escalated to</span>
+                  <span className="text-orange-600 text-xs truncate max-w-[140px]">{ticket.escalated_to_email}</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Rep actions */}
+          {isRep && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {/* Assign to rep */}
+                {!['resolved', 'closed'].includes(ticket.status) && reps.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <UserCheck className="h-3 w-3" /> Assign to rep
+                    </p>
+                    <select
+                      aria-label="Assign ticket to rep"
+                      className="w-full text-xs bg-[rgb(var(--surface2))] border border-border rounded px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-[rgb(var(--primary))]"
+                      value={ticket.assignee_id ?? ''}
+                      disabled={assigning}
+                      onChange={e => e.target.value && handleAssign(e.target.value)}
+                    >
+                      <option value="">— Unassigned —</option>
+                      {reps.map(r => (
+                        <option key={r.user_id} value={r.user_id}>
+                          {r.email} ({r.open_tickets} open)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {!['resolved', 'closed'].includes(ticket.status) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start text-emerald-400 border-emerald-800 hover:bg-emerald-950/30"
+                    onClick={() => setResolveOpen(true)}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-2" /> Resolve ticket
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  asChild
+                >
+                  <Link href="/rep">← Rep Console</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
-      {/* AI Chat Interface - Mobile Optimized */}
-      {(ticket.status === 'open' || ticket.status === 'escalated' || ticket.status === 'in_progress') && (
-        <div className="bg-purple-50 border border-purple-200 rounded-lg shadow p-4 md:p-6 mb-4 md:mb-6">
-          <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center gap-2">
-            <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M13 7H7v6h6V7z" clipRule="evenodd" />
-              <path fillRule="evenodd" d="M13 15H7a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v6a2 2 0 01-2 2zM7 6a1 1 0 00-1 1v6a1 1 0 001 1h6a1 1 0 001-1V7a1 1 0 00-1-1H7z" clipRule="evenodd" />
-            </svg>
-            Ask AI Assistant
-          </h3>
-          
-          <form onSubmit={handleAskAI}>
-            <div className="mb-4">
-              <textarea
-                value={aiQuery}
-                onChange={(e) => setAiQuery(e.target.value)}
-                placeholder="Ask the AI assistant about your issue..."
+      {/* Resolve dialog */}
+      {resolveOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-xl border shadow-xl p-6 max-w-md w-full space-y-4">
+            <h3 className="font-semibold text-lg flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" /> Resolve ticket
+            </h3>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Resolution note (optional)</label>
+              <Textarea
                 rows={3}
-                className="w-full border border-purple-300 rounded-md px-3 py-2 text-base focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                maxLength={1000}
-                disabled={aiLoading}
+                placeholder="Summarise how this was resolved (sent to customer)…"
+                value={resolveNote}
+                onChange={e => setResolveNote(e.target.value)}
+                maxLength={2000}
               />
-              <div className="text-xs text-gray-500 mt-1">
-                {aiQuery.length}/1000 characters
-              </div>
             </div>
-            
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={aiLoading || !aiQuery.trim()}
-                className="min-h-[44px] px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 touch-manipulation active:scale-95 transition-transform"
-              >
-                {aiLoading ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Generating...
-                  </>
-                ) : (
-                  'Ask AI'
-                )}
-              </button>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setResolveOpen(false)}>Cancel</Button>
+              <Button onClick={handleResolve} disabled={resolving} className="bg-emerald-600 hover:bg-emerald-700">
+                {resolving ? 'Resolving…' : 'Mark resolved'}
+              </Button>
             </div>
-          </form>
-        </div>
-      )}
-
-      {/* Message Composer - Mobile Optimized */}
-      {(ticket.status === 'open' || ticket.status === 'escalated' || ticket.status === 'in_progress') && (
-        <div className="bg-white rounded-lg shadow p-4 md:p-6">
-          <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Add a message</h3>
-          
-          <form onSubmit={handleSendMessage}>
-            <div className="mb-4">
-              <textarea
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Type your message here..."
-                rows={4}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                maxLength={8000}
-                required
-              />
-              <div className="text-xs text-gray-500 mt-1">
-                {newMessage.length}/8000 characters
-              </div>
-            </div>
-            
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={sending || !newMessage.trim()}
-                className="min-h-[44px] w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation active:scale-95 transition-transform"
-              >
-                {sending ? 'Sending...' : 'Send Message'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {(ticket.status === 'closed' || ticket.status === 'resolved') && (
-        <div className="bg-gray-50 rounded-lg p-6 text-center">
-          <p className="text-gray-600">This ticket is {ticket.status}. No new messages can be added.</p>
+          </div>
         </div>
       )}
     </div>

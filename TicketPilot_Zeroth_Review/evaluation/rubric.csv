@@ -1,0 +1,6 @@
+CO_Range,CriterionID,CriterionName,Category,Description,MaxScore,ScoreGiven,Comments
+"CO 1 to 5",2.1.1,"1. Problem Identification & Formulation - IA",IA,"Clarity, relevance, and feasibility of the problem statement; alignment with the project domain.",2,,
+"CO 1 to 5",2.2.3,"2. Literature Survey (Background Study)/ Market and patent analysis - IA",IA,"Depth and relevance of reviewed literature; ability to connect existing work to the problem domain and the identification of technical gaps",2,,
+"CO 1 to 5",2.5.1,"4. Research Objectives/ Product goals Formulation - GA",GA,"Clarity, measurability, and relevance of project objectives/goals derived from the problem and gap analysis.",2,,
+"CO 1 to 5",7.3.2,"5. Alignment with Sustainable Development Goals (SDGs) - GA",GA,"Extent to which the project aligns with relevant UN SDGs and demonstrates societal relevance.",2,,
+"CO 1 to 5",10.5.2,"6. Presentation & Documentation Quality - IA",IA,"Clarity, organization, and professionalism of the presentation and documentation.",2,,

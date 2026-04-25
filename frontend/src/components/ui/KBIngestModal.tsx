@@ -209,9 +209,9 @@ const KBIngestModal = forwardRef<HTMLDivElement, KBIngestModalProps>(
           {...props}
         >
           <DialogHeader>
-            <DialogTitle>Ingest Knowledge Base Content</DialogTitle>
+            <DialogTitle>Upload Documents</DialogTitle>
             <DialogDescription>
-              Add files, URLs, or text content to your knowledge base. 
+              Upload files, URLs, or text content to your knowledge base.
               Max {maxSources} sources, {maxFileSize}MB per file.
             </DialogDescription>
           </DialogHeader>
@@ -370,7 +370,7 @@ const KBIngestModal = forwardRef<HTMLDivElement, KBIngestModalProps>(
                   Processing...
                 </>
               ) : (
-                `Ingest ${sources.length} Source${sources.length !== 1 ? "s" : ""}`
+                `Upload ${sources.length} Document${sources.length !== 1 ? "s" : ""}`
               )}
             </Button>
           </DialogFooter>

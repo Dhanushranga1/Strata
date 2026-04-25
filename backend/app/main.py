@@ -1,9 +1,7 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.openapi.utils import get_openapi
-from pydantic import BaseModel
+import asyncio
 import os
 from dotenv import load_dotenv
 from .auth import User, get_current_user
@@ -88,10 +86,165 @@ def _check_faiss_indices():
         )
 
 
+_PRIORITY_DEFAULT_HOURS = {1: 168, 2: 72, 3: 48, 4: 24, 5: 12, 6: 6, 7: 7}
+
+
+async def _overdue_scan():
+    """
+    Background scan (every 15 min) covering three concerns:
+    1. Auto-flag needs_attention based on priority_level + org attention_thresholds
+    2. Mark tickets overdue (respects ETR when set) and send first notification
+    3. Send repeat overdue reminders + ETR 1-hour-before reminder
+    """
+    from .email import (
+        send_overdue_email, send_overdue_reminder_email, send_etr_reminder_email
+    )
+    from .db import get_connection
+
+    try:
+        conn = await get_connection()
+    except Exception as exc:
+        logger.error("Overdue scan: DB connection failed: %s", exc)
+        return
+    try:
+        orgs = await conn.fetch("SELECT id, settings FROM app.organizations WHERE is_active = true")
+        for org in orgs:
+            org_id = str(org['id'])
+            settings = dict(org['settings']) if org['settings'] else {}
+            threshold_h = float(settings.get('overdue_threshold_hours', 48))
+            reminder_h = float(settings.get('overdue_reminder_hours', 24))
+
+            # Build attention threshold map from org settings (falls back to defaults)
+            raw_thresholds = settings.get('attention_thresholds', {})
+            attention_thresholds = {
+                lvl: float(raw_thresholds.get(str(lvl), default_h))
+                for lvl, default_h in _PRIORITY_DEFAULT_HOURS.items()
+            }
+
+            # ── 1. Auto-flag needs_attention by priority_level ─────────────────
+            for lvl, hours in attention_thresholds.items():
+                await conn.execute("""
+                    UPDATE app.tickets
+                    SET needs_attention = true
+                    WHERE organization_id = $1
+                      AND priority_level = $2
+                      AND needs_attention = false
+                      AND status NOT IN ('resolved', 'closed')
+                      AND EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 > $3
+                """, org_id, lvl, hours)
+
+            # ── 2. Mark overdue (ETR-aware) ────────────────────────────────────
+            # Tickets without ETR: use org-level threshold_h
+            await conn.execute("""
+                UPDATE app.tickets
+                SET is_overdue = true
+                WHERE organization_id = $1
+                  AND is_overdue = false
+                  AND expected_resolve_at IS NULL
+                  AND status NOT IN ('resolved', 'closed')
+                  AND EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 > $2
+            """, org_id, threshold_h)
+
+            # Tickets WITH ETR: overdue only if past their ETR
+            await conn.execute("""
+                UPDATE app.tickets
+                SET is_overdue = true
+                WHERE organization_id = $1
+                  AND is_overdue = false
+                  AND expected_resolve_at IS NOT NULL
+                  AND expected_resolve_at < NOW()
+                  AND status NOT IN ('resolved', 'closed')
+            """, org_id)
+
+            # ── 3a. First-time overdue notification ────────────────────────────
+            newly_overdue = await conn.fetch("""
+                SELECT t.id, t.title, au.email AS assignee_email,
+                       EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600 AS hours_open
+                FROM app.tickets t
+                LEFT JOIN auth.users au ON au.id = t.assignee_id
+                WHERE t.organization_id = $1
+                  AND t.is_overdue = true
+                  AND t.overdue_notified_at IS NULL
+                  AND t.status NOT IN ('resolved', 'closed')
+            """, org_id)
+
+            for row in newly_overdue:
+                tid = str(row['id'])
+                if row['assignee_email']:
+                    send_overdue_email(row['assignee_email'], tid, row['title'], int(row['hours_open']))
+                await conn.execute(
+                    "UPDATE app.tickets SET overdue_notified_at = NOW() WHERE id = $1", row['id']
+                )
+
+            # ── 3b. Repeat overdue reminders ───────────────────────────────────
+            reminder_due = await conn.fetch("""
+                SELECT t.id, t.title, au.email AS assignee_email,
+                       EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600 AS hours_open
+                FROM app.tickets t
+                LEFT JOIN auth.users au ON au.id = t.assignee_id
+                WHERE t.organization_id = $1
+                  AND t.is_overdue = true
+                  AND t.overdue_notified_at IS NOT NULL
+                  AND EXTRACT(EPOCH FROM (NOW() - t.overdue_notified_at)) / 3600 > $2
+                  AND t.status NOT IN ('resolved', 'closed')
+            """, org_id, reminder_h)
+
+            for row in reminder_due:
+                tid = str(row['id'])
+                if row['assignee_email']:
+                    send_overdue_reminder_email(row['assignee_email'], tid, row['title'], int(row['hours_open']))
+                await conn.execute(
+                    "UPDATE app.tickets SET overdue_notified_at = NOW() WHERE id = $1", row['id']
+                )
+
+            # ── 3c. ETR 1-hour-before reminders ───────────────────────────────
+            etr_due = await conn.fetch("""
+                SELECT t.id, t.title, t.expected_resolve_at, au.email AS assignee_email
+                FROM app.tickets t
+                LEFT JOIN auth.users au ON au.id = t.assignee_id
+                WHERE t.organization_id = $1
+                  AND t.expected_resolve_at IS NOT NULL
+                  AND t.etr_reminder_sent = false
+                  AND t.expected_resolve_at BETWEEN NOW() AND NOW() + INTERVAL '1 hour'
+                  AND t.status NOT IN ('resolved', 'closed')
+            """, org_id)
+
+            for row in etr_due:
+                tid = str(row['id'])
+                etr_str = row['expected_resolve_at'].strftime('%Y-%m-%d %H:%M UTC')
+                if row['assignee_email']:
+                    send_etr_reminder_email(row['assignee_email'], tid, row['title'], etr_str)
+                await conn.execute(
+                    "UPDATE app.tickets SET etr_reminder_sent = true WHERE id = $1", row['id']
+                )
+    finally:
+        await conn.close()
+
+
+async def _overdue_task():
+    """Background loop: run overdue scan every 15 minutes."""
+    while True:
+        await asyncio.sleep(15 * 60)
+        try:
+            await _overdue_scan()
+            logger.debug("Overdue scan complete")
+        except Exception as exc:
+            logger.error("Overdue background task error: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     _check_faiss_indices()
+    from .db import init_pool, close_pool
+    await init_pool()
+    task = asyncio.create_task(_overdue_task())
     yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    await close_pool()
 
 
 app = FastAPI(
