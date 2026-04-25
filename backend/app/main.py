@@ -234,9 +234,26 @@ async def _overdue_task():
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    _check_faiss_indices()
     from .db import init_pool, close_pool
     await init_pool()
+
+    # Rebuild FAISS from persisted DB embeddings if the index is missing
+    # (happens on every Render free-tier cold start / redeploy)
+    _check_faiss_indices()
+    index_dir = os.getenv("VECTOR_INDEX_DIR", "./data/faiss")
+    index_file = os.path.join(index_dir, os.getenv("VECTOR_INDEX_FILENAME", "kb.index"))
+    if not os.path.exists(index_file):
+        logger.info("[startup] FAISS index absent — attempting rebuild from DB embeddings")
+        try:
+            from .store import rebuild_faiss_from_db
+            n = await rebuild_faiss_from_db()
+            if n:
+                logger.info("[startup] FAISS rebuilt: %d vectors loaded from DB", n)
+            else:
+                logger.info("[startup] FAISS rebuild: no stored embeddings in DB yet")
+        except Exception as exc:
+            logger.error("[startup] FAISS rebuild failed: %s", exc)
+
     task = asyncio.create_task(_overdue_task())
     yield
     task.cancel()

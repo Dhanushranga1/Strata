@@ -134,11 +134,11 @@ async def ingest(
             vectors = embed_texts(unique_chunks)
             assigned_faiss_ids = add_vectors_for_chunks(unique_ids, vectors)
 
-            # 6) Update chunks with FAISS IDs
-            for chunk_id, faiss_id in zip(unique_ids, assigned_faiss_ids):
+            # 6) Update chunks with FAISS IDs and persist raw vectors for cold-start rebuild
+            for chunk_id, faiss_id, vec in zip(unique_ids, assigned_faiss_ids, vectors):
                 cur.execute(
-                    "UPDATE app.chunks SET faiss_id = %s WHERE id = %s",
-                    (faiss_id, chunk_id)
+                    "UPDATE app.chunks SET faiss_id = %s, embedding = %s WHERE id = %s",
+                    (faiss_id, vec, chunk_id)
                 )
 
             conn.commit()

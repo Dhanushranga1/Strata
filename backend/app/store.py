@@ -211,6 +211,64 @@ def add_vectors_for_chunks(chunk_ids: List[str], vectors: List[List[float]]) -> 
         logger.error(f"Unexpected error in add_vectors_for_chunks: {e}")
         raise VectorStoreError(f"Vector addition failed: {e}") from e
 
+async def rebuild_faiss_from_db() -> int:
+    """
+    Rebuild the FAISS index from embeddings stored in app.chunks.
+    Called on startup when the index file is absent (e.g. after Render cold start).
+    Returns the number of vectors loaded.
+    """
+    try:
+        from .db import get_connection
+        conn = await get_connection()
+        try:
+            rows = await conn.fetch(
+                "SELECT id, faiss_id, embedding FROM app.chunks WHERE embedding IS NOT NULL ORDER BY faiss_id ASC NULLS LAST"
+            )
+        finally:
+            await conn.close()
+
+        if not rows:
+            logger.info("[store] No stored embeddings found — FAISS index stays empty")
+            return 0
+
+        idx_path, map_path = _paths()
+        index = faiss.IndexFlatIP(DIM)
+        mapping: Dict = {"next": 0, "chunk_to_faiss": {}}
+
+        vecs = []
+        faiss_counter = 0
+        for row in rows:
+            emb = row["embedding"]
+            if emb is None:
+                continue
+            vec_list = list(emb)
+            if len(vec_list) != DIM:
+                continue
+            vecs.append(vec_list)
+            mapping["chunk_to_faiss"][str(row["id"])] = faiss_counter
+            faiss_counter += 1
+
+        if not vecs:
+            logger.info("[store] All stored embeddings had wrong dimensions — skipping rebuild")
+            return 0
+
+        arr = np.array(vecs, dtype=np.float32)
+        norms = np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12
+        arr = arr / norms
+        index.add(arr)
+        mapping["next"] = faiss_counter
+
+        save_index(index)
+        save_map(mapping)
+
+        logger.info("[store] Rebuilt FAISS index from DB: %d vectors", faiss_counter)
+        return faiss_counter
+
+    except Exception as exc:
+        logger.error("[store] Failed to rebuild FAISS from DB: %s", exc)
+        return 0
+
+
 def search_vectors(vec: List[float], k: int = 3) -> Tuple[List[float], List[int]]:
     """Search for similar vectors in FAISS index with error handling."""
     try:
