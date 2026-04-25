@@ -44,7 +44,8 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 def verify_supabase_jwt(token: str) -> dict:
     """Verify Supabase JWT token signature and return payload."""
-    jwt_secret = os.getenv("SUPABASE_JWT_SECRET")
+    # Strip surrounding quotes that some platforms (Render) include in env var values
+    jwt_secret = (os.getenv("SUPABASE_JWT_SECRET") or "").strip().strip('"').strip("'")
 
     if not jwt_secret:
         raise HTTPException(

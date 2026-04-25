@@ -126,11 +126,20 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
     )
 
 
-# Production CORS configuration
+def _build_allowed_origins() -> list[str]:
+    """
+    Build the CORS origin allowlist from env vars.
+    WEB_ORIGIN and CORS_ORIGINS both accept comma-separated URLs.
+    Trailing slashes are stripped — browsers send origins without them.
+    """
+    raw = f"{os.getenv('WEB_ORIGIN', '')},{os.getenv('CORS_ORIGINS', '')}"
+    origins = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
+    return origins or ["http://localhost:3000"]
+
+
+# Production CORS configuration — origins resolved at startup from env vars
 PRODUCTION_CORS_CONFIG = {
-    "allow_origins": [
-        os.getenv("WEB_ORIGIN", "http://localhost:3000")
-    ],
+    "allow_origins": _build_allowed_origins(),
     "allow_credentials": True,
     "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     "allow_headers": [
@@ -139,10 +148,10 @@ PRODUCTION_CORS_CONFIG = {
         "X-Organization-ID",
         "Accept",
         "Accept-Language",
-        "X-Requested-With"
+        "X-Requested-With",
     ],
     "expose_headers": ["X-Total-Count"],
-    "max_age": 3600  # Cache preflight requests for 1 hour
+    "max_age": 3600,
 }
 
 

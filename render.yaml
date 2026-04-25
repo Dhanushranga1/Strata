@@ -12,9 +12,12 @@ services:
         value: 3.11.9
       - key: PYTHONPATH
         value: /opt/render/project/src/backend
+      - key: ENVIRONMENT
+        value: production
+      # --- Set these in the Render dashboard ---
       - key: SUPABASE_URL
         sync: false
-      - key: SUPABASE_KEY
+      - key: SUPABASE_SERVICE_ROLE_KEY   # was SUPABASE_KEY — must match this exact name
         sync: false
       - key: SUPABASE_JWT_SECRET
         sync: false
@@ -22,7 +25,9 @@ services:
         sync: false
       - key: GOOGLE_API_KEY
         sync: false
-      - key: ENVIRONMENT
-        value: production
+      - key: RESEND_API_KEY
+        sync: false
+      # Set to your frontend URL, e.g. https://ticketpilot.vercel.app
+      # Comma-separate multiple URLs: https://app.example.com,https://preview.example.com
       - key: WEB_ORIGIN
         sync: false
