@@ -245,6 +245,32 @@ def send_ticket_created_for_customer_email(
     return _send(to, subject, _wrap(subject, body))
 
 
+def send_customer_reply_email(
+    to: str,
+    ticket_id: str,
+    ticket_title: str,
+    customer_email: str,
+    message_preview: str,
+) -> bool:
+    subject = f"Customer replied: {ticket_title}"
+    short_id = ticket_id[:8]
+    preview = (message_preview[:200] + "…") if len(message_preview) > 200 else message_preview
+    body = f"""
+      <h2 style="font-size:18px;font-weight:600;margin:0 0 12px;">A customer has replied to their ticket</h2>
+      <p style="color:#374151;margin:0 0 16px;">A customer has posted a new message and may need your attention.</p>
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:16px;margin:0 0 16px;">
+        <p style="margin:0 0 4px;font-size:12px;color:#1d4ed8;font-weight:600;letter-spacing:.5px;">TICKET</p>
+        <p style="margin:0;font-size:16px;font-weight:600;color:#111827;">{ticket_title}</p>
+      </div>
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:0 0 16px;">
+        <p style="margin:0 0 4px;font-size:12px;color:#6b7280;font-weight:600;">CUSTOMER MESSAGE</p>
+        <p style="margin:0;font-size:14px;color:#374151;font-style:italic;">"{preview}"</p>
+      </div>
+      <p style="color:#6b7280;font-size:14px;margin:0 0 4px;">From: <strong style="color:#374151;">{customer_email}</strong></p>
+      <p style="color:#6b7280;font-size:14px;margin:0;">Ticket ID: <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;font-family:monospace;">{short_id}</code></p>"""
+    return _send(to, subject, _wrap(subject, body))
+
+
 def send_overdue_reminder_email(
     to: str,
     ticket_id: str,

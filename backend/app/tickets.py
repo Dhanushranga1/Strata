@@ -21,7 +21,7 @@ from .org_middleware import require_org_context
 from .email import (
     send_new_ticket_email, send_ai_failure_email,
     send_rep_reply_email, send_ticket_resolved_email,
-    send_ticket_created_for_customer_email,
+    send_ticket_created_for_customer_email, send_customer_reply_email,
 )
 
 router = APIRouter(prefix="/api", tags=["tickets"])
@@ -551,11 +551,13 @@ def post_message(ticket_id: str, payload: MessageCreate, request: Request, user:
 
         conn.commit()
 
-        # Notify customer when a rep posts a public reply (fire-and-forget)
+        # Email notifications (fire-and-forget)
+        import threading
+        ticket_title = ticket_row["title"] if ticket_row else ""
+        ticket_id_str = str(ticket_row["id"]) if ticket_row else ticket_id
+
         if user_is_rep and not is_internal:
-            import threading
-            ticket_title = ticket_row["title"] if ticket_row else ""
-            ticket_id_str = str(ticket_row["id"]) if ticket_row else ticket_id
+            # Rep replied → email the customer
             def _notify_customer():
                 try:
                     with get_db_connection() as nc:
@@ -575,6 +577,32 @@ def post_message(ticket_id: str, payload: MessageCreate, request: Request, user:
                 except Exception:
                     pass
             threading.Thread(target=_notify_customer, daemon=True).start()
+
+        elif not user_is_rep and not is_internal:
+            # Customer replied → email the assigned rep (if any)
+            def _notify_rep():
+                try:
+                    with get_db_connection() as nc:
+                        nc_cur = nc.cursor()
+                        nc_cur.execute("""
+                            SELECT au_rep.email AS rep_email, au_cust.email AS cust_email
+                            FROM app.tickets t
+                            LEFT JOIN auth.users au_rep ON au_rep.id = t.assignee_id
+                            JOIN auth.users au_cust ON au_cust.id = t.created_by
+                            WHERE t.id = %s
+                        """, (ticket_id_str,))
+                        row = nc_cur.fetchone()
+                        if row and row["rep_email"]:
+                            send_customer_reply_email(
+                                row["rep_email"],
+                                ticket_id_str,
+                                ticket_title,
+                                row["cust_email"] or "customer",
+                                payload.body[:200],
+                            )
+                except Exception:
+                    pass
+            threading.Thread(target=_notify_rep, daemon=True).start()
 
         return MessageOut(
             id=str(message_row["id"]),
