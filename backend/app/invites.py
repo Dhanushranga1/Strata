@@ -84,53 +84,77 @@ class AcceptResponse(BaseModel):
 
 def _send_invite_email(email: str, invite_url: str, org_name: str, role: str) -> bool:
     """
-    Send an invite magic-link via Supabase Admin API.
-
-    Returns True on success, False when the service role key is absent
-    (local-dev mode) or the call fails (non-fatal).
+    Send an invite email via Resend (bypasses Supabase URL allow-list issues).
+    Falls back gracefully when RESEND_API_KEY is absent (local-dev mode).
     """
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    import os as _os
+    resend_key = _os.getenv("RESEND_API_KEY", "")
+    email_from = _os.getenv("EMAIL_FROM", "TicketPilot <noreply@resend.dev>")
+
+    if not resend_key:
         logger.info(
-            "SUPABASE_SERVICE_ROLE_KEY not set — skipping email for %s. "
+            "RESEND_API_KEY not set — skipping invite email for %s. "
             "Share the invite_url manually in local-dev mode.",
             email,
         )
         return False
 
+    role_label = {"admin": "Admin", "rep": "Support Rep", "member": "Member"}.get(role, role.capitalize())
+    role_desc = {
+        "admin": "manage members, knowledge base, and organisation settings",
+        "rep": "handle and reply to support tickets",
+        "member": "submit and track support tickets",
+    }.get(role, "collaborate on support tickets")
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>You've been invited to {org_name}</title>
+</head>
+<body style="margin:0;padding:40px 20px;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
+    <div style="background:#1e40af;padding:24px 32px;">
+      <span style="color:#fff;font-size:20px;font-weight:700;letter-spacing:-.5px;">TicketPilot</span>
+    </div>
+    <div style="padding:32px;">
+      <h2 style="font-size:20px;font-weight:700;margin:0 0 12px;color:#111827;">You've been invited!</h2>
+      <p style="color:#374151;margin:0 0 16px;">
+        You've been invited to join <strong>{org_name}</strong> on TicketPilot as a <strong>{role_label}</strong>.
+      </p>
+      <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">
+        As a {role_label} you'll be able to {role_desc}.
+      </p>
+      <a href="{invite_url}"
+         style="display:inline-block;background:#1e40af;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">
+        Accept Invitation
+      </a>
+      <p style="color:#9ca3af;font-size:12px;margin:24px 0 0;">
+        Or copy this link: <a href="{invite_url}" style="color:#1e40af;">{invite_url}</a>
+      </p>
+      <p style="color:#9ca3af;font-size:12px;margin:8px 0 0;">This invite expires in 7 days.</p>
+    </div>
+    <div style="padding:16px 32px;background:#f3f4f6;border-top:1px solid #e5e7eb;">
+      <p style="color:#9ca3af;font-size:12px;margin:0;">This is an automated message from TicketPilot. Do not reply.</p>
+    </div>
+  </div>
+</body>
+</html>"""
+
     try:
-        import httpx
-
-        # Supabase admin "invite user by email" — sends a sign-up/magic-link
-        # email and attaches invite metadata.  If the user already exists,
-        # Supabase silently re-sends the magic link.
-        resp = httpx.post(
-            f"{SUPABASE_URL}/auth/v1/admin/users",
-            headers={
-                "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
-                "apikey": SUPABASE_SERVICE_ROLE_KEY,
-                "Content-Type": "application/json",
-            },
-            json={
-                "email": email,
-                "invite": True,
-                "data": {"invite_url": invite_url},
-                "redirect_to": invite_url,
-            },
-            timeout=10,
-        )
-
-        if resp.status_code in (200, 201, 422):
-            # 422 = user already exists (Supabase still sends them an email)
-            logger.info("Invite email sent to %s via Supabase", email)
-            return True
-        else:
-            logger.warning(
-                "Supabase invite returned %s: %s", resp.status_code, resp.text
-            )
-            return False
-
+        import resend as _resend
+        _resend.api_key = resend_key
+        _resend.Emails.send({
+            "from": email_from,
+            "to": [email],
+            "subject": f"You've been invited to join {org_name} on TicketPilot",
+            "html": html,
+        })
+        logger.info("Invite email sent to %s via Resend", email)
+        return True
     except Exception as exc:
-        logger.warning("Failed to send invite email to %s: %s", email, exc)
+        logger.warning("Failed to send invite email to %s via Resend: %s", email, exc)
         return False
 
 
