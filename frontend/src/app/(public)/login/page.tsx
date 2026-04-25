@@ -53,11 +53,12 @@ function LoginPageInner() {
   const signInMagic = async () => {
     setLoading(true)
     setError(null)
-    
+
+    const next = redirectTo !== '/dashboard' ? `?next=${encodeURIComponent(redirectTo)}` : ''
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`
+        emailRedirectTo: `${window.location.origin}/auth/callback${next}`
       }
     })
     
@@ -319,8 +320,8 @@ function LoginPageInner() {
             <CardFooter className="justify-center border-t border-border/20 bg-surface/20 backdrop-blur-sm">
               <p className="text-sm text-muted-foreground">
                 Don&apos;t have an account?{' '}
-                <Link 
-                  href="/signup" 
+                <Link
+                  href={redirectTo !== '/dashboard' ? `/signup?redirect=${encodeURIComponent(redirectTo)}` : '/signup'}
                   className="font-medium text-primary hover:text-secondary transition-colors duration-200"
                 >
                   Sign up

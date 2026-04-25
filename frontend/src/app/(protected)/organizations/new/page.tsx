@@ -123,45 +123,32 @@ export default function NewOrganizationPage() {
     setCreating(true)
 
     try {
-      const response = await api.post('/api/organizations', {
+      const newOrg = await api.post('/api/organizations', {
         name: name.trim(),
         slug: slug.trim(),
         domain: domain.trim() || null,
         settings: {}
       })
 
-      if (response.ok) {
-        const newOrg = await response.json()
-        
-        toast.success('Organization created successfully! 🎉', {
-          description: `${newOrg.name} is ready to use`
-        })
-
-        // Refresh organization list
-        await refreshOrganizations()
-
-        // Redirect to organizations list
-        router.push('/organizations')
-      } else {
-        const errorData = await response.json()
-        
-        // Handle specific error cases
-        if (response.status === 409 || errorData.detail?.includes('already exists')) {
-          setErrors({ ...errors, slug: 'This slug is already taken. Please choose another.' })
-          toast.error('Slug already exists', {
-            description: 'Please choose a different slug for your organization'
-          })
-        } else {
-          toast.error('Failed to create organization', {
-            description: errorData.detail || 'Please try again'
-          })
-        }
-      }
-    } catch (error) {
-      console.error('Error creating organization:', error)
-      toast.error('Failed to create organization', {
-        description: 'An unexpected error occurred. Please try again.'
+      toast.success('Organization created successfully!', {
+        description: `${newOrg.name} is ready to use`
       })
+
+      await refreshOrganizations()
+      router.push('/organizations')
+    } catch (error: any) {
+      console.error('Error creating organization:', error)
+      const message: string = error?.message || ''
+      if (message.includes('409') || message.toLowerCase().includes('already exists')) {
+        setErrors({ ...errors, slug: 'This slug is already taken. Please choose another.' })
+        toast.error('Slug already exists', {
+          description: 'Please choose a different slug for your organization'
+        })
+      } else {
+        toast.error('Failed to create organization', {
+          description: message || 'An unexpected error occurred. Please try again.'
+        })
+      }
     } finally {
       setCreating(false)
     }

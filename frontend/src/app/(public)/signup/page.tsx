@@ -130,7 +130,7 @@ function SignupPageInner() {
             <p className="text-muted-foreground">{success}</p>
           </div>
           <Button asChild variant="outline" className="mt-4">
-            <Link href="/login">Return to sign in</Link>
+            <Link href={redirectTo !== '/dashboard' ? `/login?redirect=${encodeURIComponent(redirectTo)}` : '/login'}>Return to sign in</Link>
           </Button>
         </motion.div>
       </main>
@@ -413,8 +413,8 @@ function SignupPageInner() {
             <CardFooter className="justify-center border-t border-border/20 bg-surface/20 backdrop-blur-sm">
               <p className="text-sm text-muted-foreground">
                 Already have an account?{' '}
-                <Link 
-                  href="/login" 
+                <Link
+                  href={redirectTo !== '/dashboard' ? `/login?redirect=${encodeURIComponent(redirectTo)}` : '/login'}
                   className="font-medium text-primary hover:text-secondary transition-colors duration-200"
                 >
                   Sign in
