@@ -74,11 +74,21 @@ export async function apiCall<T = any>(
     if (hit && hit.expiry > Date.now()) return hit.data as T
   }
 
-  const response = await fetch(url, fetchOptions)
+  // Retry on 502/503 — Render free tier cold-starts return these while waking up
+  const MAX_RETRIES = 3
+  let response = await fetch(url, fetchOptions)
+  for (let attempt = 1; attempt <= MAX_RETRIES && (response.status === 502 || response.status === 503); attempt++) {
+    await new Promise(r => setTimeout(r, 2000 * attempt)) // 2s, 4s, 6s
+    response = await fetch(url, fetchOptions)
+  }
 
   if (!response.ok) {
+    const status = response.status
+    if (status === 502 || status === 503) {
+      throw new Error('The server is starting up. Please wait a moment and try again.')
+    }
     const errorText = await response.text()
-    let errorMessage = `API ${response.status}: ${errorText}`
+    let errorMessage = `API ${status}: ${errorText}`
     try {
       const errorJson = JSON.parse(errorText)
       errorMessage = errorJson.message || errorJson.detail || errorMessage

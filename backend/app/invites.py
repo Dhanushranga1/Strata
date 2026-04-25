@@ -35,7 +35,7 @@ router = APIRouter(tags=["invites"])
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-WEB_ORIGIN = os.getenv("WEB_ORIGIN", "http://localhost:3000")
+WEB_ORIGIN = os.getenv("WEB_ORIGIN", "http://localhost:3000").rstrip("/")
 
 
 # ---------------------------------------------------------------------------
