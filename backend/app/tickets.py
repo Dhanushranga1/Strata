@@ -23,6 +23,7 @@ from .email import (
     send_rep_reply_email, send_ticket_resolved_email,
     send_ticket_created_for_customer_email, send_customer_reply_email,
 )
+from .rag_scoring import profile_ticket, casper_route
 
 router = APIRouter(prefix="/api", tags=["tickets"])
 
@@ -163,48 +164,60 @@ def create_ticket(payload: TicketCreate, request: Request, user: User = Depends(
                     except Exception:
                         pass
 
-        # 5) Auto-assign to least-loaded rep if org has auto_assign_on_create enabled
-        if org_row is None:
-            cursor.execute("SELECT settings FROM app.organizations WHERE id = %s", (org_id,))
-            org_row = cursor.fetchone()
-        org_settings_check = (org_row.get("settings") or {}) if org_row else {}
-        if org_settings_check.get("auto_assign_on_create"):
-            try:
+        # 5) CASPER-driven auto-assignment — always runs, no admin gate needed
+        try:
+            # Build CASPER profile from title + description
+            casper_profile = profile_ticket(payload.title, payload.description or "")
+
+            # Set CASPER-suggested priority_level if the ticket doesn't have one
+            if not ticket_row.get("priority_level"):
+                cursor.execute(
+                    "UPDATE app.tickets SET priority_level = %s WHERE id = %s",
+                    (casper_profile.suggested_priority_level, ticket_id)
+                )
+                ticket_row = dict(ticket_row)
+                ticket_row["priority_level"] = casper_profile.suggested_priority_level
+
+            # Fetch all reps/admins with current load for CASPER routing
+            cursor.execute("""
+                SELECT om.user_id::text, au.email, ur.role,
+                       COUNT(t.id) FILTER (
+                           WHERE t.assignee_id = om.user_id
+                             AND t.status IN ('open','in_progress','escalated')
+                       ) AS load
+                FROM app.organization_members om
+                JOIN auth.users au ON au.id = om.user_id
+                JOIN app.user_roles ur ON ur.user_id = om.user_id
+                LEFT JOIN app.tickets t ON t.organization_id = %s
+                WHERE om.organization_id = %s AND ur.role IN ('rep','admin','owner')
+                GROUP BY om.user_id, au.email, ur.role
+                ORDER BY load ASC, au.email ASC
+            """, (org_id, org_id))
+            reps = cursor.fetchall()
+
+            best = casper_route(casper_profile, [dict(r) for r in reps])
+            if best:
+                cursor.execute(
+                    "UPDATE app.tickets SET assignee_id = %s WHERE id = %s",
+                    (best["user_id"], ticket_id)
+                )
+                routing_note = (
+                    f"[system] CASPER assigned to {best['email']} "
+                    f"({casper_profile.routing_reason})"
+                )
                 cursor.execute("""
-                    SELECT om.user_id::text, au.email,
-                           COUNT(t.id) FILTER (
-                               WHERE t.assignee_id = om.user_id
-                                 AND t.status IN ('open','in_progress','escalated')
-                           ) AS load
-                    FROM app.organization_members om
-                    JOIN auth.users au ON au.id = om.user_id
-                    JOIN app.user_roles ur ON ur.user_id = om.user_id
-                    LEFT JOIN app.tickets t ON t.organization_id = %s
-                    WHERE om.organization_id = %s AND ur.role IN ('rep','admin')
-                    GROUP BY om.user_id, au.email
-                    ORDER BY load ASC, au.email ASC
-                    LIMIT 1
-                """, (org_id, org_id))
-                best = cursor.fetchone()
-                if best:
-                    cursor.execute(
-                        "UPDATE app.tickets SET assignee_id = %s WHERE id = %s",
-                        (best["user_id"], ticket_id)
-                    )
-                    cursor.execute("""
-                        INSERT INTO app.messages
-                          (ticket_id, sender_id, sender_role, organization_id, body)
-                        VALUES (%s, %s, 'system', %s, %s)
-                    """, (ticket_id, user.id, org_id,
-                          f"[system] Auto-assigned to {best['email']}"))
-                    cursor.execute(
-                        "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = %s",
-                        (ticket_id,)
-                    )
-                    ticket_row = dict(ticket_row)
-                    ticket_row["assignee_id"] = best["user_id"]
-            except Exception:
-                pass  # auto-assign failure never blocks ticket creation
+                    INSERT INTO app.messages
+                      (ticket_id, sender_id, sender_role, organization_id, body)
+                    VALUES (%s, %s, 'system', %s, %s)
+                """, (ticket_id, user.id, org_id, routing_note))
+                cursor.execute(
+                    "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = %s",
+                    (ticket_id,)
+                )
+                ticket_row = dict(ticket_row)
+                ticket_row["assignee_id"] = best["user_id"]
+        except Exception:
+            pass  # CASPER routing failure never blocks ticket creation
 
         conn.commit()
 

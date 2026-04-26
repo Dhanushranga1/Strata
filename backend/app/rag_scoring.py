@@ -595,3 +595,243 @@ def compute_confidence_casper(
         query=query,
         kb_chunk_count=kb_chunk_count,
     )
+
+
+# ---------------------------------------------------------------------------
+# Ticket Profiling — CASPER at ticket-creation time
+# ---------------------------------------------------------------------------
+
+# Urgency signals: words that suggest time-sensitive or breaking issues.
+_URGENCY_PATTERNS = re.compile(
+    r'\b(urgent|asap|emergency|critical|down|outage|broken|blocked|production|'
+    r'p0|p1|sev.?1|sev.?0|immediately|right now|cannot (access|login|work)|'
+    r'all users|everyone|nothing works?|completely broken|system (down|offline))\b',
+    re.IGNORECASE,
+)
+
+# Broad signals that indicate multi-step or investigative work.
+_COMPLEXITY_SIGNALS = re.compile(
+    r'\b(integrate|integration|migration|migrate|architecture|design|'
+    r'custom|enterprise|security|compliance|audit|performance|scale|'
+    r'multi.?tenant|api|sdk|webhook|automation|workflow|batch|bulk)\b',
+    re.IGNORECASE,
+)
+
+
+class TicketProfile:
+    """
+    CASPER profile for a ticket at creation time.
+
+    Attributes
+    ----------
+    intent : QueryIntent
+        Dominant intent of the ticket (FACTUAL / PROCEDURAL / TROUBLESHOOTING / COMPARISON).
+    intent_scores : dict
+        Softmax probability over all four intents.
+    complexity : float
+        Estimated ticket complexity in [0, 1].
+        0 = simple factual lookup; 1 = complex multi-system outage.
+    urgency : float
+        Estimated urgency in [0, 1] derived from urgency-signal vocabulary.
+    suggested_priority_level : int
+        CASPER-derived P1–P7 mapping from complexity + urgency.
+        1 = highest (P1); 7 = lowest (P7).
+    requires_senior : bool
+        True when the ticket is complex enough to warrant a senior rep or admin.
+    routing_reason : str
+        Human-readable explanation of the routing decision.
+    """
+    __slots__ = (
+        "intent", "intent_scores", "complexity", "urgency",
+        "suggested_priority_level", "requires_senior", "routing_reason",
+    )
+
+    def __init__(
+        self,
+        intent: QueryIntent,
+        intent_scores: Dict[QueryIntent, float],
+        complexity: float,
+        urgency: float,
+        suggested_priority_level: int,
+        requires_senior: bool,
+        routing_reason: str,
+    ):
+        self.intent = intent
+        self.intent_scores = intent_scores
+        self.complexity = complexity
+        self.urgency = urgency
+        self.suggested_priority_level = suggested_priority_level
+        self.requires_senior = requires_senior
+        self.routing_reason = routing_reason
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "intent": self.intent.value,
+            "intent_scores": {k.value: round(v, 3) for k, v in self.intent_scores.items()},
+            "complexity": round(self.complexity, 3),
+            "urgency": round(self.urgency, 3),
+            "suggested_priority_level": self.suggested_priority_level,
+            "requires_senior": self.requires_senior,
+            "routing_reason": self.routing_reason,
+        }
+
+
+def profile_ticket(title: str, description: str = "") -> TicketProfile:
+    """
+    Build a CASPER profile for a ticket at creation time.
+
+    This is the entry point for CASPER-driven automatic routing.
+    Called from create_ticket() and the bulk auto-assign endpoint.
+
+    Parameters
+    ----------
+    title : str
+        Ticket title.
+    description : str
+        Ticket description / initial message body.
+
+    Returns
+    -------
+    TicketProfile
+
+    Algorithm
+    ---------
+    1. Combine title (weighted ×2) + description for intent classification.
+       Title is usually the clearest signal; description adds context.
+
+    2. Compute complexity from a combination of:
+       - Intent-based base complexity:
+           TROUBLESHOOTING → 0.65  (requires diagnosis)
+           COMPARISON      → 0.55  (requires research)
+           PROCEDURAL      → 0.40  (clear steps, predictable)
+           FACTUAL         → 0.25  (lookup, fastest to resolve)
+       - Complexity signal vocabulary (integration, migration, API, …): +0.15 max
+       - Description length heuristic (long desc = more context = harder): +0.10 max
+       - Intent confidence penalty: if dominant intent < 0.40 it's ambiguous → +0.10
+
+    3. Compute urgency from urgency vocabulary.
+
+    4. Derive suggested_priority_level:
+       Uses a joint (urgency × 0.6 + complexity × 0.4) score → P1–P7.
+
+    5. Set requires_senior: complexity > 0.65 OR urgency > 0.70.
+    """
+    # 1) Build classification text (title weighted double)
+    combined = f"{title} {title} {description}".strip()
+
+    # Short-query nudge (≤3 words → likely factual)
+    word_count = len(combined.split())
+    clf_text = f"What is {combined}" if word_count <= 3 else combined
+
+    intent, intent_scores = classify_query_intent(clf_text)
+
+    # 2) Complexity
+    base_complexity = {
+        QueryIntent.TROUBLESHOOTING: 0.65,
+        QueryIntent.COMPARISON:      0.55,
+        QueryIntent.PROCEDURAL:      0.40,
+        QueryIntent.FACTUAL:         0.25,
+    }.get(intent, 0.45)
+
+    complexity_signals = len(_COMPLEXITY_SIGNALS.findall(combined))
+    signal_boost = min(0.15, complexity_signals * 0.05)
+
+    desc_len_boost = min(0.10, len(description) / 5000)
+
+    dominant_score = intent_scores.get(intent, 0.5)
+    ambiguity_penalty = 0.10 if dominant_score < 0.40 else 0.0
+
+    complexity = min(1.0, base_complexity + signal_boost + desc_len_boost + ambiguity_penalty)
+
+    # 3) Urgency
+    urgency_matches = len(_URGENCY_PATTERNS.findall(combined))
+    urgency = min(1.0, urgency_matches * 0.25)
+
+    # 4) Priority level (P1–P7)
+    joint = urgency * 0.6 + complexity * 0.4
+    if joint >= 0.85:
+        priority_level = 1
+    elif joint >= 0.70:
+        priority_level = 2
+    elif joint >= 0.55:
+        priority_level = 3
+    elif joint >= 0.40:
+        priority_level = 4
+    elif joint >= 0.30:
+        priority_level = 5
+    elif joint >= 0.20:
+        priority_level = 6
+    else:
+        priority_level = 7
+
+    # 5) Senior routing
+    requires_senior = complexity > 0.65 or urgency > 0.70
+
+    # 6) Routing reason
+    reasons = []
+    if intent == QueryIntent.TROUBLESHOOTING:
+        reasons.append("troubleshooting query")
+    if complexity > 0.65:
+        reasons.append(f"high complexity ({complexity:.2f})")
+    if urgency > 0.50:
+        reasons.append(f"urgency signals ({urgency:.2f})")
+    if not reasons:
+        reasons.append(f"{intent.value} query, standard complexity")
+    routing_reason = "; ".join(reasons)
+
+    return TicketProfile(
+        intent=intent,
+        intent_scores=intent_scores,
+        complexity=complexity,
+        urgency=urgency,
+        suggested_priority_level=priority_level,
+        requires_senior=requires_senior,
+        routing_reason=routing_reason,
+    )
+
+
+def casper_route(
+    profile: TicketProfile,
+    reps: List[Dict],  # [{"user_id": str, "email": str, "role": str, "load": int}, ...]
+) -> Optional[Dict]:
+    """
+    Select the best rep for a ticket given its CASPER profile.
+
+    Routing strategy
+    ----------------
+    1. Filter to eligible reps (role in rep/admin/owner).
+    2. If profile.requires_senior:
+       - Prefer admins/owners over reps.
+       - Within the same seniority tier, prefer the one with lowest load.
+    3. Otherwise (simple ticket):
+       - Prefer the rep with lowest load regardless of role.
+    4. Returns None if no reps are available.
+
+    Parameters
+    ----------
+    profile : TicketProfile
+        Output of profile_ticket().
+    reps : list of dicts
+        Each dict must have: user_id (str), email (str), role (str), load (int).
+
+    Returns
+    -------
+    dict with user_id and email of chosen rep, or None.
+    """
+    if not reps:
+        return None
+
+    eligible = [r for r in reps if r.get("role") in ("rep", "admin", "owner")]
+    if not eligible:
+        return None
+
+    if profile.requires_senior:
+        # Partition into seniors (admin/owner) and juniors (rep)
+        seniors = [r for r in eligible if r.get("role") in ("admin", "owner")]
+        candidates = seniors if seniors else eligible
+    else:
+        candidates = eligible
+
+    # Sort: load ASC, then email ASC for determinism
+    candidates.sort(key=lambda r: (r.get("load", 0), r.get("email", "")))
+    return candidates[0]

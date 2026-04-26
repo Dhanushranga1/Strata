@@ -7,6 +7,7 @@ from datetime import datetime
 import logging
 
 from .observability import get_rag_analytics
+from .rag_scoring import profile_ticket, casper_route
 from .schemas import (
     UserRoleItem, SetRoleRequest, RoleRequestCreate, RoleRequestItem,
     DecideRoleRequest, DiagnosticInfo, Role, AutoAssignResponse,
@@ -577,8 +578,9 @@ async def _get_db():
 @router.post("/auto-assign", response_model=AutoAssignResponse)
 async def auto_assign_tickets(request: Request, user: User = Depends(get_current_user)):
     """
-    Assign every unassigned open/in-progress ticket in the org to the rep
-    with the current lowest active workload (round-robin by load).
+    Assign every unassigned open/in-progress ticket in the org using CASPER routing.
+    Each ticket is profiled for intent, complexity, and urgency; complex/urgent tickets
+    are routed to senior reps (admin/owner), others to the lowest-load rep.
     """
     require_admin(user)
     org_id = require_org_context(request)
@@ -588,9 +590,9 @@ async def auto_assign_tickets(request: Request, user: User = Depends(get_current
         import uuid as uuid_lib
         org_uuid = uuid_lib.UUID(org_id)
 
-        # 1) Get all reps/admins in org, ordered by open ticket count ASC
+        # 1) Get all reps/admins in org with their role (needed for CASPER senior routing)
         rep_rows = await conn.fetch("""
-            SELECT om.user_id::text, au.email,
+            SELECT om.user_id::text, au.email, ur.role,
                    COUNT(t.id) FILTER (
                        WHERE t.assignee_id = om.user_id
                          AND t.status IN ('open','in_progress','escalated')
@@ -600,17 +602,17 @@ async def auto_assign_tickets(request: Request, user: User = Depends(get_current
             JOIN app.user_roles ur ON ur.user_id = om.user_id
             LEFT JOIN app.tickets t ON t.organization_id = $1
             WHERE om.organization_id = $1
-              AND ur.role IN ('rep', 'admin')
-            GROUP BY om.user_id, au.email
+              AND ur.role IN ('rep', 'admin', 'owner')
+            GROUP BY om.user_id, au.email, ur.role
             ORDER BY load ASC, au.email ASC
         """, org_uuid)
 
         if not rep_rows:
             raise HTTPException(400, "No reps/admins found in this organisation")
 
-        # 2) Get all unassigned open tickets
+        # 2) Get all unassigned open tickets (include description for CASPER profiling)
         unassigned = await conn.fetch("""
-            SELECT id::text, title FROM app.tickets
+            SELECT id::text, title, description FROM app.tickets
             WHERE organization_id = $1
               AND status IN ('open','in_progress','escalated')
               AND assignee_id IS NULL
@@ -623,40 +625,53 @@ async def auto_assign_tickets(request: Request, user: User = Depends(get_current
         if not unassigned:
             return AutoAssignResponse(assigned=0, skipped=0, details=[])
 
-        # 3) Round-robin assignment weighted by current load
-        # Build mutable load map
-        load_map = {r["user_id"]: r["load"] for r in rep_rows}
+        # 3) CASPER routing — profile each ticket and route to the best rep
+        # Build a mutable rep list (dicts) so casper_route can sort it
+        reps_list = [
+            {"user_id": r["user_id"], "email": r["email"],
+             "role": r.get("role", "rep"), "load": r["load"]}
+            for r in rep_rows
+        ]
         details = []
 
         async with conn.transaction():
             for ticket in unassigned:
-                # Pick rep with lowest current load
-                best_rep_id = min(load_map, key=lambda uid: load_map[uid])
-                best_rep_email = next(r["email"] for r in rep_rows if r["user_id"] == best_rep_id)
+                casper_profile = profile_ticket(
+                    ticket["title"], ticket.get("description") or ""
+                )
+                best = casper_route(casper_profile, reps_list)
+                if not best:
+                    continue
 
                 await conn.execute("""
                     UPDATE app.tickets
-                    SET assignee_id = $1, updated_at = NOW()
+                    SET assignee_id = $1, priority_level = COALESCE(priority_level, $3),
+                        updated_at = NOW()
                     WHERE id = $2
-                """, best_rep_id, ticket["id"])
+                """, best["user_id"], ticket["id"],
+                    casper_profile.suggested_priority_level)
 
+                routing_note = (
+                    f"[system] CASPER assigned to {best['email']} "
+                    f"({casper_profile.routing_reason})"
+                )
                 await conn.execute("""
                     INSERT INTO app.messages
                       (ticket_id, sender_id, sender_role, organization_id, body, created_at)
                     VALUES ($1, $2, 'system', $3, $4, NOW())
-                """, ticket["id"], user.id, org_id,
-                    f"[system] Auto-assigned to {best_rep_email}")
+                """, ticket["id"], user.id, org_id, routing_note)
 
                 await conn.execute(
                     "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
                     ticket["id"]
                 )
 
-                load_map[best_rep_id] += 1
+                # Increment load in reps_list so subsequent tickets see the updated workload
+                best["load"] += 1
                 details.append({
                     "ticket_id": ticket["id"],
                     "ticket_title": ticket["title"],
-                    "assigned_to": best_rep_email,
+                    "assigned_to": best["email"],
                 })
 
         result = AutoAssignResponse(assigned=len(details), skipped=0, details=details)
