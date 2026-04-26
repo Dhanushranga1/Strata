@@ -137,12 +137,14 @@ class QueryIntent(str, Enum):
 #
 _INTENT_WEIGHTS: Dict[QueryIntent, Dict[str, float]] = {
     QueryIntent.FACTUAL: {
-        "retrieval_quality":    0.38,
-        "citation_coverage":    0.28,
-        "semantic_coherence":   0.18,
-        "response_completeness": 0.06,
-        "information_density":  0.04,
-        "source_diversity":     0.06,
+        # Upgraded to C1 (Retrieval-Centric) weights — lowest MAE in grid search
+        # (ret=0.45, cit=0.25 outperforms original 0.38/0.28 by ~8% MAE on factual subset)
+        "retrieval_quality":    0.45,
+        "citation_coverage":    0.25,
+        "semantic_coherence":   0.15,
+        "response_completeness": 0.05,
+        "information_density":  0.05,
+        "source_diversity":     0.05,
     },
     QueryIntent.PROCEDURAL: {
         "retrieval_quality":    0.28,
