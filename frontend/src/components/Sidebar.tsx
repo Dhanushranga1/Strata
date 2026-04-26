@@ -31,7 +31,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Tickets", href: "/tickets", icon: Ticket },
-  { name: "Knowledge Base", href: "/kb", icon: BookOpen },
+  { name: "Knowledge Base", href: "/kb", icon: BookOpen, repOnly: true },
   { name: "Rep Console", href: "/rep", icon: UserCheck, repOnly: true },
   { name: "Admin Panel", href: "/admin", icon: Shield, adminOnly: true },
   { name: "Team Members", href: "/admin/users", icon: Users, adminOnly: true },

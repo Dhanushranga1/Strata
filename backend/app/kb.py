@@ -143,6 +143,18 @@ async def ingest(
 
             conn.commit()
 
+            # Refresh DB snapshot in background so next cold start is fast
+            import threading, asyncio
+            def _save_snapshot():
+                from .store import load_index, save_index_snapshot as _snap
+                import asyncio as _asyncio
+                try:
+                    idx = load_index()
+                    _asyncio.run(_snap(idx, idx.ntotal))
+                except Exception:
+                    pass
+            threading.Thread(target=_save_snapshot, daemon=True).start()
+
             return IngestResponse(
                 document_id=document_id,
                 chunks_ingested=len(unique_ids),

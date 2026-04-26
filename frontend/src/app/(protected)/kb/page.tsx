@@ -93,6 +93,10 @@ export default function KnowledgeBasePage() {
           return;
         }
         const userInfo = await api.get("/api/me");
+        if (userInfo.role === 'customer') {
+          router.replace('/tickets');
+          return;
+        }
         setUser(userInfo);
         await loadStats();
       } catch {

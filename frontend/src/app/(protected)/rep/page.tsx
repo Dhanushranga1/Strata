@@ -123,7 +123,7 @@ export default function RepConsolePage() {
   const [counts, setCounts] = useState<QueueCounts>({ needs_attention: 0, open_active: 0, escalated: 0, all: 0, resolved_today: 0 })
   const [currentLane, setCurrentLane] = useState('needs_attention')
   const [searchQuery, setSearchQuery] = useState('')
-  const [mineOnly, setMineOnly] = useState(false)
+  const [mineOnly, setMineOnly] = useState(true)
   const [offset, setOffset] = useState(0)
   const [total, setTotal] = useState(0)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -258,9 +258,6 @@ export default function RepConsolePage() {
       if (mineOnly) params.append('mine', 'true')
 
       const data = await api.get(`/api/rep/queue?${params}`, orgId)
-      console.log('[RepConsole] Loaded tickets data for org:', orgId, data)
-      console.log('[RepConsole] First ticket priority:', data.items?.[0]?.priority)
-      console.log('[RepConsole] All ticket priorities:', data.items?.map((t: any) => t.priority))
       setTickets(data.items)
       setTotal(data.total)
     } catch (error) {
@@ -505,9 +502,8 @@ export default function RepConsolePage() {
     }
   }
 
-  const handleAiFeedback = (positive: boolean) => {
-    // Log feedback for analytics (could be enhanced to send to backend)
-    console.log(`AI feedback for ticket ${currentAiTicket}:`, positive ? 'positive' : 'negative')
+  const handleAiFeedback = (_positive: boolean) => {
+    // TODO: send feedback to analytics endpoint
   }
 
   const addAuditMessage = async (ticketId: string, message: string) => {
@@ -659,10 +655,7 @@ export default function RepConsolePage() {
   }
 
   const handleKBIngest = async (sources: any[]) => {
-    console.log('🔄 Rep: Starting KB ingest for', sources.length, 'sources')
-    
     if (!orgId) {
-      console.error('❌ Rep: Cannot ingest - no organization context')
       setShowKBModal(false)
       return
     }
@@ -700,11 +693,9 @@ export default function RepConsolePage() {
           throw new Error(`Upload failed: ${errorText}`)
         }
 
-        const result = await response.json()
-        console.log('✅ Rep: KB ingest successful for', source.name, ':', result)
-        
+        await response.json()
       } catch (error) {
-        console.error('❌ Rep: KB ingest failed for', source.name, ':', error)
+        // non-fatal per source
       }
     }
     
@@ -1326,8 +1317,8 @@ export default function RepConsolePage() {
       <AIMessage
         content="I'm here to help you manage your ticket queue efficiently. I can suggest prioritizations, provide insights on customer sentiment, and help draft responses."
         type="suggestion"
-        onCopy={() => console.log("AI message copied")}
-        onFeedback={(positive) => console.log("Feedback:", positive)}
+        onCopy={() => {}}
+        onFeedback={() => {}}
         showActions={true}
       />
 

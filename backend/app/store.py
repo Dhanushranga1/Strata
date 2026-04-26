@@ -211,6 +211,84 @@ def add_vectors_for_chunks(chunk_ids: List[str], vectors: List[List[float]]) -> 
         logger.error(f"Unexpected error in add_vectors_for_chunks: {e}")
         raise VectorStoreError(f"Vector addition failed: {e}") from e
 
+async def save_index_snapshot(index: faiss.Index, vector_count: int) -> bool:
+    """
+    Serialize the FAISS index as a binary blob and upsert into app.faiss_snapshots.
+    Keeps only the latest snapshot (deletes old ones after inserting).
+    Returns True on success.
+    """
+    try:
+        from .db import get_connection
+        import io
+
+        buf = faiss.serialize_index(index)
+        data_bytes = buf.tobytes()
+
+        conn = await get_connection()
+        try:
+            await conn.execute(
+                """
+                INSERT INTO app.faiss_snapshots (data, vector_count)
+                VALUES ($1, $2)
+                """,
+                data_bytes,
+                vector_count,
+            )
+            # Keep only the latest 3 snapshots to avoid unbounded growth
+            await conn.execute(
+                """
+                DELETE FROM app.faiss_snapshots
+                WHERE id NOT IN (
+                    SELECT id FROM app.faiss_snapshots ORDER BY created_at DESC LIMIT 3
+                )
+                """
+            )
+        finally:
+            await conn.close()
+
+        logger.info("[store] FAISS snapshot saved to DB (%d vectors, %d bytes)", vector_count, len(data_bytes))
+        return True
+    except Exception as exc:
+        logger.warning("[store] Failed to save FAISS snapshot to DB: %s", exc)
+        return False
+
+
+async def load_index_from_snapshot() -> Optional[Tuple[faiss.Index, Dict, int]]:
+    """
+    Load the latest FAISS snapshot from DB.
+    Returns (index, empty_mapping_skeleton, vector_count) or None if no snapshot exists.
+    The caller should rebuild the full chunk_to_faiss mapping from DB after loading.
+    """
+    try:
+        from .db import get_connection
+        import numpy as np
+
+        conn = await get_connection()
+        try:
+            row = await conn.fetchrow(
+                "SELECT data, vector_count FROM app.faiss_snapshots ORDER BY created_at DESC LIMIT 1"
+            )
+        finally:
+            await conn.close()
+
+        if not row:
+            return None
+
+        data_bytes = bytes(row["data"])
+        arr = np.frombuffer(data_bytes, dtype=np.uint8)
+        index = faiss.deserialize_index(arr)
+
+        if index.d != DIM:
+            logger.warning("[store] Snapshot dimension mismatch: expected %d got %d", DIM, index.d)
+            return None
+
+        logger.info("[store] Loaded FAISS snapshot from DB: %d vectors", index.ntotal)
+        return index, row["vector_count"]
+    except Exception as exc:
+        logger.warning("[store] Failed to load FAISS snapshot from DB: %s", exc)
+        return None
+
+
 async def rebuild_faiss_from_db() -> int:
     """
     Rebuild the FAISS index from embeddings stored in app.chunks.
@@ -262,6 +340,11 @@ async def rebuild_faiss_from_db() -> int:
         save_map(mapping)
 
         logger.info("[store] Rebuilt FAISS index from DB: %d vectors", faiss_counter)
+
+        # Persist a binary snapshot so the next cold start can skip per-vector rebuild
+        import asyncio
+        asyncio.ensure_future(save_index_snapshot(index, faiss_counter))
+
         return faiss_counter
 
     except Exception as exc:
