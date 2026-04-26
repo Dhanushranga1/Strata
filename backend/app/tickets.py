@@ -835,14 +835,30 @@ def chat_with_ai(
             cursor.execute("SELECT COUNT(*) as count FROM app.messages WHERE ticket_id = %s", (ticket_id,))
             conversation_length = cursor.fetchone()["count"] + 1
         
-        # Compute comprehensive confidence
+        # Fetch KB size for CASPER calibration (non-fatal)
+        kb_chunk_count = 100
+        try:
+            with get_db_connection() as _kbc_conn:
+                _kbc_cur = _kbc_conn.cursor()
+                _kbc_cur.execute(
+                    "SELECT COUNT(*) AS cnt FROM app.chunks WHERE organization_id = %s", (org_id,)
+                )
+                _kbc_row = _kbc_cur.fetchone()
+                kb_chunk_count = int(_kbc_row["cnt"]) if _kbc_row else 100
+        except Exception:
+            pass
+
+        # Compute CASPER confidence (intent-adaptive + KB-density-calibrated)
         confidence, confidence_components = compute_confidence(
-            scores, ai_response, len(chunks), retrieval_metrics
+            scores, ai_response, len(chunks), retrieval_metrics,
+            query=clean_query,
+            kb_chunk_count=kb_chunk_count,
         )
-        
-        # Determine escalation with enhanced logic
+
+        # Determine escalation with CASPER's adaptive threshold
         should_escalate_flag, escalation_details = should_escalate(
-            confidence, retrieval_metrics, ai_response, conversation_length
+            confidence, retrieval_metrics, ai_response, conversation_length,
+            confidence_breakdown=confidence_components,
         )
         
     except Exception as conf_error:
