@@ -57,12 +57,6 @@ interface QueueCounts {
   resolved_today: number
 }
 
-interface User {
-  id: string
-  email: string
-  role: string
-}
-
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000'
 
 // Utility function to calculate ticket age
@@ -89,19 +83,19 @@ const TicketCardSkeleton = () => (
     <CardHeader className="pb-3">
       <div className="flex justify-between items-start">
         <div className="space-y-2 flex-1">
-          <div className="h-4 bg-gray-200 rounded animate-pulse w-3/4"></div>
-          <div className="h-3 bg-gray-200 rounded animate-pulse w-1/2"></div>
+          <div className="h-4 bg-zinc-700/50 rounded animate-pulse w-3/4"></div>
+          <div className="h-3 bg-zinc-700/50 rounded animate-pulse w-1/2"></div>
         </div>
-        <div className="h-6 bg-gray-200 rounded animate-pulse w-16"></div>
+        <div className="h-6 bg-zinc-700/50 rounded animate-pulse w-16"></div>
       </div>
     </CardHeader>
     <CardContent>
       <div className="space-y-3">
-        <div className="h-3 bg-gray-200 rounded animate-pulse w-full"></div>
-        <div className="h-3 bg-gray-200 rounded animate-pulse w-2/3"></div>
+        <div className="h-3 bg-zinc-700/50 rounded animate-pulse w-full"></div>
+        <div className="h-3 bg-zinc-700/50 rounded animate-pulse w-2/3"></div>
         <div className="flex gap-2">
-          <div className="h-8 bg-gray-200 rounded animate-pulse w-20"></div>
-          <div className="h-8 bg-gray-200 rounded animate-pulse w-20"></div>
+          <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-20"></div>
+          <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-20"></div>
         </div>
       </div>
     </CardContent>
@@ -110,13 +104,11 @@ const TicketCardSkeleton = () => (
 
 export default function RepConsolePage() {
   const router = useRouter()
-  
-  // Organization context
-  const { currentOrganization, isReady, switchingOrg } = useOrganization()
+
+  // Use org context — eliminates a separate /api/me auth round-trip
+  const { currentOrganization, isReady, switchingOrg, user, loading } = useOrganization()
   const orgId = currentOrganization?.id
-  
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+
   const [ticketsLoading, setTicketsLoading] = useState(false)
   const [countsLoading, setCountsLoading] = useState(false)
   const [tickets, setTickets] = useState<QueueItem[]>([])
@@ -156,16 +148,17 @@ export default function RepConsolePage() {
 
   const limit = 20
 
-  // Check authentication and role
+  // Role guard — redirect non-reps to dashboard
   useEffect(() => {
-    checkAuth()
-  }, [])
+    if (!loading && user && !['rep', 'admin'].includes(user.role || '')) {
+      router.replace('/dashboard')
+    }
+  }, [loading, user, router])
 
   // Load data when filters change
   useEffect(() => {
     if (user && isReady && orgId) {
-      loadTickets()
-      loadCounts()
+      loadQueue()
     }
   }, [user, currentLane, searchQuery, mineOnly, offset, isReady, orgId])
 
@@ -174,8 +167,7 @@ export default function RepConsolePage() {
     if (!user || !isReady || !orgId) return
 
     const interval = setInterval(() => {
-      loadTickets(true) // silent refresh
-      loadCounts(true) // silent refresh
+      loadQueue(true)
       setLastRefresh(Date.now())
     }, 30000)
 
@@ -204,42 +196,14 @@ export default function RepConsolePage() {
     return () => clearInterval(interval)
   }, [])
 
-  const checkAuth = async () => {
-    try {
-      const { data } = await supabase.auth.getSession()
-      if (!data.session) {
-        router.replace('/login')
-        return
-      }
-
-      const token = data.session.access_token
-      const response = await fetch(`${API_BASE}/api/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      if (!response.ok) {
-        router.replace('/login')
-        return
-      }
-
-      const userData = await response.json()
-      if (!['rep', 'admin'].includes(userData.role)) {
-        router.replace('/dashboard') // Redirect non-reps to dashboard
-        return
-      }
-
-      setUser(userData)
-    } catch (error) {
-      console.error('Auth check failed:', error)
-      router.replace('/login')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const getAuthToken = async () => {
     const { data } = await supabase.auth.getSession()
     return data.session?.access_token
+  }
+
+  // Run tickets + counts in parallel so the page populates in one round-trip
+  const loadQueue = async (silent = false) => {
+    await Promise.all([loadTickets(silent), loadCounts(silent)])
   }
 
   const loadTickets = async (silent = false) => {
@@ -401,9 +365,7 @@ export default function RepConsolePage() {
     try {
       setActionLoading(ticket.id + 'ai')
       toast.loading('Getting AI suggestion...', { id: 'ai-' + ticket.id })
-      
-      const token = await getAuthToken()
-      
+
       // Fetch detailed ticket information including messages
       let ticketDetails = ticket
       let messages: any[] = []
@@ -635,10 +597,7 @@ export default function RepConsolePage() {
   const handleManualRefresh = async () => {
     toast.loading('Refreshing...', { id: 'manual-refresh' })
     try {
-      await Promise.all([
-        loadTickets(),
-        loadCounts()
-      ])
+      await loadQueue()
       setLastRefresh(Date.now())
       toast.success('Refreshed successfully', { id: 'manual-refresh' })
     } catch (error) {
@@ -718,36 +677,37 @@ export default function RepConsolePage() {
   }
 
   const getStatusBadge = (status: string) => {
-    const colors = {
-      open: 'bg-blue-100 text-blue-800',
-      in_progress: 'bg-yellow-100 text-yellow-800',
-      resolved: 'bg-green-100 text-green-800',
-      closed: 'bg-gray-100 text-gray-800',
-      escalated: 'bg-red-100 text-red-800'
+    const colors: Record<string, string> = {
+      open:        'bg-blue-900/40 text-blue-300',
+      in_progress: 'bg-yellow-900/40 text-yellow-300',
+      resolved:    'bg-green-900/40 text-green-300',
+      closed:      'bg-zinc-800 text-zinc-400',
+      escalated:   'bg-red-900/40 text-red-300',
     }
-    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800'
+    return colors[status] || 'bg-zinc-800 text-zinc-400'
   }
 
   const getPriorityBadge = (priority: string) => {
-    const colors = {
-      low: 'bg-green-100 text-green-800',
-      normal: 'bg-blue-100 text-blue-800',
-      high: 'bg-red-100 text-red-800'
+    const colors: Record<string, string> = {
+      low:    'bg-green-900/40 text-green-300',
+      normal: 'bg-blue-900/40 text-blue-300',
+      high:   'bg-red-900/40 text-red-300',
+      urgent: 'bg-red-900/60 text-red-200 font-semibold',
     }
-    return colors[priority as keyof typeof colors] || 'bg-gray-100 text-gray-800'
+    return colors[priority] || 'bg-zinc-800 text-zinc-400'
   }
 
   const getPriorityLevelBadge = (level: number): { label: string; className: string } => {
     const map: Record<number, { label: string; className: string }> = {
-      1: { label: 'P1', className: 'bg-red-100 text-red-800 border border-red-300' },
-      2: { label: 'P2', className: 'bg-orange-100 text-orange-800 border border-orange-300' },
-      3: { label: 'P3', className: 'bg-yellow-100 text-yellow-800 border border-yellow-300' },
-      4: { label: 'P4', className: 'bg-blue-100 text-blue-800 border border-blue-300' },
-      5: { label: 'P5', className: 'bg-indigo-100 text-indigo-800 border border-indigo-300' },
-      6: { label: 'P6', className: 'bg-purple-100 text-purple-800 border border-purple-300' },
-      7: { label: 'P7', className: 'bg-gray-100 text-gray-700 border border-gray-300' },
+      1: { label: 'P1', className: 'bg-red-900/50 text-red-300 border border-red-700' },
+      2: { label: 'P2', className: 'bg-orange-900/50 text-orange-300 border border-orange-700' },
+      3: { label: 'P3', className: 'bg-yellow-900/50 text-yellow-300 border border-yellow-700' },
+      4: { label: 'P4', className: 'bg-blue-900/50 text-blue-300 border border-blue-700' },
+      5: { label: 'P5', className: 'bg-indigo-900/50 text-indigo-300 border border-indigo-700' },
+      6: { label: 'P6', className: 'bg-purple-900/50 text-purple-300 border border-purple-700' },
+      7: { label: 'P7', className: 'bg-zinc-800 text-zinc-400 border border-zinc-700' },
     }
-    return map[level] ?? { label: `P${level}`, className: 'bg-gray-100 text-gray-700' }
+    return map[level] ?? { label: `P${level}`, className: 'bg-zinc-800 text-zinc-400' }
   }
 
   const formatETR = (etrStr: string): { text: string; className: string } => {
@@ -761,21 +721,15 @@ export default function RepConsolePage() {
     return { text: `ETR: ${formatted}`, className: 'text-muted-foreground' }
   }
 
-  if (loading) {
+  // AppLayout handles the auth loading + unauthenticated redirect.
+  // We only gate on role here.
+  if (!loading && user && !['rep', 'admin'].includes(user.role || '')) {
     return (
       <div className="min-h-screen grid place-items-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      </div>
-    )
-  }
-
-  if (!user || !['rep', 'admin'].includes(user.role)) {
-    return (
-      <div className="min-h-screen grid place-items-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h1>
-          <p className="text-gray-600 mb-4">You need rep or admin access to view this page.</p>
-          <Link href="/dashboard" className="text-blue-600 hover:underline">
+        <div className="text-center space-y-3">
+          <h1 className="text-xl font-bold text-danger">Access Denied</h1>
+          <p className="text-muted-foreground text-sm">You need rep or admin access to view this page.</p>
+          <Link href="/dashboard" className="text-sm text-primary hover:underline">
             Go to Dashboard
           </Link>
         </div>
@@ -958,7 +912,7 @@ export default function RepConsolePage() {
             <CardContent className="relative">
               <div className="text-2xl font-bold text-red-600">
                 {countsLoading ? (
-                  <div className="h-8 bg-gray-200 rounded animate-pulse w-12"></div>
+                  <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
                 ) : (
                   counts.needs_attention
                 )}
@@ -977,7 +931,7 @@ export default function RepConsolePage() {
             <CardContent className="relative">
               <div className="text-2xl font-bold text-blue-600">
                 {countsLoading ? (
-                  <div className="h-8 bg-gray-200 rounded animate-pulse w-12"></div>
+                  <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
                 ) : (
                   counts.open_active
                 )}
@@ -996,7 +950,7 @@ export default function RepConsolePage() {
                     <CardContent className="relative">
             <div className="text-2xl font-bold text-orange-600">
               {countsLoading ? (
-                <div className="h-8 bg-gray-200 rounded animate-pulse w-12"></div>
+                <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
               ) : (
                 counts.escalated
               )}
@@ -1015,7 +969,7 @@ export default function RepConsolePage() {
           <CardContent className="relative">
             <div className="text-2xl font-bold text-green-600">
               {countsLoading ? (
-                <div className="h-8 bg-gray-200 rounded animate-pulse w-12"></div>
+                <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
               ) : (
                 counts.all
               )}
@@ -1034,7 +988,7 @@ export default function RepConsolePage() {
           <CardContent className="relative">
             <div className="text-2xl font-bold text-emerald-600">
               {countsLoading ? (
-                <div className="h-8 bg-gray-200 rounded animate-pulse w-12"></div>
+                <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
               ) : (
                 counts.resolved_today
               )}

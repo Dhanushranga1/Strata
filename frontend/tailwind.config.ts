@@ -15,8 +15,14 @@ const config: Config = {
         surface: "rgb(var(--surface))",
         surface2: "rgb(var(--surface2))",
         text: "rgb(var(--text))",
-        muted: "rgb(var(--muted))",
-        primary: "rgb(var(--primary))",
+        muted: {
+          DEFAULT: "rgb(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        primary: {
+          DEFAULT: "rgb(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
         primary2: "rgb(var(--primary2))",
         success: "rgb(var(--success))",
         warning: "rgb(var(--warning))",
