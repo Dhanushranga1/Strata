@@ -465,13 +465,21 @@ def casper_confidence(
         return 0.0, breakdown
 
     # ── 1. Intent classification and weight blending ─────────────────────────
-    # Very short queries (≤ 3 words) are likely factual lookups — boost FACTUAL prior
-    word_count = len(query.split())
-    query_for_classification = query
-    if word_count <= 3 and query.strip():
-        query_for_classification = f"What is {query}"  # nudge toward factual
+    # Re-use intent pre-classified by retrieve() to avoid running regexes twice.
+    _precomputed = retrieval_metrics.get("query_intent")
+    if _precomputed:
+        try:
+            query_intent = QueryIntent(_precomputed)
+            _other = (1.0 - 0.70) / max(1, len(QueryIntent) - 1)
+            intent_scores = {k: (0.70 if k == query_intent else _other) for k in QueryIntent}
+        except ValueError:
+            _precomputed = None
 
-    query_intent, intent_scores = classify_query_intent(query_for_classification)
+    if not _precomputed:
+        word_count = len(query.split())
+        _clf_q = f"What is {query}" if word_count <= 3 and query.strip() else query
+        query_intent, intent_scores = classify_query_intent(_clf_q)
+
     effective_weights = blend_weights(intent_scores)
 
     # ── 2. Compute each factor signal ────────────────────────────────────────
@@ -527,8 +535,17 @@ def casper_confidence(
     # ── 4. KB-density calibration ─────────────────────────────────────────────
     calibration = kb_density_calibration(kb_chunk_count)
 
-    # ── 5. Retrieval-spread penalty ───────────────────────────────────────────
+    # ── 5. Retrieval-spread penalty (with score-gap forgiveness) ─────────────
     spread_penalty = retrieval_spread_penalty(scores)
+
+    # If the top source is clearly dominant (large gap AND high absolute score),
+    # the spread is intentional single-authoritative-source retrieval, not fragility.
+    # Forgive most of the penalty for factual queries; partial forgiveness for others.
+    score_gap = retrieval_metrics.get("score_gap", 0.0)
+    top_score_val = retrieval_metrics.get("top_score", 0.0)
+    if score_gap > 0.20 and top_score_val > 0.75:
+        forgiveness = 0.65 if query_intent == QueryIntent.FACTUAL else 0.40
+        spread_penalty *= (1.0 - forgiveness)
 
     calibrated_score = raw_score * calibration - spread_penalty
 

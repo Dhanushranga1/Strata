@@ -1,7 +1,7 @@
 # TicketPilot — Engineering Updates & Changelog
 
 **Document type:** Cumulative engineering journal  
-**Last updated:** 2026-04-26  
+**Last updated:** 2026-04-27  
 **Scope:** Every meaningful change from initial MVP to present, grouped by theme.  
 Each section references the git commit(s) responsible so changes can be traced.
 
@@ -27,6 +27,7 @@ Each section references the git commit(s) responsible so changes can be traced.
 16. [CASPER — Adaptive RAG Scoring](#16-casper--adaptive-rag-scoring)
 17. [CASPER — Automatic Ticket Routing](#17-casper--automatic-ticket-routing)
 18. [UI Polish, Mobile Layout & Loading Speed](#18-ui-polish-mobile-layout--loading-speed)
+19. [RAG Pipeline & CASPER Optimizations](#19-rag-pipeline--casper-optimizations)
 
 ---
 2. [Phase 1 — Foundational UX](#2-phase-1--foundational-ux)
@@ -608,3 +609,110 @@ Active nav item changed from `text-primary-foreground` (broken) to explicit `tex
 
 `loadTickets()` and `loadCounts()` were called sequentially in the data-load effect.  
 Replaced with `loadQueue()` which runs both via `Promise.all` — both requests hit the server simultaneously, and the queue renders when the slower of the two finishes rather than when both finish in series.
+
+---
+
+## 19. RAG Pipeline & CASPER Optimizations
+
+**Commit:** `feat: RAG pipeline vectorization + CASPER intent-adaptive retrieval`  
+**Files changed:** `backend/app/rag.py`, `backend/app/rag_scoring.py`, `backend/app/tickets.py`
+
+### 19.1 Vectorized Coherence & Diversity Scoring
+
+**Before:** Both metrics used Python loops.
+
+`compute_semantic_coherence` iterated over each chunk embedding computing a dot product one at a time — O(N × D) Python overhead.
+
+`compute_diversity_score` used a double loop over all (i, j) pairs — O(N² × D).
+
+**After:** Both replaced with single NumPy matrix multiplications:
+
+```python
+# Coherence: (N, D) @ (D,) → (N,) cosine similarities in one shot
+embs_unit = embs / norms[:, None]
+sims = embs_unit @ q_unit        # single matmul
+
+# Diversity: (N, D) @ (D, N) → (N, N) full pairwise cosine matrix
+sim_matrix = normalized @ normalized.T
+rows, cols = np.triu_indices(n, k=1)
+avg_similarity = float(np.mean(sim_matrix[rows, cols]))
+```
+
+Same for `mmr_rerank` — the greedy inner loop now does `rem_unit @ sel_unit.T` per step instead of iterating over selected indices one by one.
+
+**Speedup:** ~3–5× on typical TOP_K=6 batches; more pronounced for larger K values.
+
+### 19.2 Intent-Adaptive MMR Lambda
+
+**Before:** MMR re-ranking used a fixed λ=0.70 for all query types regardless of whether diversity was actually useful.
+
+**After:** `retrieve()` classifies query intent first and selects a purpose-built λ:
+
+| Intent | λ | Rationale |
+|---|---|---|
+| `factual` | 0.82 | Precision-first — one authoritative source is best; conflicting sources reduce reliability |
+| `procedural` | 0.70 | Balanced — all steps needed but not duplicated |
+| `troubleshooting` | 0.55 | Diversity-first — multiple root-cause hypotheses required |
+| `comparison` | 0.48 | Maximum diversity — one source per compared entity |
+
+### 19.3 Intent-Adaptive FAISS Search Headroom
+
+FAISS over-fetch before re-ranking is now scaled by intent:
+
+| Intent | Multiplier on TOP_K | Max |
+|---|---|---|
+| `factual` | ×2 | 20 |
+| `procedural` | ×3 | 20 |
+| `troubleshooting` | ×4 | 20 |
+| `comparison` | ×4 | 20 |
+
+Troubleshooting queries cast a wider net (24 candidates before MMR prunes to 6) to ensure diverse root-cause chunks survive the re-ranking filter.
+
+### 19.4 Score Gap Signal & Spread Penalty Forgiveness
+
+Added `score_gap = top_score − second_score` to `retrieval_metrics`.
+
+When the gap is large (> 0.20) and the top score is strong (> 0.75), the retrieval spread penalty in CASPER is partially forgiven because the high spread is intentional single-authoritative-source retrieval, not fragility:
+
+```
+forgiveness = 0.65  if query_intent == FACTUAL
+forgiveness = 0.40  otherwise
+spread_penalty *= (1.0 − forgiveness)
+```
+
+This prevents CASPER from penalising high-quality factual answers where one definitive source dominates.
+
+### 19.5 Intent Pre-Classification Re-Use
+
+**Before:** `casper_confidence()` ran intent classification again on every chat response (4 regex scans per query), even though `retrieve()` had already classified the same query moments earlier.
+
+**After:** `retrieve()` stores `query_intent` in `retrieval_metrics`. `casper_confidence()` reads it first and skips re-classification if present, saving 4 compiled regex scans per chat request.
+
+### 19.6 Intent-Aware Escalation Threshold for `insufficient_chunks`
+
+**Before:** Any response with fewer than 2 retrieved chunks triggered `insufficient_chunks` — a critical escalation signal. This caused false escalations on factual queries where a single high-quality chunk is genuinely sufficient.
+
+**After:** The minimum chunk threshold is intent-dependent:
+- `factual` intent → min chunks = 1 (one authoritative source is enough)
+- all other intents → min chunks = 2 (need breadth for multi-step / debugging)
+
+### 19.7 KB Chunk Count — 60-Second Per-Org Cache
+
+**Before:** Every AI chat request opened a second DB connection to count `app.chunks WHERE organization_id = ?` — an extra round-trip on every message.
+
+**After:** `_get_kb_chunk_count(org_id)` in `tickets.py` caches the count per org with a 60-second TTL using `time.monotonic()`. Only the first request per org per minute hits the DB; all others return the cached value instantly.
+
+```python
+_kb_count_cache: Dict[str, Tuple[int, float]] = {}
+_KB_COUNT_TTL = 60.0  # seconds
+```
+
+### 19.8 CASPER Integration Status
+
+All three integration points confirmed operational:
+
+| Entry point | Where | What CASPER does |
+|---|---|---|
+| Ticket creation | `tickets.py` → `create_ticket()` | `profile_ticket()` classifies intent/urgency/complexity; `casper_route()` assigns to best-fit rep |
+| Bulk auto-assign | `admin.py` → `/auto-assign` | Per-ticket profiling and routing, load tracked in-process |
+| AI chat response | `tickets.py` → `/chat` | `casper_confidence()` scores the response; `should_escalate()` uses adaptive threshold |

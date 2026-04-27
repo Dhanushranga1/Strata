@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
 from datetime import datetime
 import os
 import json
@@ -26,6 +26,30 @@ from .email import (
 from .rag_scoring import profile_ticket, casper_route
 
 router = APIRouter(prefix="/api", tags=["tickets"])
+
+# Per-org TTL cache for KB chunk counts — avoids an extra DB round-trip on every chat request.
+# Keyed by org_id; value is (count, monotonic_timestamp).
+_kb_count_cache: Dict[str, Tuple[int, float]] = {}
+_KB_COUNT_TTL = 60.0  # seconds
+
+
+def _get_kb_chunk_count(org_id: str) -> int:
+    """Return KB chunk count for org, using a 60-second in-process cache."""
+    now = time.monotonic()
+    cached = _kb_count_cache.get(org_id)
+    if cached and (now - cached[1]) < _KB_COUNT_TTL:
+        return cached[0]
+    count = 100
+    try:
+        with get_db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) AS cnt FROM app.chunks WHERE organization_id = %s", (org_id,))
+            row = cur.fetchone()
+            count = int(row["cnt"]) if row else 100
+    except Exception:
+        pass
+    _kb_count_cache[org_id] = (count, now)
+    return count
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -848,18 +872,8 @@ def chat_with_ai(
             cursor.execute("SELECT COUNT(*) as count FROM app.messages WHERE ticket_id = %s", (ticket_id,))
             conversation_length = cursor.fetchone()["count"] + 1
         
-        # Fetch KB size for CASPER calibration (non-fatal)
-        kb_chunk_count = 100
-        try:
-            with get_db_connection() as _kbc_conn:
-                _kbc_cur = _kbc_conn.cursor()
-                _kbc_cur.execute(
-                    "SELECT COUNT(*) AS cnt FROM app.chunks WHERE organization_id = %s", (org_id,)
-                )
-                _kbc_row = _kbc_cur.fetchone()
-                kb_chunk_count = int(_kbc_row["cnt"]) if _kbc_row else 100
-        except Exception:
-            pass
+        # Fetch KB size for CASPER calibration (60-second TTL cache — no extra DB conn per request)
+        kb_chunk_count = _get_kb_chunk_count(org_id)
 
         # Compute CASPER confidence (intent-adaptive + KB-density-calibrated)
         confidence, confidence_components = compute_confidence(
