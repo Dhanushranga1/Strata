@@ -5,350 +5,258 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabaseClient'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
-import { FieldError } from '@/components/FieldError'
-import { Separator } from '@/components/ui/separator'
-import { Mail, Lock, ArrowRight, Sparkles, Eye, EyeOff, Zap, Shield } from 'lucide-react'
-import { MeshGradient, FloatingOrbs } from '@/ui/backgrounds/AnimatedBackgrounds'
-import { LoadingSpinner, SuccessCheckmark } from '@/ui/components/LoadingComponents'
-import { v } from '@/ui/motion/variants'
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Loader2, CheckCircle2, BrainCircuit, BookOpenCheck, SlidersHorizontal } from 'lucide-react'
+
+const highlights = [
+  {
+    icon: BrainCircuit,
+    title: 'CASPER auto-routing',
+    body: 'Every ticket is profiled and assigned to the right rep — zero manual triage.',
+    color: 'text-indigo-400',
+    bg: 'bg-indigo-500/10 border-indigo-500/20',
+  },
+  {
+    icon: BookOpenCheck,
+    title: 'Cited KB answers',
+    body: 'AI drafts replies with inline [1][2] citations from your knowledge base.',
+    color: 'text-violet-400',
+    bg: 'bg-violet-500/10 border-violet-500/20',
+  },
+  {
+    icon: SlidersHorizontal,
+    title: 'P1–P7 priority scoring',
+    body: 'Urgency and complexity scored automatically on every incoming ticket.',
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-500/10 border-emerald-500/20',
+  },
+]
 
 function LoginPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get('redirect') || '/dashboard'
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [magicLinkSent, setMagicLinkSent] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [magicLoading, setMagicLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [magicSent, setMagicSent] = useState(false)
   const [success, setSuccess] = useState(false)
 
   const signIn = async () => {
+    if (!email || !password) return
     setLoading(true)
     setError(null)
-
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
-
-    if (error) {
-      setError(error.message)
-      return
-    }
-
+    if (error) { setError(error.message); return }
     if (data.session?.access_token) {
-      setSuccess(true);
-      setTimeout(() => {
-        router.replace(redirectTo);
-      }, 1500);
+      setSuccess(true)
+      setTimeout(() => router.replace(redirectTo), 1200)
     } else {
-      setError('Authentication failed: No token received');
+      setError('Authentication failed: no token received')
     }
   }
 
   const signInMagic = async () => {
-    setLoading(true)
+    if (!email) return
+    setMagicLoading(true)
     setError(null)
-
     const next = redirectTo !== '/dashboard' ? `?next=${encodeURIComponent(redirectTo)}` : ''
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback${next}`
-      }
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback${next}` },
     })
-    
-    setLoading(false)
-    
-    if (error) { 
-      setError(error.message)
-      return 
-    }
-    
-    setMagicLinkSent(true)
-  }
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !loading && email && password) {
-      signIn()
-    }
+    setMagicLoading(false)
+    if (error) { setError(error.message); return }
+    setMagicSent(true)
   }
 
   if (success) {
     return (
-      <main className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
-        <MeshGradient />
-        <motion.div 
-          initial={{ scale: 0.8, opacity: 0 }}
+      <main className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="text-center space-y-6"
+          className="text-center space-y-4"
         >
-          <div className="mx-auto h-20 w-20 rounded-full bg-success/20 flex items-center justify-center">
-            <SuccessCheckmark size="lg" />
+          <div className="w-16 h-16 rounded-full bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-8 h-8 text-indigo-400" />
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground mb-2">Welcome back!</h1>
-            <p className="text-muted-foreground">Redirecting to your dashboard...</p>
-          </div>
+          <h1 className="text-xl font-bold text-white font-geist">Welcome back!</h1>
+          <p className="text-sm text-zinc-400">Redirecting to your dashboard…</p>
         </motion.div>
       </main>
     )
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
-      {/* Animated Backgrounds */}
-      <MeshGradient />
-      <FloatingOrbs />
-      
-      {/* Floating particles */}
-      <div className="absolute inset-0 pointer-events-none">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <motion.div
-            key={i}
-            className="absolute w-1 h-1 bg-primary/20 rounded-full"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-            }}
-            animate={{
-              y: [0, -100, 0],
-              opacity: [0, 1, 0],
-            }}
-            transition={{
-              duration: 4 + Math.random() * 2,
-              repeat: Infinity,
-              delay: Math.random() * 2,
-              ease: "easeInOut",
-            }}
-          />
-        ))}
+    <main className="min-h-screen bg-zinc-950 flex">
+      {/* ── Left panel (desktop only) ── */}
+      <div className="hidden lg:flex lg:w-[480px] xl:w-[520px] shrink-0 flex-col justify-between p-12 border-r border-zinc-800/60 bg-zinc-900/30">
+        {/* Wordmark */}
+        <span className="font-bold text-white text-lg font-geist tracking-tight">TicketPilot</span>
+
+        {/* Centre copy */}
+        <div className="space-y-8">
+          <div>
+            <h2 className="text-3xl font-bold text-white font-geist leading-snug mb-3">
+              Support that thinks<br />before you do.
+            </h2>
+            <p className="text-zinc-400 text-sm leading-relaxed">
+              CASPER profiles, prioritises, and routes every ticket the moment it arrives —
+              so your team focuses on resolution, not triage.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {highlights.map((h) => {
+              const Icon = h.icon
+              return (
+                <div key={h.title} className={`flex items-start gap-3 rounded-xl border p-3.5 ${h.bg}`}>
+                  <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${h.color}`} />
+                  <div>
+                    <p className="text-sm font-semibold text-white">{h.title}</p>
+                    <p className="text-xs text-zinc-400 mt-0.5 leading-relaxed">{h.body}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <p className="text-xs text-zinc-600">© 2026 TicketPilot. All rights reserved.</p>
       </div>
 
-      <motion.div 
-        className="w-full max-w-md relative z-10"
-        variants={v.fade}
-        initial="initial"
-        animate="animate"
-      >
-        {/* Brand Header */}
-        <motion.div 
-          className="text-center mb-8"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-        >
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-              <Sparkles className="h-4 w-4 text-white" />
-            </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-              TicketPilot
-            </span>
-          </div>
-        </motion.div>
+      {/* ── Right panel (form) ── */}
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+        {/* Mobile wordmark */}
+        <span className="font-bold text-white text-lg font-geist mb-10 lg:hidden block">TicketPilot</span>
 
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
+          transition={{ duration: 0.35 }}
+          className="w-full max-w-sm"
         >
-          <Card className="backdrop-blur-xl bg-card/40 border-border/20 shadow-2xl shadow-primary/5 overflow-hidden">
-            {/* Animated border effect */}
-            <div className="absolute inset-0 bg-gradient-to-r from-primary/20 via-transparent to-secondary/20 opacity-30" />
-            
-            <CardHeader className="text-center space-y-4 relative z-10">
-              <motion.div
-                className="mx-auto h-16 w-16 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 backdrop-blur-sm border border-primary/20 flex items-center justify-center"
-                animate={{ 
-                  rotate: [0, 360],
-                  scale: [1, 1.1, 1],
-                }}
-                transition={{ 
-                  rotate: { duration: 20, repeat: Infinity, ease: "linear" },
-                  scale: { duration: 2, repeat: Infinity, ease: "easeInOut" },
-                }}
-              >
-                <Zap className="h-6 w-6 text-primary" />
-              </motion.div>
-              <div>
-                <CardTitle className="text-2xl font-bold bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">
-                  Welcome back
-                </CardTitle>
-                <CardDescription className="text-muted-foreground">
-                  Sign in to your TicketPilot account
-                </CardDescription>
-              </div>
-            </CardHeader>
-            
-            <CardContent className="space-y-6 relative z-10">
-              <motion.div 
-                className="space-y-4"
-                variants={v.list}
-                initial="initial" 
-                animate="animate"
-              >
-                <motion.div variants={v.item} className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-medium text-foreground/90">
-                    Email address
-                  </Label>
-                  <div className="relative group">
-                    <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="email@company.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      onKeyDown={handleKeyPress}
-                      disabled={loading}
-                      className="pl-9 bg-background/50 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all duration-200"
-                      required
-                      autoComplete="email"
-                    />
-                  </div>
-                </motion.div>
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-white font-geist mb-1.5">Welcome back</h1>
+            <p className="text-sm text-zinc-400">Sign in to your account to continue.</p>
+          </div>
 
-                <motion.div variants={v.item} className="space-y-2">
-                  <Label htmlFor="password" className="text-sm font-medium text-foreground/90">
-                    Password
-                  </Label>
-                  <div className="relative group">
-                    <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
-                    <Input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="Enter your password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      onKeyDown={handleKeyPress}
-                      disabled={loading}
-                      className="pl-9 pr-9 bg-background/50 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all duration-200"
-                      required
-                      autoComplete="current-password"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </motion.div>
-
-                {error && (
-                  <motion.div
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="p-3 bg-destructive/10 border border-destructive/20 rounded-md"
-                  >
-                    <p className="text-destructive text-sm">{error}</p>
-                  </motion.div>
-                )}
-
-                <motion.div variants={v.item}>
-                  <Button
-                    onClick={signIn}
-                    disabled={loading || !email || !password}
-                    className="w-full bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 border-0 shadow-lg shadow-primary/25"
-                    size="lg"
-                  >
-                    {loading ? (
-                      <div className="flex items-center gap-2">
-                        <LoadingSpinner size="sm" />
-                        Signing in...
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <Shield className="h-4 w-4" />
-                        Sign in
-                        <ArrowRight className="h-4 w-4" />
-                      </div>
-                    )}
-                  </Button>
-                </motion.div>
-              </motion.div>
-
+          <div className="space-y-4">
+            {/* Email */}
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Email</label>
               <div className="relative">
-                <Separator className="bg-border/30" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="bg-card px-3 text-xs text-muted-foreground backdrop-blur-sm">
-                    Or continue with
-                  </span>
-                </div>
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
+                <input
+                  type="email"
+                  autoComplete="email"
+                  autoFocus
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(null) }}
+                  onKeyDown={(e) => e.key === 'Enter' && !loading && signIn()}
+                  disabled={loading}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-colors disabled:opacity-50"
+                />
               </div>
+            </div>
 
-              <motion.div 
-                className="space-y-3"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.4 }}
+            {/* Password */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium text-zinc-300">Password</label>
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="Your password"
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setError(null) }}
+                  onKeyDown={(e) => e.key === 'Enter' && !loading && signIn()}
+                  disabled={loading}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg pl-9 pr-10 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-colors disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Error */}
+            {error && (
+              <motion.p
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2"
               >
-                <Button
-                  variant="outline"
-                  onClick={signInMagic}
-                  disabled={loading || !email}
-                  className="w-full bg-background/50 backdrop-blur-sm border-border/50 hover:border-primary/50 hover:bg-primary/5"
-                  size="lg"
-                >
-                  <Mail className="h-4 w-4 mr-2" />
-                  {magicLinkSent ? 'Magic link sent!' : 'Send magic link'}
-                </Button>
+                {error}
+              </motion.p>
+            )}
 
-                {magicLinkSent && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="p-4 bg-success/10 border border-success/20 rounded-md backdrop-blur-sm"
-                  >
-                    <div className="flex items-center gap-2">
-                      <SuccessCheckmark size="sm" />
-                      <p className="text-sm text-success">
-                        Check your email for the magic link to sign in.
-                      </p>
-                    </div>
-                  </motion.div>
-                )}
-              </motion.div>
-            </CardContent>
-
-            <CardFooter className="justify-center border-t border-border/20 bg-surface/20 backdrop-blur-sm">
-              <p className="text-sm text-muted-foreground">
-                Don&apos;t have an account?{' '}
-                <Link
-                  href={redirectTo !== '/dashboard' ? `/signup?redirect=${encodeURIComponent(redirectTo)}` : '/signup'}
-                  className="font-medium text-primary hover:text-secondary transition-colors duration-200"
-                >
-                  Sign up
-                </Link>
-              </p>
-            </CardFooter>
-          </Card>
-        </motion.div>
-
-        {/* Additional Help */}
-        <motion.div 
-          className="mt-8 text-center"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
-        >
-          <p className="text-xs text-muted-foreground">
-            Having trouble signing in?{' '}
-            <Link 
-              href="/support" 
-              className="text-primary hover:text-secondary transition-colors duration-200"
+            {/* Sign in button */}
+            <button
+              type="button"
+              onClick={signIn}
+              disabled={loading || !email || !password}
+              className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
             >
-              Contact support
+              {loading
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Signing in…</>
+                : <>Sign in <ArrowRight className="w-4 h-4" /></>
+              }
+            </button>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 py-1">
+              <div className="flex-1 h-px bg-zinc-800" />
+              <span className="text-xs text-zinc-600">or</span>
+              <div className="flex-1 h-px bg-zinc-800" />
+            </div>
+
+            {/* Magic link */}
+            {magicSent ? (
+              <div className="flex items-center gap-2.5 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 text-sm">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>Magic link sent — check your inbox.</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={signInMagic}
+                disabled={magicLoading || !email}
+                className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-300 text-sm font-medium rounded-lg px-4 py-2.5 transition-colors border border-zinc-700"
+              >
+                {magicLoading
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+                  : <><Mail className="w-4 h-4" /> Send magic link</>
+                }
+              </button>
+            )}
+          </div>
+
+          <p className="mt-8 text-center text-sm text-zinc-500">
+            No account?{' '}
+            <Link
+              href={redirectTo !== '/dashboard' ? `/signup?redirect=${encodeURIComponent(redirectTo)}` : '/signup'}
+              className="text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
+            >
+              Sign up free
             </Link>
           </p>
         </motion.div>
-      </motion.div>
+      </div>
     </main>
   )
 }

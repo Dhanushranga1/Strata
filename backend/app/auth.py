@@ -33,6 +33,7 @@ class UserOrganization(BaseModel):
     slug: str
     your_role: str
     is_default: bool = False
+    settings: dict = {}
 
 class AuthContextResponse(BaseModel):
     """Complete authentication context including organizations"""
@@ -115,6 +116,7 @@ async def get_user_organizations(user_id: str) -> List[UserOrganization]:
                 o.id,
                 o.name,
                 o.slug,
+                o.settings,
                 om.role as your_role,
                 false as is_default
             FROM app.organizations o
@@ -129,7 +131,8 @@ async def get_user_organizations(user_id: str) -> List[UserOrganization]:
                 name=row['name'],
                 slug=row['slug'],
                 your_role=row['your_role'],
-                is_default=(i == 0)
+                is_default=(i == 0),
+                settings=dict(row['settings']) if row['settings'] else {},
             )
             for i, row in enumerate(rows)
         ]

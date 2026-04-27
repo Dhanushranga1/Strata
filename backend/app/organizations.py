@@ -345,7 +345,9 @@ def update_organization(
         updates.append("domain = %s")
         params.append(org_update.domain)
     if org_update.settings is not None:
-        updates.append("settings = %s")
+        # Merge into existing settings rather than overwrite, so partial updates
+        # (e.g. { onboarding_completed: true }) don't wipe other keys.
+        updates.append("settings = settings || %s::jsonb")
         params.append(json.dumps(org_update.settings))
     if org_update.is_active is not None:
         updates.append("is_active = %s")

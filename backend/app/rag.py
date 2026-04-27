@@ -10,7 +10,7 @@ import logging
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Any
 from .embeddings import embed_texts
-from .store import search_vectors
+from .store import search_org_vectors
 from .redact import scrub
 from .rag_scoring import casper_confidence, classify_query_intent
 
@@ -151,7 +151,7 @@ def mmr_rerank(
         return chunks, scores
 
 
-def retrieve(query: str, fetch_chunk_fn) -> Tuple[List[Dict], List[str], str, List[float], List[int], Dict[str, float]]:
+def retrieve(query: str, fetch_chunk_fn, org_id: str = "") -> Tuple[List[Dict], List[str], str, List[float], List[int], Dict[str, float]]:
     """
     Retrieve relevant chunks for a query using FAISS with MMR re-ranking.
     Chunk embeddings are computed exactly once per call and shared across
@@ -177,9 +177,9 @@ def retrieve(query: str, fetch_chunk_fn) -> Tuple[List[Dict], List[str], str, Li
     headroom = _INTENT_SEARCH_HEADROOM.get(_intent_key, 2)
     search_k = min(TOP_K * headroom, 20)
 
-    # 3) Search FAISS with intent-adaptive K
+    # 3) Search this org's FAISS index with intent-adaptive K
     try:
-        scores, faiss_ids = search_vectors(query_vector, k=search_k)
+        scores, faiss_ids = search_org_vectors(org_id, query_vector, k=search_k)
     except Exception as e:
         logger.error("FAISS search failed: %s", e)
         return [], [], "", [], [], {"error": 1.0}

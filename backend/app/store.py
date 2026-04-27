@@ -1,272 +1,284 @@
+"""
+Vector store — per-organisation FAISS isolation.
+
+Each organisation gets its own FAISS IndexFlatIP stored at:
+  {INDEX_DIR}/orgs/{org_id}.index
+  {MAP_DIR}/orgs/{org_id}.json
+
+An LRU in-memory cache (MAX_CACHED_ORGS slots) keeps the most recently
+accessed indexes hot. Per-org threading.Lock objects prevent concurrent
+reads/writes to the same org's index file.
+
+Legacy single-index functions (add_vectors_for_chunks, search_vectors, …)
+are kept for backward compatibility but forward to the per-org path.
+"""
+
 import os
 import json
+import time
+import threading
 import logging
 import numpy as np
 import faiss
 from typing import List, Dict, Tuple, Optional
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
-# Configuration
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
 INDEX_DIR = os.getenv("VECTOR_INDEX_DIR", "./data/faiss")
-INDEX_FILE = os.getenv("VECTOR_INDEX_FILENAME", "kb.index")
-MAP_DIR = os.getenv("VECTOR_MAP_DIR", "./data/maps")
-MAP_FILE = os.getenv("VECTOR_MAP_FILENAME", "kb_map.json")
-DIM = int(os.getenv("EMBEDDING_DIM", "3072"))  # gemini-embedding-001 returns 3072-dim
+MAP_DIR   = os.getenv("VECTOR_MAP_DIR",   "./data/maps")
+DIM       = int(os.getenv("EMBEDDING_DIM", "3072"))
+
+# Tune these via env vars for larger deployments
+MAX_CACHED_ORGS = int(os.getenv("FAISS_MAX_CACHED_ORGS", "50"))
+
 
 class VectorStoreError(Exception):
-    """Custom exception for vector store operations"""
     pass
 
-def _paths():
-    """Get file paths and ensure directories exist with error handling."""
-    try:
-        os.makedirs(INDEX_DIR, exist_ok=True)
-        os.makedirs(MAP_DIR, exist_ok=True)
-        index_path = os.path.join(INDEX_DIR, INDEX_FILE)
-        map_path = os.path.join(MAP_DIR, MAP_FILE)
-        
-        logger.debug(f"Vector store paths: index={index_path}, map={map_path}")
-        return index_path, map_path
-        
-    except Exception as e:
-        raise VectorStoreError(f"Failed to create vector store directories: {e}") from e
 
-def load_index() -> faiss.IndexFlatIP:
-    """Load existing FAISS index or create new one with error handling."""
-    try:
-        idx_path, _ = _paths()
-        
+# ---------------------------------------------------------------------------
+# Per-org path helpers
+# ---------------------------------------------------------------------------
+
+def _org_paths(org_id: str) -> Tuple[str, str]:
+    """Return (index_path, map_path) for an org, creating dirs if needed."""
+    idx_dir = os.path.join(INDEX_DIR, "orgs")
+    map_dir = os.path.join(MAP_DIR,   "orgs")
+    os.makedirs(idx_dir, exist_ok=True)
+    os.makedirs(map_dir, exist_ok=True)
+    return (
+        os.path.join(idx_dir, f"{org_id}.index"),
+        os.path.join(map_dir, f"{org_id}.json"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# LRU in-memory cache  { org_id → (index, mapping, last_access_ts) }
+# ---------------------------------------------------------------------------
+
+_cache: Dict[str, Tuple[faiss.Index, Dict, float]] = {}
+_cache_lock = threading.Lock()          # guards _cache mutations
+
+_per_org_locks: Dict[str, threading.Lock] = {}
+_per_org_locks_lock = threading.Lock()  # guards _per_org_locks mutations
+
+
+def _get_org_lock(org_id: str) -> threading.Lock:
+    with _per_org_locks_lock:
+        if org_id not in _per_org_locks:
+            _per_org_locks[org_id] = threading.Lock()
+        return _per_org_locks[org_id]
+
+
+def _evict_lru():
+    """Evict the least-recently-used org from the cache. Caller holds _cache_lock."""
+    if len(_cache) <= MAX_CACHED_ORGS:
+        return
+    lru = min(_cache.items(), key=lambda x: x[1][2])[0]
+    del _cache[lru]
+    logger.debug("[store] LRU evicted org %s from FAISS cache", lru)
+
+
+def _load_org_index(org_id: str) -> Tuple[faiss.Index, Dict]:
+    """
+    Return (index, mapping) for org_id, loading from disk on first access.
+    Updates LRU timestamp on every call.
+    """
+    # Fast path: already cached
+    with _cache_lock:
+        if org_id in _cache:
+            idx, mp, _ = _cache[org_id]
+            _cache[org_id] = (idx, mp, time.monotonic())
+            return idx, mp
+
+    # Slow path: load from disk under per-org lock
+    org_lock = _get_org_lock(org_id)
+    with org_lock:
+        # Re-check cache after acquiring lock
+        with _cache_lock:
+            if org_id in _cache:
+                idx, mp, _ = _cache[org_id]
+                _cache[org_id] = (idx, mp, time.monotonic())
+                return idx, mp
+
+        idx_path, map_path = _org_paths(org_id)
+
+        # Load or create FAISS index
         if os.path.exists(idx_path):
-            logger.info(f"Loading existing FAISS index from {idx_path}")
-            index = faiss.read_index(idx_path)
-            
-            # Validate loaded index
-            if index.d != DIM:
-                raise VectorStoreError(f"Index dimension mismatch: expected {DIM}, got {index.d}")
-            
-            logger.info(f"Loaded FAISS index with {index.ntotal} vectors")
-            return index
+            try:
+                index = faiss.read_index(idx_path)
+                if index.d != DIM:
+                    logger.warning("[store] Org %s index dim mismatch (%d != %d), recreating", org_id, index.d, DIM)
+                    index = faiss.IndexFlatIP(DIM)
+            except Exception as e:
+                logger.warning("[store] Failed to load index for org %s: %s — creating fresh", org_id, e)
+                index = faiss.IndexFlatIP(DIM)
         else:
-            logger.info(f"Creating new FAISS index with dimension {DIM}")
             index = faiss.IndexFlatIP(DIM)
-            return index
-            
-    except Exception as e:
-        logger.error(f"Failed to load FAISS index: {e}")
-        raise VectorStoreError(f"Index loading failed: {e}") from e
 
-def save_index(index: faiss.Index):
-    """Save FAISS index to disk with error handling."""
-    try:
-        if index is None:
-            raise VectorStoreError("Cannot save None index")
-        
-        idx_path, _ = _paths()
-        
-        # Create backup if index exists
-        if os.path.exists(idx_path):
-            backup_path = f"{idx_path}.backup"
-            try:
-                os.rename(idx_path, backup_path)
-                logger.debug(f"Created backup at {backup_path}")
-            except Exception as backup_error:
-                logger.warning(f"Failed to create backup: {backup_error}")
-        
-        # Save new index
-        faiss.write_index(index, idx_path)
-        logger.info(f"Saved FAISS index with {index.ntotal} vectors to {idx_path}")
-        
-        # Remove backup on success
-        backup_path = f"{idx_path}.backup"
-        if os.path.exists(backup_path):
-            try:
-                os.remove(backup_path)
-            except Exception:
-                pass  # Non-critical if backup removal fails
-                
-    except Exception as e:
-        logger.error(f"Failed to save FAISS index: {e}")
-        raise VectorStoreError(f"Index saving failed: {e}") from e
-
-def load_map() -> Dict:
-    """Load chunk to FAISS ID mapping with error handling."""
-    try:
-        _, map_path = _paths()
-        
+        # Load or create mapping
         if os.path.exists(map_path):
-            logger.debug(f"Loading mapping from {map_path}")
-            with open(map_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # Validate mapping structure
-            if not isinstance(data, dict):
-                raise VectorStoreError("Invalid mapping format: not a dictionary")
-            
-            if "next" not in data or "chunk_to_faiss" not in data:
-                raise VectorStoreError("Invalid mapping format: missing required keys")
-            
-            logger.debug(f"Loaded mapping with {len(data['chunk_to_faiss'])} entries")
-            return data
+            try:
+                with open(map_path, "r", encoding="utf-8") as f:
+                    mapping = json.load(f)
+            except Exception as e:
+                logger.warning("[store] Failed to load map for org %s: %s — creating fresh", org_id, e)
+                mapping = {"next": 0, "chunk_to_faiss": {}}
         else:
-            logger.info("Creating new mapping file")
-            return {"next": 0, "chunk_to_faiss": {}}
-            
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse mapping JSON: {e}")
-        raise VectorStoreError(f"Mapping file corrupted: {e}") from e
-    except Exception as e:
-        logger.error(f"Failed to load mapping: {e}")
-        raise VectorStoreError(f"Mapping loading failed: {e}") from e
+            mapping = {"next": 0, "chunk_to_faiss": {}}
 
-def save_map(mapping: Dict):
-    """Save chunk to FAISS ID mapping with error handling."""
-    try:
-        if not isinstance(mapping, dict):
-            raise VectorStoreError("Mapping must be a dictionary")
-        
-        _, map_path = _paths()
-        
-        # Create backup if mapping exists
-        if os.path.exists(map_path):
-            backup_path = f"{map_path}.backup"
-            try:
-                with open(map_path, 'r') as f:
-                    backup_data = f.read()
-                with open(backup_path, 'w') as f:
-                    f.write(backup_data)
-            except Exception as backup_error:
-                logger.warning(f"Failed to create mapping backup: {backup_error}")
-        
-        # Save new mapping
-        with open(map_path, 'w', encoding='utf-8') as f:
-            json.dump(mapping, f, ensure_ascii=False, indent=2)
-        
-        logger.debug(f"Saved mapping with {len(mapping.get('chunk_to_faiss', {}))} entries")
-        
-    except Exception as e:
-        logger.error(f"Failed to save mapping: {e}")
-        raise VectorStoreError(f"Mapping saving failed: {e}") from e
+        with _cache_lock:
+            _cache[org_id] = (index, mapping, time.monotonic())
+            _evict_lru()
+
+        logger.debug("[store] Loaded org %s index (%d vectors)", org_id, index.ntotal)
+        return index, mapping
 
 
-def add_vectors_for_chunks(chunk_ids: List[str], vectors: List[List[float]]) -> List[int]:
-    """Add vectors to FAISS index and update mapping with comprehensive error handling."""
-    try:
-        if not chunk_ids or not vectors:
-            raise VectorStoreError("Cannot add empty chunk_ids or vectors")
-        
-        if len(chunk_ids) != len(vectors):
-            raise VectorStoreError(f"Mismatch: {len(chunk_ids)} chunk_ids vs {len(vectors)} vectors")
-        
-        # Validate vector dimensions
-        for i, vector in enumerate(vectors):
-            if not isinstance(vector, list) or len(vector) != DIM:
-                raise VectorStoreError(f"Vector {i} has invalid dimension: expected {DIM}, got {len(vector) if isinstance(vector, list) else 'not a list'}")
-        
-        # Load index and mapping
-        index = load_index()
-        mapping = load_map()
-        
-        # Convert to numpy array and normalize for cosine similarity
-        try:
-            arr = np.array(vectors, dtype=np.float32)
-            
-            # Check for invalid values
-            if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
-                raise VectorStoreError("Vectors contain NaN or infinite values")
-            
-            # Normalize vectors
-            norms = np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12
-            arr = arr / norms
-            
-        except Exception as e:
-            raise VectorStoreError(f"Vector processing failed: {e}") from e
-        
-        # Add vectors to index
-        try:
-            start_id = mapping["next"]
-            index.add(arr)
-            assigned_ids = list(range(start_id, start_id + len(chunk_ids)))
-            
-            # Update mapping
-            for chunk_id, faiss_id in zip(chunk_ids, assigned_ids):
-                mapping["chunk_to_faiss"][str(chunk_id)] = faiss_id
-            mapping["next"] = start_id + len(chunk_ids)
-            
-            # Save updates atomically
-            save_index(index)
-            save_map(mapping)
-            
-            logger.info(f"Successfully added {len(vectors)} vectors for chunks {chunk_ids[:3]}{'...' if len(chunk_ids) > 3 else ''}")
-            return assigned_ids
-            
-        except Exception as e:
-            logger.error(f"Failed to add vectors to index: {e}")
-            raise VectorStoreError(f"Index update failed: {e}") from e
-            
-    except VectorStoreError:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error in add_vectors_for_chunks: {e}")
-        raise VectorStoreError(f"Vector addition failed: {e}") from e
+def _save_org_index(org_id: str, index: faiss.Index, mapping: Dict):
+    """Persist index + mapping to disk. Caller should hold per-org lock."""
+    idx_path, map_path = _org_paths(org_id)
+    faiss.write_index(index, idx_path)
+    with open(map_path, "w", encoding="utf-8") as f:
+        json.dump(mapping, f, ensure_ascii=False)
 
-async def save_index_snapshot(index: faiss.Index, vector_count: int) -> bool:
+
+# ---------------------------------------------------------------------------
+# Public per-org API
+# ---------------------------------------------------------------------------
+
+def add_org_vectors(org_id: str, chunk_ids: List[str], vectors: List[List[float]]) -> List[int]:
     """
-    Serialize the FAISS index as a binary blob and upsert into app.faiss_snapshots.
-    Keeps only the latest snapshot (deletes old ones after inserting).
-    Returns True on success.
+    Add vectors for an org's chunks to its private FAISS index.
+    Returns the list of assigned FAISS IDs.
     """
+    if not org_id:
+        raise VectorStoreError("org_id is required for per-org vector addition")
+    if not chunk_ids or not vectors:
+        raise VectorStoreError("chunk_ids and vectors must not be empty")
+    if len(chunk_ids) != len(vectors):
+        raise VectorStoreError(f"Mismatch: {len(chunk_ids)} chunk_ids vs {len(vectors)} vectors")
+
+    arr = np.array(vectors, dtype=np.float32)
+    if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
+        raise VectorStoreError("Vectors contain NaN or infinite values")
+    norms = np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12
+    arr = arr / norms
+
+    org_lock = _get_org_lock(org_id)
+    with org_lock:
+        index, mapping = _load_org_index(org_id)
+        start_id = mapping["next"]
+        index.add(arr)
+        assigned_ids = list(range(start_id, start_id + len(chunk_ids)))
+        for cid, fid in zip(chunk_ids, assigned_ids):
+            mapping["chunk_to_faiss"][str(cid)] = fid
+        mapping["next"] = start_id + len(chunk_ids)
+
+        # Write back to cache
+        with _cache_lock:
+            _cache[org_id] = (index, mapping, time.monotonic())
+
+        _save_org_index(org_id, index, mapping)
+
+    logger.info("[store] Added %d vectors for org %s (total: %d)", len(vectors), org_id, index.ntotal)
+    return assigned_ids
+
+
+def search_org_vectors(org_id: str, vec: List[float], k: int = 6) -> Tuple[List[float], List[int]]:
+    """
+    Search only this org's FAISS index. Returns (scores, faiss_ids).
+    Zero cross-org bleed — no results from other orgs can appear.
+    """
+    if not org_id:
+        # Fallback to legacy global search (graceful degradation)
+        return search_vectors(vec, k)
+
+    if len(vec) != DIM:
+        raise VectorStoreError(f"Query vector dim mismatch: expected {DIM}, got {len(vec)}")
+
+    index, _ = _load_org_index(org_id)
+
+    if index.ntotal == 0:
+        return [], []
+
+    v = np.array([vec], dtype=np.float32)
+    v = v / (np.linalg.norm(v, axis=1, keepdims=True) + 1e-12)
+    actual_k = min(k, index.ntotal)
+    scores, ids = index.search(v, actual_k)
+
+    valid = [(float(s), int(i)) for s, i in zip(scores[0], ids[0]) if i >= 0]
+    if not valid:
+        return [], []
+    final_scores, final_ids = zip(*valid)
+    return list(final_scores), list(final_ids)
+
+
+def get_org_index(org_id: str) -> Optional[faiss.Index]:
+    """Return the in-memory FAISS index for an org (None if empty)."""
+    try:
+        index, _ = _load_org_index(org_id)
+        return index if index.ntotal > 0 else None
+    except Exception:
+        return None
+
+
+async def save_org_snapshot(org_id: str, index: faiss.Index, vector_count: int) -> bool:
+    """Persist per-org FAISS binary snapshot to app.faiss_snapshots."""
     try:
         from .db import get_connection
-        import io
-
         buf = faiss.serialize_index(index)
         data_bytes = buf.tobytes()
-
         conn = await get_connection()
         try:
             await conn.execute(
                 """
-                INSERT INTO app.faiss_snapshots (data, vector_count)
-                VALUES ($1, $2)
+                INSERT INTO app.faiss_snapshots (organization_id, data, vector_count)
+                VALUES ($1, $2, $3)
                 """,
-                data_bytes,
-                vector_count,
+                org_id, data_bytes, vector_count,
             )
-            # Keep only the latest 3 snapshots to avoid unbounded growth
             await conn.execute(
                 """
                 DELETE FROM app.faiss_snapshots
-                WHERE id NOT IN (
-                    SELECT id FROM app.faiss_snapshots ORDER BY created_at DESC LIMIT 3
-                )
-                """
+                WHERE organization_id = $1
+                  AND id NOT IN (
+                    SELECT id FROM app.faiss_snapshots
+                    WHERE organization_id = $1
+                    ORDER BY created_at DESC LIMIT 3
+                  )
+                """,
+                org_id,
             )
         finally:
             await conn.close()
-
-        logger.info("[store] FAISS snapshot saved to DB (%d vectors, %d bytes)", vector_count, len(data_bytes))
+        logger.info("[store] Saved snapshot for org %s (%d vectors, %d bytes)", org_id, vector_count, len(data_bytes))
         return True
     except Exception as exc:
-        logger.warning("[store] Failed to save FAISS snapshot to DB: %s", exc)
+        logger.warning("[store] Snapshot save failed for org %s: %s", org_id, exc)
         return False
 
 
-async def load_index_from_snapshot() -> Optional[Tuple[faiss.Index, Dict, int]]:
+async def load_org_snapshot(org_id: str) -> Optional[int]:
     """
-    Load the latest FAISS snapshot from DB.
-    Returns (index, empty_mapping_skeleton, vector_count) or None if no snapshot exists.
-    The caller should rebuild the full chunk_to_faiss mapping from DB after loading.
+    Load the latest snapshot for org_id into the in-memory cache.
+    Returns vector count on success, None if no snapshot.
     """
     try:
         from .db import get_connection
-        import numpy as np
-
         conn = await get_connection()
         try:
             row = await conn.fetchrow(
-                "SELECT data, vector_count FROM app.faiss_snapshots ORDER BY created_at DESC LIMIT 1"
+                """
+                SELECT data, vector_count FROM app.faiss_snapshots
+                WHERE organization_id = $1
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                org_id,
             )
         finally:
             await conn.close()
@@ -274,148 +286,150 @@ async def load_index_from_snapshot() -> Optional[Tuple[faiss.Index, Dict, int]]:
         if not row:
             return None
 
-        data_bytes = bytes(row["data"])
-        arr = np.frombuffer(data_bytes, dtype=np.uint8)
+        arr = np.frombuffer(bytes(row["data"]), dtype=np.uint8)
         index = faiss.deserialize_index(arr)
-
         if index.d != DIM:
-            logger.warning("[store] Snapshot dimension mismatch: expected %d got %d", DIM, index.d)
             return None
 
-        logger.info("[store] Loaded FAISS snapshot from DB: %d vectors", index.ntotal)
-        return index, row["vector_count"]
+        mapping: Dict = {"next": index.ntotal, "chunk_to_faiss": {}}
+        with _cache_lock:
+            _cache[org_id] = (index, mapping, time.monotonic())
+            _evict_lru()
+
+        logger.info("[store] Loaded snapshot for org %s (%d vectors)", org_id, index.ntotal)
+        return int(row["vector_count"])
     except Exception as exc:
-        logger.warning("[store] Failed to load FAISS snapshot from DB: %s", exc)
+        logger.warning("[store] Snapshot load failed for org %s: %s", org_id, exc)
         return None
 
 
-async def rebuild_faiss_from_db() -> int:
+async def rebuild_org_from_db(org_id: str) -> int:
     """
-    Rebuild the FAISS index from embeddings stored in app.chunks.
-    Called on startup when the index file is absent (e.g. after Render cold start).
-    Returns the number of vectors loaded.
+    Rebuild the FAISS index for one org from its stored embeddings in app.chunks.
+    Used on cold start (Render spin-up, first-ever request for that org).
     """
     try:
         from .db import get_connection
         conn = await get_connection()
         try:
             rows = await conn.fetch(
-                "SELECT id, faiss_id, embedding FROM app.chunks WHERE embedding IS NOT NULL ORDER BY faiss_id ASC NULLS LAST"
+                """
+                SELECT id, faiss_id, embedding FROM app.chunks
+                WHERE organization_id = $1 AND embedding IS NOT NULL
+                ORDER BY faiss_id ASC NULLS LAST
+                """,
+                org_id,
             )
         finally:
             await conn.close()
 
         if not rows:
-            logger.info("[store] No stored embeddings found — FAISS index stays empty")
+            logger.info("[store] No embeddings for org %s — empty index", org_id)
             return 0
 
-        idx_path, map_path = _paths()
         index = faiss.IndexFlatIP(DIM)
         mapping: Dict = {"next": 0, "chunk_to_faiss": {}}
+        vecs, counter = [], 0
 
-        vecs = []
-        faiss_counter = 0
         for row in rows:
             emb = row["embedding"]
-            if emb is None:
+            if emb is None or len(list(emb)) != DIM:
                 continue
-            vec_list = list(emb)
-            if len(vec_list) != DIM:
-                continue
-            vecs.append(vec_list)
-            mapping["chunk_to_faiss"][str(row["id"])] = faiss_counter
-            faiss_counter += 1
+            vecs.append(list(emb))
+            mapping["chunk_to_faiss"][str(row["id"])] = counter
+            counter += 1
 
         if not vecs:
-            logger.info("[store] All stored embeddings had wrong dimensions — skipping rebuild")
             return 0
 
         arr = np.array(vecs, dtype=np.float32)
-        norms = np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12
-        arr = arr / norms
+        arr = arr / (np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12)
         index.add(arr)
-        mapping["next"] = faiss_counter
+        mapping["next"] = counter
 
-        save_index(index)
-        save_map(mapping)
+        org_lock = _get_org_lock(org_id)
+        with org_lock:
+            _save_org_index(org_id, index, mapping)
+            with _cache_lock:
+                _cache[org_id] = (index, mapping, time.monotonic())
+                _evict_lru()
 
-        logger.info("[store] Rebuilt FAISS index from DB: %d vectors", faiss_counter)
+        logger.info("[store] Rebuilt org %s index from DB: %d vectors", org_id, counter)
 
-        # Persist a binary snapshot so the next cold start can skip per-vector rebuild
         import asyncio
-        asyncio.ensure_future(save_index_snapshot(index, faiss_counter))
-
-        return faiss_counter
+        asyncio.ensure_future(save_org_snapshot(org_id, index, counter))
+        return counter
 
     except Exception as exc:
-        logger.error("[store] Failed to rebuild FAISS from DB: %s", exc)
+        logger.error("[store] Rebuild failed for org %s: %s", org_id, exc)
         return 0
 
 
-def search_vectors(vec: List[float], k: int = 3) -> Tuple[List[float], List[int]]:
-    """Search for similar vectors in FAISS index with error handling."""
-    try:
-        if not vec:
-            raise VectorStoreError("Cannot search with empty vector")
-        
-        if len(vec) != DIM:
-            raise VectorStoreError(f"Query vector dimension mismatch: expected {DIM}, got {len(vec)}")
-        
-        if k <= 0:
-            raise VectorStoreError(f"k must be positive, got {k}")
-        
-        # Load index
-        index = load_index()
-        
-        if index.ntotal == 0:
-            logger.warning("No vectors in index for search")
-            return [], []
-        
-        # Limit k to available vectors
-        actual_k = min(k, index.ntotal)
-        
-        # Normalize query vector for cosine similarity
-        try:
-            v = np.array([vec], dtype=np.float32)
-            
-            # Check for invalid values
-            if np.any(np.isnan(v)) or np.any(np.isinf(v)):
-                raise VectorStoreError("Query vector contains NaN or infinite values")
-            
-            norm = np.linalg.norm(v, axis=1, keepdims=True) + 1e-12
-            v = v / norm
-            
-        except Exception as e:
-            raise VectorStoreError(f"Query vector processing failed: {e}") from e
-        
-        # Perform search
-        try:
-            scores, ids = index.search(v, actual_k)
-            
-            # Convert to lists and validate results
-            score_list = scores[0].tolist()
-            id_list = ids[0].tolist()
-            
-            # Filter out invalid IDs (FAISS returns -1 for empty slots)
-            valid_results = []
-            for score, idx in zip(score_list, id_list):
-                if idx >= 0:  # Valid FAISS ID
-                    valid_results.append((score, idx))
-            
-            if valid_results:
-                final_scores, final_ids = zip(*valid_results)
-                logger.debug(f"Search returned {len(final_scores)} valid results")
-                return list(final_scores), list(final_ids)
-            else:
-                logger.warning("Search returned no valid results")
-                return [], []
-                
-        except Exception as e:
-            logger.error(f"FAISS search failed: {e}")
-            raise VectorStoreError(f"Vector search failed: {e}") from e
-            
-    except VectorStoreError:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error in search_vectors: {e}")
-        raise VectorStoreError(f"Vector search failed: {e}") from e
+# ---------------------------------------------------------------------------
+# Legacy global-index API (backward compat — used by tests / CLI tools)
+# These forward to a special "__global__" org slot so existing call sites
+# don't break, but new code should always pass an explicit org_id.
+# ---------------------------------------------------------------------------
+
+_GLOBAL_ORG = "__global__"
+
+
+def _paths():
+    os.makedirs(INDEX_DIR, exist_ok=True)
+    os.makedirs(MAP_DIR, exist_ok=True)
+    return (
+        os.path.join(INDEX_DIR, "kb.index"),
+        os.path.join(MAP_DIR,   "kb_map.json"),
+    )
+
+
+def load_index() -> faiss.Index:
+    idx_path, _ = _paths()
+    if os.path.exists(idx_path):
+        return faiss.read_index(idx_path)
+    return faiss.IndexFlatIP(DIM)
+
+
+def save_index(index: faiss.Index):
+    idx_path, _ = _paths()
+    faiss.write_index(index, idx_path)
+
+
+def load_map() -> Dict:
+    _, map_path = _paths()
+    if os.path.exists(map_path):
+        with open(map_path, "r") as f:
+            return json.load(f)
+    return {"next": 0, "chunk_to_faiss": {}}
+
+
+def save_map(mapping: Dict):
+    _, map_path = _paths()
+    with open(map_path, "w") as f:
+        json.dump(mapping, f)
+
+
+def add_vectors_for_chunks(chunk_ids: List[str], vectors: List[List[float]]) -> List[int]:
+    """Legacy global-index add. Prefer add_org_vectors(org_id, …) for multi-tenant use."""
+    logger.warning("[store] add_vectors_for_chunks called without org_id — using global index")
+    return add_org_vectors(_GLOBAL_ORG, chunk_ids, vectors)
+
+
+def search_vectors(vec: List[float], k: int = 6) -> Tuple[List[float], List[int]]:
+    """Legacy global-index search. Prefer search_org_vectors(org_id, …) for multi-tenant use."""
+    logger.warning("[store] search_vectors called without org_id — using global index")
+    return search_org_vectors(_GLOBAL_ORG, vec, k)
+
+
+async def save_index_snapshot(index: faiss.Index, vector_count: int) -> bool:
+    """Legacy snapshot save. Prefer save_org_snapshot(org_id, …)."""
+    return await save_org_snapshot(_GLOBAL_ORG, index, vector_count)
+
+
+async def load_index_from_snapshot():
+    return None  # legacy stub — callers should use load_org_snapshot
+
+
+async def rebuild_faiss_from_db() -> int:
+    """Legacy full rebuild. Rebuilds global index only."""
+    return await rebuild_org_from_db(_GLOBAL_ORG)

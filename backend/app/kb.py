@@ -7,7 +7,7 @@ from psycopg.rows import dict_row
 from .utils import normalize_text, sha256, sniff_and_read
 from .chunker import make_chunks
 from .embeddings import embed_texts
-from .store import add_vectors_for_chunks, search_vectors
+from .store import add_org_vectors, search_org_vectors
 from .auth import User, get_current_user
 from .org_middleware import require_org_context
 
@@ -132,7 +132,7 @@ async def ingest(
 
             # 5) Generate embeddings and add to FAISS
             vectors = embed_texts(unique_chunks)
-            assigned_faiss_ids = add_vectors_for_chunks(unique_ids, vectors)
+            assigned_faiss_ids = add_org_vectors(org_id, unique_ids, vectors)
 
             # 6) Update chunks with FAISS IDs and persist raw vectors for cold-start rebuild
             for chunk_id, faiss_id, vec in zip(unique_ids, assigned_faiss_ids, vectors):
@@ -143,14 +143,16 @@ async def ingest(
 
             conn.commit()
 
-            # Refresh DB snapshot in background so next cold start is fast
-            import threading, asyncio
+            # Refresh per-org snapshot in background so next cold start is fast
+            import threading
+            _snapshot_org = org_id
             def _save_snapshot():
-                from .store import load_index, save_index_snapshot as _snap
+                from .store import get_org_index, save_org_snapshot as _snap
                 import asyncio as _asyncio
                 try:
-                    idx = load_index()
-                    _asyncio.run(_snap(idx, idx.ntotal))
+                    idx = get_org_index(_snapshot_org)
+                    if idx is not None:
+                        _asyncio.run(_snap(_snapshot_org, idx, idx.ntotal))
                 except Exception:
                     pass
             threading.Thread(target=_save_snapshot, daemon=True).start()
@@ -245,8 +247,8 @@ async def search(q: str, k: int = 3, request: Request = None, user: User = Depen
     # Generate query embedding
     query_vector = embed_texts([q])[0]
     
-    # Search FAISS index
-    scores, faiss_ids = search_vectors(query_vector, k=k)
+    # Search this org's FAISS index only
+    scores, faiss_ids = search_org_vectors(org_id, query_vector, k=k)
     
     # Map FAISS IDs back to chunks and documents
     with get_db_connection() as conn:

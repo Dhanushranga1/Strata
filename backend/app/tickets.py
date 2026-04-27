@@ -721,7 +721,7 @@ def chat_with_ai(
     
     # 4) Retrieve relevant chunks using enhanced RAG with metrics
     retrieval_start = time.time()
-    retrieval_result = retrieve(clean_query, lambda faiss_ids: fetch_chunks_by_faiss_ids(faiss_ids, org_id))
+    retrieval_result = retrieve(clean_query, lambda faiss_ids: fetch_chunks_by_faiss_ids(faiss_ids, org_id), org_id=org_id)
     retrieval_latency = int((time.time() - retrieval_start) * 1000)
     
     # Handle new enhanced return format

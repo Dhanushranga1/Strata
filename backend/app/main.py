@@ -232,47 +232,52 @@ async def _overdue_task():
             logger.error("Overdue background task error: %s", exc)
 
 
+async def _rebuild_one_org(org_id: str, load_snapshot_fn, rebuild_fn) -> None:
+    """Try snapshot load first; fall back to full per-vector rebuild for one org."""
+    try:
+        count = await load_snapshot_fn(org_id)
+        if count is not None:
+            logger.info("[startup] org %s loaded from snapshot (%d vectors)", org_id, count)
+            return
+        count = await rebuild_fn(org_id)
+        if count:
+            logger.info("[startup] org %s rebuilt from embeddings (%d vectors)", org_id, count)
+        else:
+            logger.info("[startup] org %s has no embeddings yet", org_id)
+    except Exception as exc:
+        logger.warning("[startup] org %s rebuild failed: %s", org_id, exc)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     from .db import init_pool, close_pool
     await init_pool()
 
-    # Rebuild FAISS from persisted DB embeddings if the index is missing
-    # (happens on every Render free-tier cold start / redeploy)
+    # Rebuild per-org FAISS indexes on cold start (Render free-tier spin-up / redeploy).
+    # Strategy: discover every org that has stored embeddings, try snapshot first,
+    # fall back to full rebuild from individual vectors.
     _check_faiss_indices()
-    index_dir = os.getenv("VECTOR_INDEX_DIR", "./data/faiss")
-    index_file = os.path.join(index_dir, os.getenv("VECTOR_INDEX_FILENAME", "kb.index"))
-    if not os.path.exists(index_file):
-        logger.info("[startup] FAISS index absent — trying DB snapshot first")
-        try:
-            from .store import load_index_from_snapshot, rebuild_faiss_from_db, save_index, load_map, save_map
-            import numpy as np
+    try:
+        from .store import load_org_snapshot, rebuild_org_from_db
+        from .db import get_connection
 
-            snapshot = await load_index_from_snapshot()
-            if snapshot is not None:
-                snap_index, snap_count = snapshot
-                # Rebuild the chunk_to_faiss map from DB to match the loaded index
-                from .db import get_connection
-                conn = await get_connection()
-                try:
-                    rows = await conn.fetch(
-                        "SELECT id, faiss_id FROM app.chunks WHERE faiss_id IS NOT NULL ORDER BY faiss_id ASC"
-                    )
-                finally:
-                    await conn.close()
-                mapping = {"next": snap_index.ntotal, "chunk_to_faiss": {str(r["id"]): r["faiss_id"] for r in rows}}
-                save_index(snap_index)
-                save_map(mapping)
-                logger.info("[startup] FAISS loaded from DB snapshot: %d vectors", snap_index.ntotal)
-            else:
-                logger.info("[startup] No snapshot found — rebuilding from per-vector embeddings")
-                n = await rebuild_faiss_from_db()
-                if n:
-                    logger.info("[startup] FAISS rebuilt: %d vectors loaded from DB", n)
-                else:
-                    logger.info("[startup] FAISS rebuild: no stored embeddings in DB yet")
-        except Exception as exc:
-            logger.error("[startup] FAISS rebuild failed: %s", exc)
+        conn = await get_connection()
+        try:
+            org_rows = await conn.fetch(
+                "SELECT DISTINCT organization_id FROM app.chunks WHERE embedding IS NOT NULL"
+            )
+        finally:
+            await conn.close()
+
+        org_ids = [str(r["organization_id"]) for r in org_rows if r["organization_id"]]
+        if org_ids:
+            logger.info("[startup] Rebuilding FAISS for %d org(s): %s", len(org_ids), org_ids)
+            rebuild_tasks = [_rebuild_one_org(org_id, load_org_snapshot, rebuild_org_from_db) for org_id in org_ids]
+            await asyncio.gather(*rebuild_tasks)
+        else:
+            logger.info("[startup] No stored embeddings in DB yet — FAISS indexes will be built on first ingest")
+    except Exception as exc:
+        logger.error("[startup] Per-org FAISS rebuild failed: %s", exc)
 
     task = asyncio.create_task(_overdue_task())
     yield

@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 
 // Types matching backend response
 interface Organization {
@@ -11,6 +11,7 @@ interface Organization {
   slug: string
   your_role: 'owner' | 'admin' | 'member'
   is_default: boolean
+  settings: Record<string, unknown>
 }
 
 interface User {
@@ -52,7 +53,8 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API
 
 export function OrganizationProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
-  
+  const pathname = usePathname()
+
   // State
   const [user, setUser] = useState<User | null>(null)
   const [organizations, setOrganizations] = useState<Organization[]>([])
@@ -115,6 +117,13 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
         }
         setCurrentOrganization(orgToUse)
         localStorage.setItem('currentOrganizationId', orgToUse.id)
+
+        // Redirect admins/owners to the onboarding wizard on their first login
+        const isAdmin = orgToUse.your_role === 'owner' || orgToUse.your_role === 'admin'
+        const needsOnboarding = !orgToUse.settings?.onboarding_completed
+        if (isAdmin && needsOnboarding && !pathname?.startsWith('/onboarding')) {
+          router.push('/onboarding')
+        }
       }
 
     } catch {
