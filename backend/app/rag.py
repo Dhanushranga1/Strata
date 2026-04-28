@@ -160,9 +160,10 @@ def retrieve(query: str, fetch_chunk_fn, org_id: str = "") -> Tuple[List[Dict], 
     Returns:
         (chunks, sources, context, scores, faiss_ids, retrieval_metrics)
     """
-    # 1) Embed the query
+    # 1) Embed the query — use retrieval_query task type so the model produces
+    #    query-optimised embeddings (asymmetric search vs retrieval_document for chunks)
     try:
-        query_vector = embed_texts([query])[0]
+        query_vector = embed_texts([query], task_type="retrieval_query")[0]
     except Exception as e:
         logger.error("Query embedding failed: %s", e)
         return [], [], "", [], [], {"error": 1.0}

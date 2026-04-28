@@ -5,18 +5,15 @@ Enhanced with structured JSON schema validation and comprehensive error handling
 """
 
 import os
-import json
 import re
-import google.generativeai as genai
-import hashlib
+import json
 import time
-import json
-import re
-import os
+import hashlib
+import logging
+import google.generativeai as genai
 from typing import Tuple, Dict, Any, Optional
 from pydantic import BaseModel, ValidationError
 from dotenv import load_dotenv
-import logging
 
 load_dotenv()
 
@@ -176,8 +173,8 @@ RESPOND WITH VALID JSON ONLY:"""
             response = model.generate_content(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.2,
-                    max_output_tokens=2048,
+                    temperature=TEMPERATURE,
+                    max_output_tokens=MAX_OUTPUT_TOKENS,
                     response_mime_type="application/json"
                 )
             )
@@ -288,19 +285,16 @@ Answer concisely with [N] citations:"""
 def select_model(context_size: int) -> str:
     """
     Select the appropriate Gemini model based on context size.
-    
-    Args:
-        context_size: Total character count of the input context
-        
-    Returns:
-        str: The selected model name
+
+    ≤ FLASH_THRESHOLD_CHARS  → Flash  (fast, cheap)
+    ≤ PRO_THRESHOLD_CHARS    → Flash  (still manageable)
+    > PRO_THRESHOLD_CHARS    → Pro    (large context quality)
     """
-    if context_size <= FLASH_THRESHOLD_CHARS:
-        logger.debug(f"Using flash model for context size: {context_size}")
-        return FALLBACK_MODEL
-    else:
-        logger.debug(f"Using pro model for context size: {context_size}")
-        return PRIMARY_MODEL
+    if context_size > PRO_THRESHOLD_CHARS:
+        logger.debug("Using pro model for context size: %d", context_size)
+        return PRO_MODEL
+    logger.debug("Using flash model for context size: %d", context_size)
+    return FLASH_MODEL
 
 def generate_completion(context: str, question: str, sources: list[str]) -> Tuple[str, int]:
     """

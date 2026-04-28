@@ -55,27 +55,29 @@ def validate_text_input(text: str) -> str:
     
     return text.strip()
 
-def embed_single_text_with_retry(text: str) -> List[float]:
+def embed_single_text_with_retry(text: str, task_type: str = "retrieval_document") -> List[float]:
     """
     Generate embedding for single text with retry logic.
-    
+
     Args:
         text: Text to embed
-        
+        task_type: Google embedding task type. Use "retrieval_document" for KB
+                   chunks and "retrieval_query" for search queries.
+
     Returns:
         Embedding vector
-        
+
     Raises:
         EmbeddingError: If all retry attempts fail
     """
     validated_text = validate_text_input(text)
-    
+
     for attempt in range(MAX_RETRY_ATTEMPTS):
         try:
             response = genai.embed_content(
                 model=MODEL,
                 content=validated_text,
-                task_type="retrieval_document",
+                task_type=task_type,
             )
             
             if not response or "embedding" not in response:
@@ -93,20 +95,21 @@ def embed_single_text_with_retry(text: str) -> List[float]:
             logger.warning(f"Embedding attempt {attempt_num}/{MAX_RETRY_ATTEMPTS} failed: {e}")
             
             if attempt_num < MAX_RETRY_ATTEMPTS:
-                time.sleep(RETRY_DELAY_SECONDS * attempt_num)  # Exponential backoff
+                time.sleep(RETRY_DELAY_SECONDS * attempt_num)
             else:
                 raise EmbeddingError(f"All {MAX_RETRY_ATTEMPTS} embedding attempts failed. Last error: {e}") from e
 
-def embed_texts(texts: List[str]) -> List[List[float]]:
+def embed_texts(texts: List[str], task_type: str = "retrieval_document") -> List[List[float]]:
     """
     Generate embeddings for a list of texts with comprehensive error handling.
-    
+
     Args:
         texts: List of texts to embed
-        
+        task_type: "retrieval_document" for KB chunks, "retrieval_query" for search queries
+
     Returns:
         List of embedding vectors
-        
+
     Raises:
         EmbeddingError: If critical errors occur
     """
@@ -126,7 +129,7 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     
     for i, text in enumerate(texts):
         try:
-            embedding = embed_single_text_with_retry(text)
+            embedding = embed_single_text_with_retry(text, task_type=task_type)
             embeddings.append(embedding)
             
         except EmbeddingError as e:
