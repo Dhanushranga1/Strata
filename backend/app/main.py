@@ -370,7 +370,7 @@ async def health_db():
     parsed = urlparse(raw_url)
     host = parsed.hostname or "unknown"
     port = parsed.port or 5432
-    ssl_mode = "disable" if ":6543/" in raw_url else "require"
+    ssl_mode = "disable" if "pooler.supabase.com" in raw_url else "require"
 
     result = {
         "host": host,
