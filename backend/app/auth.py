@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException, status, Request, APIRouter
 from pydantic import BaseModel
 import os
+import json
 import logging
 import jwt
 from supabase import create_client, Client
@@ -132,7 +133,7 @@ async def get_user_organizations(user_id: str) -> List[UserOrganization]:
                 slug=row['slug'],
                 your_role=row['your_role'],
                 is_default=(i == 0),
-                settings=dict(row['settings']) if row['settings'] else {},
+                settings=json.loads(row['settings']) if isinstance(row['settings'], str) else (row['settings'] or {}),
             )
             for i, row in enumerate(rows)
         ]
