@@ -13,7 +13,7 @@ async def init_pool() -> None:
     if not database_url:
         logger.warning("[db] DATABASE_URL not set — asyncpg pool not started")
         return
-    ssl_mode = 'disable' if ':6543/' in database_url else 'require'
+    ssl_mode = 'disable' if 'pooler.supabase.com' in database_url else 'require'
     try:
         _pool = await asyncpg.create_pool(
             database_url,
@@ -52,7 +52,7 @@ async def get_connection() -> asyncpg.Connection:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL not configured")
-    ssl_mode = 'disable' if ':6543/' in database_url else 'require'
+    ssl_mode = 'disable' if 'pooler.supabase.com' in database_url else 'require'
     return await asyncpg.connect(
         database_url,
         statement_cache_size=0,
