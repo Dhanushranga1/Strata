@@ -59,9 +59,14 @@ async def get_user_role(user_id: str) -> str:
             await conn.close()
     except Exception as e:
         logger.error(f"Failed to get user role for {user_id}: {e}")
-        logger.warning(f"Defaulting to customer role for {user_id} due to DB error")
-        _role_cache[user_id] = "customer"
-        _cache_ttl[user_id] = datetime.utcnow() + timedelta(seconds=CACHE_DURATION)
+        # Serve stale cached value if available — DB blip should not downgrade an admin to customer.
+        if user_id in _role_cache:
+            stale = _role_cache[user_id]
+            # Extend TTL so we don't hammer the DB on every request while it's down.
+            _cache_ttl[user_id] = datetime.utcnow() + timedelta(seconds=CACHE_DURATION)
+            logger.warning(f"Serving stale cached role '{stale}' for {user_id} due to DB error")
+            return stale
+        logger.warning(f"No cached role for {user_id} — defaulting to customer due to DB error")
         return "customer"
 
 async def set_user_role(user_id: str, role: str):
