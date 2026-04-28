@@ -20,6 +20,7 @@ async def init_pool() -> None:
             min_size=2,
             max_size=10,
             max_inactive_connection_lifetime=300.0,
+            command_timeout=15,
             statement_cache_size=0,
             ssl=ssl_mode,
             server_settings={'application_name': 'ticketpilot'},
@@ -58,5 +59,6 @@ async def get_connection() -> asyncpg.Connection:
         database_url,
         statement_cache_size=0,
         ssl=ssl_mode,
+        timeout=10,
         server_settings={'application_name': 'ticketpilot'},
     )

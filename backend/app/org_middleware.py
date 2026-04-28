@@ -240,6 +240,12 @@ class OrganizationContextMiddleware(BaseHTTPMiddleware):
                 await conn.close()
         except Exception as e:
             self.logger.error("Failed to get user role in org: %s", e)
+            # Serve stale cached value — a DB blip must not evict the user mid-session.
+            if cache_key in _org_cache:
+                stale_role, _ = _org_cache[cache_key]
+                _org_cache[cache_key] = (stale_role, datetime.utcnow() + timedelta(seconds=_ORG_CACHE_TTL))
+                self.logger.warning("Serving stale org role '%s' for %s due to DB error", stale_role, user_id)
+                return stale_role
             return None
 
         _org_cache[cache_key] = (role, datetime.utcnow() + timedelta(seconds=_ORG_CACHE_TTL))
