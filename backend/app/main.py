@@ -355,6 +355,53 @@ app.include_router(invites_router)
 def health():
     return {"ok": True, "api": "ticketpilot", "version": API_VERSION}
 
+
+@app.get("/api/health/db")
+async def health_db():
+    """Diagnose DB connectivity without exposing credentials."""
+    import time
+    import asyncpg
+    from urllib.parse import urlparse
+
+    raw_url = os.getenv("DATABASE_URL", "")
+    if not raw_url:
+        return {"ok": False, "error": "DATABASE_URL not set"}
+
+    parsed = urlparse(raw_url)
+    host = parsed.hostname or "unknown"
+    port = parsed.port or 5432
+    ssl_mode = "disable" if ":6543/" in raw_url else "require"
+
+    result = {
+        "host": host,
+        "port": port,
+        "ssl_mode": ssl_mode,
+        "ok": False,
+        "latency_ms": None,
+        "error": None,
+    }
+
+    t0 = time.monotonic()
+    try:
+        conn = await asyncpg.connect(
+            raw_url,
+            timeout=10,
+            ssl=ssl_mode,
+            statement_cache_size=0,
+            server_settings={"application_name": "ticketpilot-healthcheck"},
+        )
+        try:
+            await conn.fetchval("SELECT 1")
+        finally:
+            await conn.close()
+        result["ok"] = True
+        result["latency_ms"] = round((time.monotonic() - t0) * 1000)
+    except Exception as exc:
+        result["latency_ms"] = round((time.monotonic() - t0) * 1000)
+        result["error"] = type(exc).__name__ + (f": {exc}" if str(exc) else "")
+
+    return result
+
 @app.get("/api/me")
 def me(user: User = Depends(get_current_user)):
     return user
