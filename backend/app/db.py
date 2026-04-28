@@ -20,10 +20,10 @@ async def init_pool() -> None:
             min_size=1,
             max_size=10,
             max_inactive_connection_lifetime=300.0,
-            command_timeout=15,
+            command_timeout=30,
             statement_cache_size=0,
             ssl=ssl_mode,
-            timeout=10,  # per-connection TCP handshake timeout
+            timeout=30,  # per-connection TCP handshake timeout
             server_settings={'application_name': 'ticketpilot'},
         )
         logger.info("[db] asyncpg pool ready (min=1, max=10, ssl=%s)", ssl_mode)
@@ -57,6 +57,6 @@ async def get_connection() -> asyncpg.Connection:
         database_url,
         statement_cache_size=0,
         ssl=ssl_mode,
-        timeout=10,
+        timeout=30,
         server_settings={'application_name': 'ticketpilot'},
     )

@@ -71,7 +71,7 @@ def _build_pool() -> ConnectionPool | None:
             max_size=8,
             max_idle=300,
             # connect_timeout caps each individual TCP handshake attempt
-            kwargs={"row_factory": dict_row, "connect_timeout": 10},
+            kwargs={"row_factory": dict_row, "connect_timeout": 30},
             open=False,  # don't block the import — connect in background
         )
         pool.open(wait=False)  # background connection; first request triggers acquire
