@@ -17,18 +17,16 @@ async def init_pool() -> None:
     try:
         _pool = await asyncpg.create_pool(
             database_url,
-            min_size=2,
+            min_size=1,
             max_size=10,
             max_inactive_connection_lifetime=300.0,
             command_timeout=15,
             statement_cache_size=0,
             ssl=ssl_mode,
+            timeout=10,  # per-connection TCP handshake timeout
             server_settings={'application_name': 'ticketpilot'},
         )
-        # Pay the first-query overhead at startup, not on the first real request
-        async with _pool.acquire() as conn:
-            await conn.fetchval("SELECT 1")
-        logger.info("[db] asyncpg pool ready (min=2, max=10, ssl=%s)", ssl_mode)
+        logger.info("[db] asyncpg pool ready (min=1, max=10, ssl=%s)", ssl_mode)
     except Exception as exc:
         logger.error("[db] Pool init failed: %s — falling back to per-request connections", exc)
         _pool = None

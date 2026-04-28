@@ -70,13 +70,12 @@ def _build_pool() -> ConnectionPool | None:
             min_size=1,
             max_size=8,
             max_idle=300,
-            kwargs={"row_factory": dict_row},
-            open=True,   # establishes min_size connections synchronously
+            # connect_timeout caps each individual TCP handshake attempt
+            kwargs={"row_factory": dict_row, "connect_timeout": 10},
+            open=False,  # don't block the import — connect in background
         )
-        # Fire one warm-up query so the first request doesn't see 1.3s latency
-        with pool.connection() as _c:
-            _c.execute("SELECT 1")
-        _pool_logger.info("[db] Connection pool ready (min=1, max=8)")
+        pool.open(wait=False)  # background connection; first request triggers acquire
+        _pool_logger.info("[db] Connection pool initialising in background")
         return pool
     except Exception as exc:
         _pool_logger.warning("[db] Pool init failed, will fall back to per-request connect: %s", exc)
