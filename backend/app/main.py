@@ -232,6 +232,29 @@ async def _overdue_task():
             logger.error("Overdue background task error: %s", exc)
 
 
+async def _pool_keepalive():
+    """
+    Ping the asyncpg pool every 4 minutes.
+
+    Supabase's session pooler drops idle connections after ~10 minutes.
+    Without this, the pool goes cold between overdue-scan cycles (15 min apart)
+    and the next DB-backed request blocks for up to 45 s on three failing
+    direct-connect retries before the stale-cache fallback fires.
+    """
+    from .db import get_connection
+    while True:
+        await asyncio.sleep(4 * 60)
+        try:
+            conn = await get_connection()
+            try:
+                await conn.fetchval("SELECT 1")
+            finally:
+                await conn.close()
+            logger.debug("[keepalive] pool ping OK")
+        except Exception as exc:
+            logger.warning("[keepalive] pool ping failed: %s", type(exc).__name__)
+
+
 async def _rebuild_one_org(org_id: str, load_snapshot_fn, rebuild_fn) -> None:
     """Try snapshot load first; fall back to full per-vector rebuild for one org."""
     try:
@@ -280,12 +303,15 @@ async def lifespan(_app: FastAPI):
         logger.error("[startup] Per-org FAISS rebuild failed: %s", exc)
 
     task = asyncio.create_task(_overdue_task())
+    keepalive = asyncio.create_task(_pool_keepalive())
     yield
     task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    keepalive.cancel()
+    for t in (task, keepalive):
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
     await close_pool()
 
 

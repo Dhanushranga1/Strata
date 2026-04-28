@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 _pool: asyncpg.Pool | None = None
 
-_CONNECT_TIMEOUT = 15   # seconds per individual attempt
+_CONNECT_TIMEOUT = 8    # seconds per individual attempt (fast fail; 3 attempts = 24s max)
 _CONNECT_RETRIES = 3    # attempts before giving up
 
 
