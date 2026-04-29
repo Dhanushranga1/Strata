@@ -239,14 +239,17 @@ class OrganizationContextMiddleware(BaseHTTPMiddleware):
             finally:
                 await conn.close()
         except Exception as e:
-            self.logger.error("Failed to get user role in org: %s", e)
+            self.logger.error("Failed to get user role in org: %s", type(e).__name__)
             # Serve stale cached value — a DB blip must not evict the user mid-session.
             if cache_key in _org_cache:
                 stale_role, _ = _org_cache[cache_key]
                 _org_cache[cache_key] = (stale_role, datetime.utcnow() + timedelta(seconds=_ORG_CACHE_TTL))
                 self.logger.warning("Serving stale org role '%s' for %s due to DB error", stale_role, user_id)
                 return stale_role
-            return None
+            # No stale cache and DB is unreachable — re-raise so the middleware's
+            # outer except-all continues the request without org context (→ 400/503)
+            # rather than treating "can't verify" the same as "definitely not a member" (→ 403).
+            raise
 
         _org_cache[cache_key] = (role, datetime.utcnow() + timedelta(seconds=_ORG_CACHE_TTL))
         return role

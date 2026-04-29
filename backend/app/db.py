@@ -23,8 +23,8 @@ _CONNECT_RETRIES        = 3
 # makes recovery slower). After cooldown the circuit half-opens: one attempt
 # is allowed through; success resets, failure reopens.
 # ---------------------------------------------------------------------------
-_CIRCUIT_THRESHOLD = 3
-_CIRCUIT_COOLDOWN  = 30  # seconds
+_CIRCUIT_THRESHOLD = 1   # open after first complete get_connection() failure
+_CIRCUIT_COOLDOWN  = 30  # seconds before half-open retry
 _consecutive_failures: int = 0
 _circuit_open_until: float = 0.0
 
