@@ -327,7 +327,10 @@ async def get_analytics_summary(
     org_id = require_org_context(request)
     require_admin(user)
 
-    conn = await get_database_connection()
+    try:
+        conn = await get_database_connection()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable — please retry in a moment")
     try:
         total_tickets = await conn.fetchval(
             "SELECT count(*) FROM app.tickets WHERE organization_id = $1"
@@ -444,8 +447,11 @@ async def get_analytics_by_category(request: Request, user: User = Depends(get_c
     """Get ticket analytics by category/status"""
     org_id = require_org_context(request)
     require_admin(user)
-    
-    conn = await get_database_connection()
+
+    try:
+        conn = await get_database_connection()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database temporarily unavailable — please retry in a moment")
     try:
         # Get ticket counts by status
         status_query = """
