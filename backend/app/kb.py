@@ -22,7 +22,7 @@ def get_db_connection():
     """Get database connection (simplified for Phase 2)."""
     if not DATABASE_URL:
         raise HTTPException(500, "DATABASE_URL not configured")
-    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=5)
 
 
 def require_rep(user: User):
