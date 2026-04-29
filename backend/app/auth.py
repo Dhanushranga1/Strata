@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException, status, Request, APIRouter
 from pydantic import BaseModel
 import os
 import json
+import time
 import logging
 import jwt
 from supabase import create_client, Client
@@ -9,6 +10,11 @@ from dotenv import load_dotenv
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Stale-while-revalidate cache for user org lists (60 s TTL).
+# Same pattern as roles.py — DB blip must not 500 /api/auth/context.
+_org_list_cache: dict[str, tuple[list, float]] = {}
+_ORG_LIST_TTL = 60.0  # seconds
 
 load_dotenv()
 
@@ -104,29 +110,35 @@ async def get_db_connection():
 
 async def get_user_organizations(user_id: str) -> List[UserOrganization]:
     """
-    Fetch all organizations the user is a member of.
-    Returns list with role and default organization flag.
+    Fetch all organizations the user is a member of, with stale-while-revalidate
+    caching. A DB failure serves the cached list rather than raising a 500.
     """
-    conn = await get_db_connection()
+    # Fast path — serve from cache if still fresh
+    cached = _org_list_cache.get(user_id)
+    if cached and (time.monotonic() - cached[1]) < _ORG_LIST_TTL:
+        return cached[0]
+
     try:
         import uuid as uuid_lib
-        user_uuid = uuid_lib.UUID(user_id)
+        conn = await get_db_connection()
+        try:
+            user_uuid = uuid_lib.UUID(user_id)
+            rows = await conn.fetch("""
+                SELECT
+                    o.id,
+                    o.name,
+                    o.slug,
+                    o.settings,
+                    om.role as your_role
+                FROM app.organizations o
+                JOIN app.organization_members om ON o.id = om.organization_id
+                WHERE om.user_id = $1
+                ORDER BY o.name ASC
+            """, user_uuid)
+        finally:
+            await conn.close()
 
-        rows = await conn.fetch("""
-            SELECT
-                o.id,
-                o.name,
-                o.slug,
-                o.settings,
-                om.role as your_role,
-                false as is_default
-            FROM app.organizations o
-            JOIN app.organization_members om ON o.id = om.organization_id
-            WHERE om.user_id = $1
-            ORDER BY o.name ASC
-        """, user_uuid)
-
-        return [
+        orgs = [
             UserOrganization(
                 id=str(row['id']),
                 name=row['name'],
@@ -137,11 +149,19 @@ async def get_user_organizations(user_id: str) -> List[UserOrganization]:
             )
             for i, row in enumerate(rows)
         ]
+        _org_list_cache[user_id] = (orgs, time.monotonic())
+        return orgs
+
     except Exception as e:
-        logger.error("Error fetching organizations for user %s: %s", user_id, e, exc_info=True)
+        # DB blip — serve stale cache rather than 500-ing the user
+        if user_id in _org_list_cache:
+            stale, _ = _org_list_cache[user_id]
+            # Extend TTL so we don't hammer DB on every request while it's down
+            _org_list_cache[user_id] = (stale, time.monotonic())
+            logger.warning("Serving stale org list for %s due to DB error: %s", user_id, type(e).__name__)
+            return stale
+        logger.error("Error fetching organizations for user %s (no cache): %s", user_id, e, exc_info=True)
         raise
-    finally:
-        await conn.close()
 
 async def auto_create_organization_for_new_user(user_id: str, user_email: str) -> str:
     """

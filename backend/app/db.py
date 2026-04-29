@@ -1,20 +1,56 @@
 """Shared asyncpg connection pool for all async DB operations."""
 import asyncpg
 import asyncio
+import time
 import os
 import logging
 
 logger = logging.getLogger(__name__)
 _pool: asyncpg.Pool | None = None
 
-# Pool connections are established in the background and can afford a longer
-# timeout — Render→Supabase pooler can take 15-30s when the pooler is cold.
-_POOL_CONNECT_TIMEOUT = 30
-
-# Direct-connect fallback runs inside a live request; fail faster so the
-# stale-cache path activates sooner rather than blocking for 90s.
+# Pool connections run in the background and can afford to wait longer.
+# Direct-connect fallback runs inside a live request — fail faster.
+_POOL_CONNECT_TIMEOUT   = 30
 _DIRECT_CONNECT_TIMEOUT = 10
-_CONNECT_RETRIES = 3
+_CONNECT_RETRIES        = 3
+
+# ---------------------------------------------------------------------------
+# Circuit breaker — prevents a thundering herd when Supabase is unreachable.
+#
+# After _CIRCUIT_THRESHOLD consecutive total failures, the circuit opens for
+# _CIRCUIT_COOLDOWN seconds. All requests during that window raise immediately
+# instead of each spawning 3×10s timeout attempts (which hammers Supabase and
+# makes recovery slower). After cooldown the circuit half-opens: one attempt
+# is allowed through; success resets, failure reopens.
+# ---------------------------------------------------------------------------
+_CIRCUIT_THRESHOLD = 3
+_CIRCUIT_COOLDOWN  = 30  # seconds
+_consecutive_failures: int = 0
+_circuit_open_until: float = 0.0
+
+
+def _circuit_check():
+    if time.monotonic() < _circuit_open_until:
+        raise RuntimeError(
+            "DB circuit open — Supabase unreachable; retrying in a moment"
+        )
+
+
+def _circuit_success():
+    global _consecutive_failures, _circuit_open_until
+    _consecutive_failures = 0
+    _circuit_open_until   = 0.0
+
+
+def _circuit_failure():
+    global _consecutive_failures, _circuit_open_until
+    _consecutive_failures += 1
+    if _consecutive_failures >= _CIRCUIT_THRESHOLD:
+        _circuit_open_until = time.monotonic() + _CIRCUIT_COOLDOWN
+        logger.warning(
+            "[db] Circuit opened — %d consecutive failures; backing off %ds",
+            _consecutive_failures, _CIRCUIT_COOLDOWN,
+        )
 
 
 def _ssl_mode(database_url: str) -> str:
@@ -33,7 +69,7 @@ async def init_pool() -> None:
             database_url,
             min_size=2,
             max_size=10,
-            max_inactive_connection_lifetime=300.0,  # 5 min — shorter than keepalive interval so we control recycling
+            max_inactive_connection_lifetime=300.0,
             command_timeout=30,
             statement_cache_size=0,
             ssl=ssl,
@@ -41,6 +77,7 @@ async def init_pool() -> None:
             server_settings={'application_name': 'ticketpilot'},
         )
         logger.info("[db] asyncpg pool ready (min=2, max=10, ssl=%s)", ssl)
+        _circuit_success()
     except Exception as exc:
         logger.error("[db] Pool init failed: %r — falling back to per-request connections", exc)
         _pool = None
@@ -67,12 +104,18 @@ async def get_connection() -> asyncpg.Connection:
     """
     Return a connection from the pool (or a direct connection as fallback).
 
-    Callers MUST call `await conn.close()` when done. On a PoolConnectionProxy
-    this releases the connection back to the pool rather than terminating it.
+    Raises RuntimeError immediately when the circuit breaker is open so that
+    callers can serve stale cached data rather than waiting 30+ seconds.
+
+    Callers MUST call `await conn.close()` when done.
     """
+    _circuit_check()  # fast-fail when circuit is open
+
     if _pool is not None:
         try:
-            return await _pool.acquire(timeout=5)
+            conn = await _pool.acquire(timeout=5)
+            _circuit_success()
+            return conn
         except Exception as exc:
             logger.warning("[db] Pool acquire failed (%s) — falling back to direct connect", type(exc).__name__)
 
@@ -93,11 +136,16 @@ async def get_connection() -> asyncpg.Connection:
             )
             if attempt > 1:
                 logger.info("[db] Direct connect succeeded on attempt %d", attempt)
+            _circuit_success()
             return conn
         except Exception as exc:
             last_exc = exc
-            logger.warning("[db] Direct connect attempt %d/%d failed: %s", attempt, _CONNECT_RETRIES, type(exc).__name__)
+            logger.warning(
+                "[db] Direct connect attempt %d/%d failed: %s",
+                attempt, _CONNECT_RETRIES, type(exc).__name__,
+            )
             if attempt < _CONNECT_RETRIES:
                 await asyncio.sleep(2 ** (attempt - 1))  # 1s, 2s
 
+    _circuit_failure()
     raise last_exc  # type: ignore[misc]
