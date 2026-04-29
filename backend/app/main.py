@@ -110,7 +110,14 @@ async def _overdue_scan():
         orgs = await conn.fetch("SELECT id, settings FROM app.organizations WHERE is_active = true")
         for org in orgs:
             org_id = str(org['id'])
-            settings = dict(org['settings']) if org['settings'] else {}
+            raw = org['settings']
+            if not raw:
+                settings = {}
+            elif isinstance(raw, str):
+                import json as _json
+                settings = _json.loads(raw)
+            else:
+                settings = dict(raw)
             threshold_h = float(settings.get('overdue_threshold_hours', 48))
             reminder_h = float(settings.get('overdue_reminder_hours', 24))
 
