@@ -118,10 +118,12 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
         setCurrentOrganization(orgToUse)
         localStorage.setItem('currentOrganizationId', orgToUse.id)
 
-        // Redirect admins/owners to the onboarding wizard on their first login
+        // Only redirect to onboarding on explicit first-time setup (flag not set + sessionStorage gate)
         const isAdmin = orgToUse.your_role === 'owner' || orgToUse.your_role === 'admin'
         const needsOnboarding = !orgToUse.settings?.onboarding_completed
-        if (isAdmin && needsOnboarding && !pathname?.startsWith('/onboarding')) {
+        const alreadyRedirected = sessionStorage.getItem('onboarding_redirected') === orgToUse.id
+        if (isAdmin && needsOnboarding && !alreadyRedirected && !pathname?.startsWith('/onboarding')) {
+          sessionStorage.setItem('onboarding_redirected', orgToUse.id)
           router.push('/onboarding')
         }
       }
