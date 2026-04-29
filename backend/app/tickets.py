@@ -56,10 +56,13 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 import logging as _logging
 _pool_logger = _logging.getLogger(__name__)
 
-# Pool is created at module-load time so the first user request doesn't pay the
-# connection setup cost. Connections are established lazily (open=False) but
-# check_connection() warms them during startup via app lifespan.
 _pool: ConnectionPool | None = None
+
+def _on_pool_reconnect_failed(pool: ConnectionPool) -> None:
+    """Stop background retries once reconnect_timeout expires — avoids hammering Supabase."""
+    global _pool
+    _pool_logger.warning("[db] psycopg pool gave up reconnecting — switching to per-request fallback")
+    _pool = None
 
 def _build_pool() -> ConnectionPool | None:
     if not DATABASE_URL:
@@ -67,15 +70,16 @@ def _build_pool() -> ConnectionPool | None:
     try:
         pool = ConnectionPool(
             DATABASE_URL,
-            min_size=1,
-            max_size=8,
+            min_size=0,   # don't maintain background connections eagerly
+            max_size=5,
             max_idle=300,
-            # connect_timeout caps each individual TCP handshake attempt
+            reconnect_timeout=60,           # give up retrying after 60 s, don't hammer Supabase
+            reconnect_failed=_on_pool_reconnect_failed,
             kwargs={"row_factory": dict_row, "connect_timeout": 30},
-            open=False,  # don't block the import — connect in background
+            open=False,
         )
-        pool.open(wait=False)  # background connection; first request triggers acquire
-        _pool_logger.info("[db] Connection pool initialising in background")
+        pool.open(wait=False)
+        _pool_logger.info("[db] psycopg pool initialising in background")
         return pool
     except Exception as exc:
         _pool_logger.warning("[db] Pool init failed, will fall back to per-request connect: %s", exc)
