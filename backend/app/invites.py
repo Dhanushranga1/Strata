@@ -83,20 +83,10 @@ class AcceptResponse(BaseModel):
 
 
 def _send_invite_email(email: str, invite_url: str, org_name: str, role: str) -> bool:
-    """
-    Send an invite email via Resend (bypasses Supabase URL allow-list issues).
-    Falls back gracefully when RESEND_API_KEY is absent (local-dev mode).
-    """
-    import os as _os
-    resend_key = _os.getenv("RESEND_API_KEY", "")
-    email_from = _os.getenv("EMAIL_FROM", "TicketPilot <noreply@resend.dev>")
-
-    if not resend_key:
-        logger.info(
-            "RESEND_API_KEY not set — skipping invite email for %s. "
-            "Share the invite_url manually in local-dev mode.",
-            email,
-        )
+    """Send an invite email via the shared email module (SendGrid HTTP API)."""
+    from .email import _send, _enabled
+    if not _enabled():
+        logger.info("Email not configured — skipping invite email for %s. Share invite_url manually.", email)
         return False
 
     role_label = {"admin": "Admin", "rep": "Support Rep", "member": "Member"}.get(role, role.capitalize())
@@ -142,20 +132,7 @@ def _send_invite_email(email: str, invite_url: str, org_name: str, role: str) ->
 </body>
 </html>"""
 
-    try:
-        import resend as _resend
-        _resend.api_key = resend_key
-        _resend.Emails.send({
-            "from": email_from,
-            "to": [email],
-            "subject": f"You've been invited to join {org_name} on TicketPilot",
-            "html": html,
-        })
-        logger.info("Invite email sent to %s via Resend", email)
-        return True
-    except Exception as exc:
-        logger.warning("Failed to send invite email to %s via Resend: %s", email, exc)
-        return False
+    return _send(email, f"You've been invited to join {org_name} on TicketPilot", html)
 
 
 # ---------------------------------------------------------------------------

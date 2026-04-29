@@ -1,54 +1,64 @@
 """
 Email notification module for TicketPilot.
-Uses Gmail SMTP for transactional email delivery — works with any recipient.
+Uses SendGrid HTTP API — works with any recipient, not blocked by Render.
 
 Required env vars:
-  SMTP_USER     your Gmail address  (e.g. you@gmail.com)
-  SMTP_PASSWORD your Gmail App Password (NOT your login password)
-                Create one at: myaccount.google.com/apppasswords
-                (requires 2FA to be enabled on the Google account)
+  SENDGRID_API_KEY   from app.sendgrid.com/settings/api_keys
+  EMAIL_FROM         sender address (default: noreply@ticketpilot.app)
 """
 import os
+import json
 import logging
 import threading
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import urllib.request
 
 logger = logging.getLogger(__name__)
 
-SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 587
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-EMAIL_FROM = os.getenv("EMAIL_FROM", f"TicketPilot <{SMTP_USER}>")
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
+EMAIL_FROM = os.getenv("EMAIL_FROM", "TicketPilot <noreply@ticketpilot.app>")
 
 
 def _enabled() -> bool:
-    return bool(SMTP_USER and SMTP_PASSWORD)
+    return bool(SENDGRID_API_KEY)
 
 
 def _send(to: str, subject: str, html: str) -> bool:
-    """Fire-and-forget send via Gmail SMTP in a background thread."""
+    """Fire-and-forget send via SendGrid HTTP API in a background thread."""
     if not _enabled():
-        logger.debug("[email] SMTP_USER/SMTP_PASSWORD not set — skipping email to %s", to)
+        logger.debug("[email] SENDGRID_API_KEY not set — skipping email to %s", to)
         return False
 
     def _do() -> None:
         try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"] = EMAIL_FROM or f"TicketPilot <{SMTP_USER}>"
-            msg["To"] = to
-            msg.attach(MIMEText(html, "html"))
+            # Parse "Name <addr>" format
+            if "<" in EMAIL_FROM and ">" in EMAIL_FROM:
+                name = EMAIL_FROM.split("<")[0].strip()
+                addr = EMAIL_FROM.split("<")[1].rstrip(">").strip()
+            else:
+                name = "TicketPilot"
+                addr = EMAIL_FROM.strip()
 
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-                server.ehlo()
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.sendmail(SMTP_USER, [to], msg.as_string())
+            payload = json.dumps({
+                "personalizations": [{"to": [{"email": to}]}],
+                "from": {"email": addr, "name": name},
+                "subject": subject,
+                "content": [{"type": "text/html", "value": html}],
+            }).encode()
 
-            logger.info("[email] Sent '%s' to %s", subject, to)
+            req = urllib.request.Request(
+                "https://api.sendgrid.com/v3/mail/send",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status in (200, 202):
+                    logger.info("[email] Sent '%s' to %s", subject, to)
+                else:
+                    logger.warning("[email] SendGrid returned %s for %s", resp.status, to)
         except Exception as exc:
             logger.warning("[email] Could not send to %s: %s", to, exc)
 
