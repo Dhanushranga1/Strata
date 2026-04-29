@@ -1,43 +1,53 @@
 """
 Email notification module for TicketPilot.
-Uses Resend for transactional email delivery.
-Set RESEND_API_KEY and EMAIL_FROM in .env to enable.
+Uses Gmail SMTP for transactional email delivery — works with any recipient.
 
-Note: Resend free tier only sends to the account owner's verified address.
-To send to all recipients, verify a domain at resend.com/domains and update
-EMAIL_FROM to use that domain.
+Required env vars:
+  SMTP_USER     your Gmail address  (e.g. you@gmail.com)
+  SMTP_PASSWORD your Gmail App Password (NOT your login password)
+                Create one at: myaccount.google.com/apppasswords
+                (requires 2FA to be enabled on the Google account)
 """
 import os
 import logging
 import threading
-from typing import Optional
-
-import resend
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 logger = logging.getLogger(__name__)
 
-resend.api_key = os.getenv("RESEND_API_KEY", "")
-EMAIL_FROM = os.getenv("EMAIL_FROM", "TicketPilot <noreply@resend.dev>")
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 587
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+EMAIL_FROM = os.getenv("EMAIL_FROM", f"TicketPilot <{SMTP_USER}>")
 
 
 def _enabled() -> bool:
-    return bool(resend.api_key)
+    return bool(SMTP_USER and SMTP_PASSWORD)
 
 
 def _send(to: str, subject: str, html: str) -> bool:
-    """Fire-and-forget send in a background thread. Returns True if queued."""
+    """Fire-and-forget send via Gmail SMTP in a background thread."""
     if not _enabled():
-        logger.debug("[email] RESEND_API_KEY not set — skipping email to %s", to)
+        logger.debug("[email] SMTP_USER/SMTP_PASSWORD not set — skipping email to %s", to)
         return False
 
     def _do() -> None:
         try:
-            resend.Emails.send({
-                "from": EMAIL_FROM,
-                "to": [to],
-                "subject": subject,
-                "html": html,
-            })
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = EMAIL_FROM or f"TicketPilot <{SMTP_USER}>"
+            msg["To"] = to
+            msg.attach(MIMEText(html, "html"))
+
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.sendmail(SMTP_USER, [to], msg.as_string())
+
             logger.info("[email] Sent '%s' to %s", subject, to)
         except Exception as exc:
             logger.warning("[email] Could not send to %s: %s", to, exc)
