@@ -7,8 +7,14 @@ import logging
 logger = logging.getLogger(__name__)
 _pool: asyncpg.Pool | None = None
 
-_CONNECT_TIMEOUT = 8    # seconds per individual attempt (fast fail; 3 attempts = 24s max)
-_CONNECT_RETRIES = 3    # attempts before giving up
+# Pool connections are established in the background and can afford a longer
+# timeout — Render→Supabase pooler can take 15-30s when the pooler is cold.
+_POOL_CONNECT_TIMEOUT = 30
+
+# Direct-connect fallback runs inside a live request; fail faster so the
+# stale-cache path activates sooner rather than blocking for 90s.
+_DIRECT_CONNECT_TIMEOUT = 10
+_CONNECT_RETRIES = 3
 
 
 def _ssl_mode(database_url: str) -> str:
@@ -25,19 +31,28 @@ async def init_pool() -> None:
     try:
         _pool = await asyncpg.create_pool(
             database_url,
-            min_size=3,
+            min_size=2,
             max_size=10,
-            max_inactive_connection_lifetime=600.0,
+            max_inactive_connection_lifetime=300.0,  # 5 min — shorter than keepalive interval so we control recycling
             command_timeout=30,
             statement_cache_size=0,
             ssl=ssl,
-            timeout=_CONNECT_TIMEOUT,
+            timeout=_POOL_CONNECT_TIMEOUT,
             server_settings={'application_name': 'ticketpilot'},
         )
-        logger.info("[db] asyncpg pool ready (min=3, max=10, ssl=%s)", ssl)
+        logger.info("[db] asyncpg pool ready (min=2, max=10, ssl=%s)", ssl)
     except Exception as exc:
-        logger.error("[db] Pool init failed: %s — falling back to per-request connections", exc)
+        logger.error("[db] Pool init failed: %r — falling back to per-request connections", exc)
         _pool = None
+
+
+async def reinit_pool_if_needed() -> None:
+    """Re-create the pool if it is None (startup failed or all connections died)."""
+    global _pool
+    if _pool is not None:
+        return
+    logger.info("[db] Pool is None — attempting reinit")
+    await init_pool()
 
 
 async def close_pool() -> None:
@@ -73,7 +88,7 @@ async def get_connection() -> asyncpg.Connection:
                 database_url,
                 statement_cache_size=0,
                 ssl=ssl,
-                timeout=_CONNECT_TIMEOUT,
+                timeout=_DIRECT_CONNECT_TIMEOUT,
                 server_settings={'application_name': 'ticketpilot'},
             )
             if attempt > 1:

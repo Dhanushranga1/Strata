@@ -234,17 +234,17 @@ async def _overdue_task():
 
 async def _pool_keepalive():
     """
-    Ping the asyncpg pool every 4 minutes.
+    Keep the asyncpg pool alive and healthy.
 
-    Supabase's session pooler drops idle connections after ~10 minutes.
-    Without this, the pool goes cold between overdue-scan cycles (15 min apart)
-    and the next DB-backed request blocks for up to 45 s on three failing
-    direct-connect retries before the stale-cache fallback fires.
+    Fires every 4 minutes (well within Supabase's ~10-min idle timeout).
+    Also tries to reinitialise the pool if startup failed — this self-heals
+    the common case where Render cold-starts while Supabase is still waking up.
     """
-    from .db import get_connection
+    from .db import get_connection, reinit_pool_if_needed
     while True:
         await asyncio.sleep(4 * 60)
         try:
+            await reinit_pool_if_needed()
             conn = await get_connection()
             try:
                 await conn.fetchval("SELECT 1")
