@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Search, Filter, Download, AlertCircle, Eye, Edit } from 'lucide-react'
+import { Plus, Search, Filter, Download, AlertCircle, Eye, Edit, CheckSquare, Square, CheckCheck, X as XIcon, UserCheck as AssignIcon, CheckCircle2, RotateCcw } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { DataTable } from '@/components/ui/DataTable'
@@ -270,6 +270,8 @@ function TicketsPageInner() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkLoading, setBulkLoading] = useState(false)
   const [newTicket, setNewTicket] = useState({
     title: '',
     description: '',
@@ -318,6 +320,45 @@ function TicketsPageInner() {
   const resetForm = () => {
     setNewTicket({ title: '', description: '', priority: 'normal', customer_email: '' })
     setValidationErrors({ title: '', description: '', customer_email: '' })
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredTickets.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredTickets.map(t => t.id)))
+    }
+  }
+
+  const bulkAction = async (action: string) => {
+    if (!orgId || selectedIds.size === 0) return
+    setBulkLoading(true)
+    try {
+      const result = await api.post<{ updated: number }>('/api/tickets/bulk', {
+        ticket_ids: Array.from(selectedIds),
+        action,
+      }, orgId)
+      toast.success(`${result.updated} ticket${result.updated !== 1 ? 's' : ''} updated`)
+      setSelectedIds(new Set())
+      // Reload tickets
+      const params = new URLSearchParams()
+      if (statusFilter !== 'all') params.append('status_filter', statusFilter)
+      if (debouncedSearch) params.append('q', debouncedSearch)
+      const response = await api.get<{ items: TicketSummary[] }>(`/api/tickets?${params.toString()}`, orgId)
+      setTickets(response.items || [])
+    } catch {
+      toast.error('Bulk action failed')
+    } finally {
+      setBulkLoading(false)
+    }
   }
 
   // Create ticket function
@@ -684,11 +725,78 @@ function TicketsPageInner() {
         </div>
       </div>
 
+      {/* Bulk Action Bar */}
+      {isRepOrAdmin && selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/30">
+          <span className="text-sm font-medium text-primary">
+            {selectedIds.size} selected
+          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => bulkAction('resolve')}
+              disabled={bulkLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Resolve
+            </button>
+            <button
+              type="button"
+              onClick={() => bulkAction('close')}
+              disabled={bulkLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-600 text-white text-xs font-medium hover:bg-slate-700 disabled:opacity-50"
+            >
+              <XIcon className="w-3.5 h-3.5" />
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={() => bulkAction('reopen')}
+              disabled={bulkLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Reopen
+            </button>
+            <button
+              type="button"
+              onClick={() => bulkAction('assign')}
+              disabled={bulkLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 disabled:opacity-50"
+            >
+              <AssignIcon className="w-3.5 h-3.5" />
+              Assign to me
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Data Table or Empty State */}
       {(loading || switchingOrg) ? (
         <TicketListSkeleton />
       ) : filteredTickets.length === 0 && !searchTerm && statusFilter === 'all' ? (
         <EmptyTicketState onCreateClick={() => setNewTicketOpen(true)} />
+      ) : filteredTickets.length === 0 ? (
+        <div className="flex flex-col items-center py-16 text-muted-foreground gap-3">
+          <Search className="w-10 h-10 opacity-30" />
+          <p className="font-medium">No tickets match your filters</p>
+          <p className="text-sm">Try adjusting the search or status filter.</p>
+          <button
+            type="button"
+            onClick={() => { setSearchTerm(''); setStatusFilter('all') }}
+            className="mt-1 text-sm text-primary hover:underline"
+          >
+            Clear filters
+          </button>
+        </div>
       ) : (
         <>
           {/* Mobile Card View (< 768px) */}
@@ -706,23 +814,82 @@ function TicketsPageInner() {
           {/* Desktop Table View (>= 768px) */}
           <Card className="hidden md:block">
             <CardHeader>
-              <CardTitle>All Tickets</CardTitle>
-              <CardDescription>
-                Showing {filteredTickets.length} of {totalTickets} tickets
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>All Tickets</CardTitle>
+                  <CardDescription>
+                    Showing {filteredTickets.length} of {totalTickets} tickets
+                  </CardDescription>
+                </div>
+                {isRepOrAdmin && (
+                  <button
+                    type="button"
+                    onClick={toggleSelectAll}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {selectedIds.size === filteredTickets.length && filteredTickets.length > 0
+                      ? <CheckCheck className="w-4 h-4 text-primary" />
+                      : <CheckSquare className="w-4 h-4" />
+                    }
+                    {selectedIds.size === filteredTickets.length && filteredTickets.length > 0
+                      ? 'Deselect all'
+                      : 'Select all'}
+                  </button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
-              <DataTable
-                columns={columns}
-                data={filteredTickets}
-                actions={tableActions}
-                searchable={true}
-                searchPlaceholder="Search tickets..."
-                filterable={true}
-                sortable={true}
-                pagination={true}
-                pageSize={10}
-              />
+              {isRepOrAdmin ? (
+                <div className="space-y-1">
+                  {filteredTickets.map((ticket) => (
+                    <div key={ticket.id} className="flex items-center gap-3 group">
+                      <button
+                        type="button"
+                        onClick={() => toggleSelect(ticket.id)}
+                        className="shrink-0 text-muted-foreground hover:text-primary transition-colors"
+                        title="Select ticket"
+                      >
+                        {selectedIds.has(ticket.id)
+                          ? <CheckSquare className="w-4 h-4 text-primary" />
+                          : <Square className="w-4 h-4 opacity-40 group-hover:opacity-100" />}
+                      </button>
+                      <div className="flex-1 flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-accent/50 cursor-pointer transition-colors"
+                           onClick={() => router.push(`/tickets/${ticket.id}`)}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <StatusBadge status={ticket.status as "open" | "resolved" | "closed" | "in_progress" | "escalated"} />
+                          <span className="font-medium text-sm truncate max-w-[320px]">{ticket.title}</span>
+                          {ticket.is_overdue && (
+                            <span className="shrink-0 text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 px-1.5 py-px rounded">OVERDUE</span>
+                          )}
+                          {ticket.tags.slice(0, 2).map(t => (
+                            <span key={t} className="shrink-0 text-[10px] bg-muted text-muted-foreground px-1.5 py-px rounded hidden lg:inline-flex">{t}</span>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-4 shrink-0 ml-4">
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${PRIORITY_COLORS[ticket.priority] ?? PRIORITY_COLORS.normal}`}>
+                            {ticket.priority}
+                          </span>
+                          <span className="text-xs text-muted-foreground hidden xl:block">
+                            {new Date(ticket.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <DataTable
+                  columns={columns}
+                  data={filteredTickets}
+                  actions={tableActions}
+                  searchable={true}
+                  searchPlaceholder="Search tickets..."
+                  filterable={true}
+                  sortable={true}
+                  pagination={true}
+                  pageSize={10}
+                />
+              )}
             </CardContent>
           </Card>
         </>

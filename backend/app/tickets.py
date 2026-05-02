@@ -4,16 +4,13 @@ from datetime import datetime
 import os
 import json
 import time
-import psycopg
-from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
 import uuid
 
 from .schemas import (
     TicketCreate, TicketSummary, TicketDetail, TicketListResponse,
     MessageCreate, MessageOut, TicketWithMessages,
     ChatRequest, ChatResponse, Citation,
-    TagsRequest, ResolutionRequest, RatingRequest,
+    TagsRequest, ResolutionRequest, RatingRequest, BulkTicketRequest,
 )
 from .auth import User, get_current_user
 from .observability import get_observer, log_rag_metrics
@@ -24,6 +21,7 @@ from .email import (
     send_ticket_created_for_customer_email, send_customer_reply_email,
 )
 from .rag_scoring import profile_ticket, casper_route
+from .db_sync import get_db_connection
 
 router = APIRouter(prefix="/api", tags=["tickets"])
 
@@ -50,53 +48,6 @@ def _get_kb_chunk_count(org_id: str) -> int:
         pass
     _kb_count_cache[org_id] = (count, now)
     return count
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-import logging as _logging
-_pool_logger = _logging.getLogger(__name__)
-
-_pool: ConnectionPool | None = None
-
-def _on_pool_reconnect_failed(pool: ConnectionPool) -> None:
-    """Stop background retries once reconnect_timeout expires — avoids hammering Supabase."""
-    global _pool
-    _pool_logger.warning("[db] psycopg pool gave up reconnecting — switching to per-request fallback")
-    _pool = None
-
-def _build_pool() -> ConnectionPool | None:
-    if not DATABASE_URL:
-        return None
-    try:
-        pool = ConnectionPool(
-            DATABASE_URL,
-            min_size=0,   # don't maintain background connections eagerly
-            max_size=5,
-            max_idle=300,
-            reconnect_timeout=60,           # give up retrying after 60 s, don't hammer Supabase
-            reconnect_failed=_on_pool_reconnect_failed,
-            kwargs={"row_factory": dict_row, "connect_timeout": 30},
-            open=False,
-        )
-        pool.open(wait=False)
-        _pool_logger.info("[db] psycopg pool initialising in background")
-        return pool
-    except Exception as exc:
-        _pool_logger.warning("[db] Pool init failed, will fall back to per-request connect: %s", exc)
-        return None
-
-try:
-    _pool = _build_pool()
-except Exception:
-    _pool = None
-
-def get_db_connection():
-    """Return a pool connection or a fresh direct connection as fallback."""
-    if _pool is not None:
-        return _pool.connection()
-    if not DATABASE_URL:
-        raise HTTPException(500, "DATABASE_URL not configured")
-    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 def get_user_role(user_id: str) -> str:
     """Get user role from database, default to 'customer'."""
@@ -248,14 +199,16 @@ def create_ticket(payload: TicketCreate, request: Request, user: User = Depends(
 
         conn.commit()
 
-        # Fire email notifications (background thread — never blocks ticket creation)
+        # Fire email + in-app notifications (background thread — never blocks ticket creation)
         import threading
+        from .notifications import notify_sync
+        _assignee_id = str(ticket_row["assignee_id"]) if ticket_row.get("assignee_id") else None
         def _notify():
             try:
                 with get_db_connection() as nc:
                     nc_cursor = nc.cursor()
                     nc_cursor.execute("""
-                        SELECT DISTINCT au.email
+                        SELECT DISTINCT au.id::text AS uid, au.email
                         FROM app.organization_members om
                         JOIN auth.users au ON au.id = om.user_id
                         WHERE om.organization_id = %s AND om.role IN ('owner', 'admin', 'rep')
@@ -267,6 +220,14 @@ def create_ticket(payload: TicketCreate, request: Request, user: User = Depends(
                             row["email"], str(ticket_id), payload.title,
                             user.email or "unknown",
                         )
+                # In-app: notify assigned rep
+                if _assignee_id:
+                    notify_sync(
+                        _assignee_id, "ticket_assigned",
+                        f"New ticket assigned: {payload.title[:60]}",
+                        f"Ticket was assigned to you by CASPER auto-routing.",
+                        ref_type="ticket", ref_id=str(ticket_id), org_id=org_id,
+                    )
             except Exception:
                 pass
 
@@ -339,8 +300,8 @@ def list_tickets(
             params.append(status_filter)
 
         if q:
-            where_conditions.append("t.title ILIKE %s")
-            params.append(f"%{q}%")
+            where_conditions.append("(t.title ILIKE %s OR t.description ILIKE %s)")
+            params.extend([f"%{q}%", f"%{q}%"])
 
         where_clause = "WHERE " + " AND ".join(where_conditions)
 
@@ -416,6 +377,8 @@ def get_ticket(ticket_id: str, request: Request, user: User = Depends(get_curren
                    t.resolution_note, t.customer_rating,
                    t.tags,
                    au.email AS assignee_email,
+                   au.raw_user_meta_data->>'display_name' AS assignee_display_name,
+                   au.raw_user_meta_data->>'phone' AS assignee_phone,
                    cu.email AS customer_email,
                    eu.email AS escalated_to_email
             FROM app.tickets t
@@ -450,6 +413,8 @@ def get_ticket(ticket_id: str, request: Request, user: User = Depends(get_curren
             created_by=str(ticket_row["created_by"]),
             assignee_id=str(ticket_row["assignee_id"]) if ticket_row.get("assignee_id") else None,
             assignee_email=ticket_row.get("assignee_email"),
+            assignee_display_name=ticket_row.get("assignee_display_name"),
+            assignee_phone=ticket_row.get("assignee_phone"),
             customer_email=ticket_row.get("customer_email"),
             title=ticket_row["title"],
             description=ticket_row["description"],
@@ -596,36 +561,40 @@ def post_message(ticket_id: str, payload: MessageCreate, request: Request, user:
         ticket_title = ticket_row["title"] if ticket_row else ""
         ticket_id_str = str(ticket_row["id"]) if ticket_row else ticket_id
 
+        from .notifications import notify_sync
         if user_is_rep and not is_internal:
-            # Rep replied → email the customer
+            # Rep replied → email + notify customer
             def _notify_customer():
                 try:
                     with get_db_connection() as nc:
                         nc_cur = nc.cursor()
                         nc_cur.execute(
-                            "SELECT au.email FROM app.tickets t JOIN auth.users au ON au.id = t.created_by WHERE t.id = %s",
+                            "SELECT au.id::text AS uid, au.email FROM app.tickets t JOIN auth.users au ON au.id = t.created_by WHERE t.id = %s",
                             (ticket_id_str,)
                         )
                         row = nc_cur.fetchone()
                         if row and row["email"]:
-                            send_rep_reply_email(
-                                row["email"],
-                                ticket_id_str,
-                                ticket_title,
-                                payload.body[:200],
+                            send_rep_reply_email(row["email"], ticket_id_str, ticket_title, payload.body[:200])
+                        if row and row["uid"]:
+                            notify_sync(
+                                row["uid"], "new_message",
+                                f"New reply on: {ticket_title[:55]}",
+                                payload.body[:120],
+                                ref_type="ticket", ref_id=ticket_id_str,
                             )
                 except Exception:
                     pass
             threading.Thread(target=_notify_customer, daemon=True).start()
 
         elif not user_is_rep and not is_internal:
-            # Customer replied → email the assigned rep (if any)
+            # Customer replied → email + notify assigned rep
             def _notify_rep():
                 try:
                     with get_db_connection() as nc:
                         nc_cur = nc.cursor()
                         nc_cur.execute("""
-                            SELECT au_rep.email AS rep_email, au_cust.email AS cust_email
+                            SELECT au_rep.id::text AS rep_uid, au_rep.email AS rep_email,
+                                   au_cust.email AS cust_email, t.organization_id::text AS org_id
                             FROM app.tickets t
                             LEFT JOIN auth.users au_rep ON au_rep.id = t.assignee_id
                             JOIN auth.users au_cust ON au_cust.id = t.created_by
@@ -634,11 +603,16 @@ def post_message(ticket_id: str, payload: MessageCreate, request: Request, user:
                         row = nc_cur.fetchone()
                         if row and row["rep_email"]:
                             send_customer_reply_email(
-                                row["rep_email"],
-                                ticket_id_str,
-                                ticket_title,
-                                row["cust_email"] or "customer",
-                                payload.body[:200],
+                                row["rep_email"], ticket_id_str, ticket_title,
+                                row["cust_email"] or "customer", payload.body[:200],
+                            )
+                        if row and row["rep_uid"]:
+                            notify_sync(
+                                row["rep_uid"], "new_message",
+                                f"Customer replied: {ticket_title[:55]}",
+                                payload.body[:120],
+                                ref_type="ticket", ref_id=ticket_id_str,
+                                org_id=row.get("org_id"),
                             )
                 except Exception:
                     pass
@@ -1132,20 +1106,29 @@ def resolve_ticket(
 
     # Notify customer (fire-and-forget)
     import threading
+    from .notifications import notify_sync
     _tid = str(row["id"])
     _title = row["title"]
+    _created_by = str(row["created_by"]) if row.get("created_by") else None
     _note = payload.resolution_note
     def _notify_resolved():
         try:
             with get_db_connection() as nc:
                 nc_cur = nc.cursor()
                 nc_cur.execute(
-                    "SELECT au.email FROM app.tickets t JOIN auth.users au ON au.id = t.created_by WHERE t.id = %s",
+                    "SELECT au.id::text AS uid, au.email FROM app.tickets t JOIN auth.users au ON au.id = t.created_by WHERE t.id = %s",
                     (_tid,)
                 )
                 r = nc_cur.fetchone()
                 if r and r["email"]:
                     send_ticket_resolved_email(r["email"], _tid, _title, _note)
+                if r and r["uid"]:
+                    notify_sync(
+                        r["uid"], "ticket_resolved",
+                        f"Your ticket was resolved: {_title[:60]}",
+                        _note or "Your support ticket has been resolved.",
+                        ref_type="ticket", ref_id=_tid,
+                    )
         except Exception:
             pass
     threading.Thread(target=_notify_resolved, daemon=True).start()
@@ -1187,3 +1170,65 @@ def rate_ticket(
         conn.commit()
 
     return {"ok": True, "rating": payload.rating}
+
+# ── Bulk operations ───────────────────────────────────────────────────────────
+
+@router.post("/tickets/bulk")
+def bulk_ticket_action(
+    payload: BulkTicketRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Bulk status change or assignment for reps/admins."""
+    org_id = require_org_context(request)
+    if not is_rep(user):
+        raise HTTPException(403, "Rep/admin access required")
+
+    ids = payload.ticket_ids
+    action = payload.action
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        if action in ("resolve", "close"):
+            new_status = "resolved" if action == "resolve" else "closed"
+            cursor.execute(
+                f"""
+                UPDATE app.tickets
+                SET status = %s,
+                    resolution_note = COALESCE(%s, resolution_note),
+                    resolved_at = CASE WHEN status NOT IN ('resolved','closed') THEN NOW() ELSE resolved_at END,
+                    updated_at = NOW()
+                WHERE id = ANY(%s::uuid[]) AND organization_id = %s
+                RETURNING id
+                """,
+                (new_status, payload.note, ids, org_id),
+            )
+        elif action == "reopen":
+            cursor.execute(
+                """
+                UPDATE app.tickets
+                SET status = 'open', resolved_at = NULL, updated_at = NOW()
+                WHERE id = ANY(%s::uuid[]) AND organization_id = %s
+                RETURNING id
+                """,
+                (ids, org_id),
+            )
+        elif action == "assign":
+            assignee = payload.assignee_id or user.id
+            cursor.execute(
+                """
+                UPDATE app.tickets
+                SET assignee_id = %s::uuid, updated_at = NOW()
+                WHERE id = ANY(%s::uuid[]) AND organization_id = %s
+                RETURNING id
+                """,
+                (assignee, ids, org_id),
+            )
+        else:
+            raise HTTPException(400, "Unknown action")
+
+        updated = [str(r["id"]) for r in cursor.fetchall()]
+        conn.commit()
+
+    return {"ok": True, "updated": len(updated), "ids": updated}

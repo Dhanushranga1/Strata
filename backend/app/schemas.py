@@ -40,6 +40,8 @@ class TicketDetail(TicketSummary):
     resolution_note: Optional[str] = None
     customer_rating: Optional[int] = None
     updated_at: Optional[datetime] = None
+    assignee_display_name: Optional[str] = None
+    assignee_phone: Optional[str] = None
 
 class TicketListResponse(BaseModel):
     items: List[TicketSummary]
@@ -110,6 +112,7 @@ class QueueItem(BaseModel):
     escalated_at: Optional[datetime] = None
     expected_resolve_at: Optional[datetime] = None
     etr_set_at: Optional[datetime] = None
+    accepted_at: Optional[datetime] = None
 
 class QueueResponse(BaseModel):
     items: List[QueueItem]
@@ -120,6 +123,7 @@ class QueueResponse(BaseModel):
 class QueueCounts(BaseModel):
     needs_attention: int
     open_active: int
+    in_progress: int = 0
     escalated: int
     all: int
     resolved_today: int = 0
@@ -145,6 +149,12 @@ class PriorityLevelRequest(BaseModel):
 
 class ETRRequest(BaseModel):
     expected_resolve_at: datetime
+
+class BulkTicketRequest(BaseModel):
+    ticket_ids: list[str] = Field(..., min_length=1, max_length=100)
+    action: str = Field(pattern="^(resolve|close|reopen|assign)$")
+    assignee_id: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=400)
 
 # Phase 3: AI Feedback schemas
 class FeedbackRequest(BaseModel):
