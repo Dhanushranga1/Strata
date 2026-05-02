@@ -170,6 +170,14 @@ function LoginPageInner() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-sm font-medium text-zinc-300">Password</label>
+                <button
+                  type="button"
+                  onClick={signInMagic}
+                  disabled={!email || magicLoading}
+                  className="text-xs text-zinc-500 hover:text-indigo-400 transition-colors disabled:opacity-40"
+                >
+                  Forgot password?
+                </button>
               </div>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />

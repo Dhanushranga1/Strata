@@ -47,11 +47,13 @@ interface QueueItem {
   escalated_at?: string
   expected_resolve_at?: string
   etr_set_at?: string
+  accepted_at?: string
 }
 
 interface QueueCounts {
   needs_attention: number
   open_active: number
+  in_progress: number
   escalated: number
   all: number
   resolved_today: number
@@ -112,7 +114,7 @@ export default function RepConsolePage() {
   const [ticketsLoading, setTicketsLoading] = useState(false)
   const [countsLoading, setCountsLoading] = useState(false)
   const [tickets, setTickets] = useState<QueueItem[]>([])
-  const [counts, setCounts] = useState<QueueCounts>({ needs_attention: 0, open_active: 0, escalated: 0, all: 0, resolved_today: 0 })
+  const [counts, setCounts] = useState<QueueCounts>({ needs_attention: 0, open_active: 0, in_progress: 0, escalated: 0, all: 0, resolved_today: 0 })
   const [currentLane, setCurrentLane] = useState('needs_attention')
   const [searchQuery, setSearchQuery] = useState('')
   const [mineOnly, setMineOnly] = useState(true)
@@ -121,7 +123,8 @@ export default function RepConsolePage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showKBModal, setShowKBModal] = useState(false)
   const [lastRefresh, setLastRefresh] = useState(Date.now())
-  
+  const [now, setNow] = useState(Date.now())
+
   // AI-related state
   const [aiModalOpen, setAiModalOpen] = useState(false)
   const [aiResponse, setAiResponse] = useState<any>(null)
@@ -173,6 +176,12 @@ export default function RepConsolePage() {
 
     return () => clearInterval(interval)
   }, [user, currentLane, searchQuery, mineOnly, offset, isReady, orgId])
+
+  // Tick every second — drives live accept timers and AI cooldown counters
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   // AI cooldown timer
   useEffect(() => {
@@ -710,6 +719,36 @@ export default function RepConsolePage() {
     return map[level] ?? { label: `P${level}`, className: 'bg-zinc-800 text-zinc-400' }
   }
 
+  const formatElapsed = (fromStr: string): string => {
+    const diffMs = now - new Date(fromStr).getTime()
+    const totalMins = Math.floor(diffMs / 60000)
+    const days = Math.floor(totalMins / 1440)
+    const hours = Math.floor((totalMins % 1440) / 60)
+    const mins = totalMins % 60
+    if (days > 0) return `${days}d ${hours}h`
+    if (hours > 0) return `${hours}h ${mins}m`
+    return `${mins}m`
+  }
+
+  const handleAccept = async (ticket: QueueItem) => {
+    if (!orgId) return
+    try {
+      setActionLoading(ticket.id + 'accept')
+      await api.post(`/api/rep/tickets/${ticket.id}/accept`, {}, orgId)
+      toast.success('Ticket accepted — now in progress')
+      setTickets(prev => prev.map(t =>
+        t.id === ticket.id
+          ? { ...t, status: 'in_progress', accepted_at: new Date().toISOString(), needs_attention: false }
+          : t
+      ))
+      await loadCounts(true)
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to accept ticket')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   const formatETR = (etrStr: string): { text: string; className: string } => {
     const etr = new Date(etrStr)
     const now = new Date()
@@ -963,7 +1002,7 @@ export default function RepConsolePage() {
         <Card className="relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-r from-green-500/10 to-green-600/5" />
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative">
-            <CardTitle className="text-sm font-medium">Total Queue</CardTitle>
+            <CardTitle className="text-sm font-medium">Total In Progress</CardTitle>
             <Clock className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent className="relative">
@@ -971,11 +1010,11 @@ export default function RepConsolePage() {
               {countsLoading ? (
                 <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
               ) : (
-                counts.all
+                counts.in_progress
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              All tickets in the system
+              Tickets currently in progress
             </p>
           </CardContent>
         </Card>
@@ -1065,8 +1104,19 @@ export default function RepConsolePage() {
       {/* Tickets List */}
       <m.div className="space-y-4" variants={v.list} initial="initial" animate="animate">
         {((ticketsLoading && tickets.length === 0) || switchingOrg) ? (
-          // Show skeleton component while loading or switching orgs
           <RepQueueSkeleton />
+        ) : !ticketsLoading && tickets.length === 0 ? (
+          <div className="flex flex-col items-center py-16 text-muted-foreground gap-3">
+            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+              <svg className="w-8 h-8 text-primary/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <p className="font-medium text-lg">Queue is clear</p>
+            <p className="text-sm text-center max-w-xs">
+              No tickets in this lane right now. New tickets assigned to you will appear here.
+            </p>
+          </div>
         ) : (
           tickets.map(ticket => {
             const age = getTicketAge(ticket.created_at);
@@ -1160,6 +1210,12 @@ export default function RepConsolePage() {
                       <Clock className="h-3 w-3" />
                       {formatTimeAgo(ticket.last_message_at)}
                     </div>
+                    {ticket.status === 'in_progress' && ticket.accepted_at && (
+                      <div className="flex items-center gap-1 text-xs font-medium text-emerald-600">
+                        <Clock className="h-3 w-3" />
+                        In progress: {formatElapsed(ticket.accepted_at)}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1224,6 +1280,14 @@ export default function RepConsolePage() {
                     }
                   ]}
                   primaryActions={[
+                    ...(['open', 'escalated'].includes(ticket.status) ? [{
+                      id: 'accept',
+                      label: actionLoading === ticket.id + 'accept' ? 'Accepting…' : 'Accept',
+                      icon: CheckCircle,
+                      variant: 'default' as const,
+                      onClick: () => handleAccept(ticket),
+                      disabled: actionLoading?.startsWith(ticket.id) || false
+                    }] : []),
                     {
                       id: 'assign',
                       label: 'Assign to Me',
