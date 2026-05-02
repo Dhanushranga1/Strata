@@ -96,7 +96,8 @@ export async function apiCall<T = any>(
     throw new Error(errorMessage)
   }
 
-  const responseData = await response.json()
+  const text = await response.text()
+  const responseData = text ? JSON.parse(text) : {}
 
   if (method === 'GET') {
     getCache.set(cacheKey(endpoint, orgId), { data: responseData, expiry: Date.now() + GET_CACHE_TTL_MS })

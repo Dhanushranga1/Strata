@@ -1,21 +1,28 @@
 'use client'
 
+'use client'
+
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
+import api from '@/lib/api-client'
+import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { 
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
   User,
-  Settings, 
+  Settings,
   Bell,
   Shield,
   Clock,
   Mail,
   UserCheck,
-  ExternalLink
+  ExternalLink,
+  Phone,
 } from 'lucide-react'
 
 interface UserProfile {
@@ -34,10 +41,34 @@ export default function AccountPage() {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [displayName, setDisplayName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
 
   useEffect(() => {
     loadUserProfile()
+    loadProfile()
   }, [])
+
+  const loadProfile = async () => {
+    try {
+      const data = await api.get('/api/me/profile')
+      setDisplayName(data.display_name || '')
+      setPhone(data.phone || '')
+    } catch { /* non-fatal */ }
+  }
+
+  const saveProfile = async () => {
+    setProfileSaving(true)
+    try {
+      await api.patch('/api/me/profile', { display_name: displayName, phone })
+      toast.success('Profile saved')
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save profile')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
 
   const loadUserProfile = async () => {
     try {
@@ -96,11 +127,16 @@ export default function AccountPage() {
     }
   }
 
+  const getRoleLabel = (role: string) => {
+    const labels: Record<string, string> = { admin: 'Admin', rep: 'Support Rep', customer: 'Client' }
+    return labels[role] ?? role
+  }
+
   const getRoleDescription = (role: string) => {
     switch (role) {
       case 'admin': return 'Full system access and user management'
       case 'rep': return 'Customer support and ticket management'
-      case 'customer': return 'Standard user access'
+      case 'customer': return 'Submit and track support tickets'
       default: return 'Basic access'
     }
   }
@@ -172,7 +208,7 @@ export default function AccountPage() {
               <label className="text-sm font-medium text-muted-foreground">Account Role</label>
               <div className="flex items-center gap-2 mt-1">
                 <Badge variant={getRoleBadgeVariant(user.role)}>
-                  {user.role}
+                  {getRoleLabel(user.role)}
                 </Badge>
                 <span className="text-sm text-muted-foreground">
                   {getRoleDescription(user.role)}
@@ -209,6 +245,47 @@ export default function AccountPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Profile edit — reps/admins can set display name + phone */}
+      {user && ['rep', 'admin'].includes(user.role) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Contact Profile
+            </CardTitle>
+            <CardDescription>
+              Shown to clients when you are assigned to their ticket
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="display-name">Display name</Label>
+                <Input
+                  id="display-name"
+                  placeholder="Alex Smith"
+                  value={displayName}
+                  onChange={e => setDisplayName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="phone">Phone number</Label>
+                <Input
+                  id="phone"
+                  placeholder="+1 555 000 0000"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                />
+              </div>
+            </div>
+            <Button onClick={saveProfile} disabled={profileSaving} size="sm">
+              <Phone className="h-4 w-4 mr-2" />
+              {profileSaving ? 'Saving…' : 'Save Profile'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Account Actions */}
       <div className="grid gap-6 md:grid-cols-2">

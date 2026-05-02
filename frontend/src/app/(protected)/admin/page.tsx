@@ -8,15 +8,18 @@ import { useOrganization } from "@/contexts/OrganizationContext";
 import api from "@/lib/api-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { 
-  Users, 
-  UserCheck, 
-  BarChart3, 
-  Settings, 
+import {
+  Users,
+  UserCheck,
+  BarChart3,
+  Settings,
   Shield,
   AlertTriangle,
   TrendingUp,
-  Activity
+  Activity,
+  Building2,
+  Ticket,
+  ScrollText,
 } from "lucide-react";
 import { PageShell } from '@/ui/motion/PageShell';
 import { SystemHealthDashboard } from '@/components/admin/SystemHealthDashboard';
@@ -133,6 +136,14 @@ export default function AdminPage() {
 
   const adminSections = [
     {
+      title: "Organisations",
+      description: "Create orgs, assign reps, manage members",
+      icon: Building2,
+      href: "/admin/organizations",
+      color: "bg-emerald-500",
+      stats: "Manage all orgs"
+    },
+    {
       title: "Team Members",
       description: "Manage members, roles, and invites",
       icon: UserCheck,
@@ -155,6 +166,22 @@ export default function AdminPage() {
       href: "/admin/analytics",
       color: "bg-green-500",
       stats: `${stats.totalTickets} tickets`
+    },
+    {
+      title: "All Tickets",
+      description: "Cross-org ticket view with filtering",
+      icon: Ticket,
+      href: "/admin/tickets",
+      color: "bg-orange-500",
+      stats: `${stats.totalTickets} total`
+    },
+    {
+      title: "Audit Log",
+      description: "Platform-wide action history",
+      icon: ScrollText,
+      href: "/admin/audit-log",
+      color: "bg-slate-500",
+      stats: "View log"
     },
     {
       title: "System Settings",

@@ -40,9 +40,15 @@ interface InviteInfo {
 }
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
-  admin: 'Manage members, knowledge base, and organization settings',
+  admin: 'Manage clients, knowledge base, and organization settings',
   rep: 'Handle and reply to support tickets',
-  member: 'Submit support tickets',
+  member: 'Submit and track support tickets as a client',
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Admin',
+  rep: 'Support Rep',
+  member: 'Client',
 }
 
 export default function InviteAcceptPage({
@@ -163,7 +169,7 @@ export default function InviteAcceptPage({
           <h2 className="text-xl font-semibold">Welcome aboard!</h2>
           <p className="text-muted-foreground">
             You have joined <strong>{invite!.organization_name}</strong> as{' '}
-            <strong>{invite!.role}</strong>. Redirecting to your dashboard…
+            <strong>{ROLE_LABELS[invite!.role] ?? invite!.role}</strong>. Redirecting to your dashboard…
           </p>
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
@@ -187,8 +193,8 @@ export default function InviteAcceptPage({
             <p className="text-sm text-muted-foreground">You have been invited to join</p>
             <h2 className="text-2xl font-bold mt-1">{invite!.organization_name}</h2>
           </div>
-          <Badge variant="secondary" className="text-sm px-3 py-1 capitalize">
-            {invite!.role}
+          <Badge variant="secondary" className="text-sm px-3 py-1">
+            {ROLE_LABELS[invite!.role] ?? invite!.role}
           </Badge>
           {ROLE_DESCRIPTIONS[invite!.role] && (
             <p className="text-sm text-muted-foreground max-w-xs">

@@ -29,6 +29,13 @@ interface Member {
 
 const ROLE_ORDER = ['owner', 'admin', 'rep', 'member']
 
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'Owner',
+  admin: 'Admin',
+  rep: 'Support Rep',
+  member: 'Client',
+}
+
 const roleBadgeClass: Record<string, string> = {
   owner: 'bg-purple-100 text-purple-800 border border-purple-300',
   admin: 'bg-blue-100 text-blue-800 border border-blue-300',
@@ -298,7 +305,7 @@ export default function AdminUsersPage() {
                         <SelectTrigger className="h-8 text-xs">
                           <SelectValue>
                             <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded', roleBadgeClass[member.role] ?? roleBadgeClass.member)}>
-                              {member.role}
+                              {ROLE_LABELS[member.role] ?? member.role}
                             </span>
                           </SelectValue>
                         </SelectTrigger>
@@ -306,7 +313,7 @@ export default function AdminUsersPage() {
                           {ROLE_ORDER.map(r => (
                             <SelectItem key={r} value={r} className="text-xs">
                               <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded', roleBadgeClass[r])}>
-                                {r}
+                                {ROLE_LABELS[r] ?? r}
                               </span>
                             </SelectItem>
                           ))}
@@ -409,9 +416,9 @@ export default function AdminUsersPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="rep">rep</SelectItem>
-                    <SelectItem value="admin">admin</SelectItem>
-                    <SelectItem value="member">member</SelectItem>
+                    <SelectItem value="rep">Support Rep</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="member">Client</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

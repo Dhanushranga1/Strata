@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from typing import Optional
+import asyncio
 from .auth import User, get_current_user
 from .schemas import (
     QueueResponse, QueueCounts, QueueItem,
@@ -74,7 +75,7 @@ async def queue(
             SELECT t.id, t.title, t.status, t.priority, t.priority_level,
                    t.needs_attention, t.assignee_id,
                    t.message_count, t.last_message_at, t.created_at,
-                   t.escalated_at,
+                   t.escalated_at, t.accepted_at,
                    t.expected_resolve_at, t.etr_set_at,
                    eu.email AS escalated_to_name
             FROM app.tickets t
@@ -108,6 +109,7 @@ async def queue(
                 escalated_to_name=row['escalated_to_name'],
                 expected_resolve_at=row['expected_resolve_at'],
                 etr_set_at=row['etr_set_at'],
+                accepted_at=row['accepted_at'],
             )
             for row in items_result
         ]
@@ -156,9 +158,15 @@ async def counts(request: Request, user: User = Depends(get_current_user)):
             org_id
         )
 
+        in_progress_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1 AND status = 'in_progress'",
+            org_id
+        )
+
         return QueueCounts(
             needs_attention=needs_attention_count,
             open_active=open_active_count,
+            in_progress=in_progress_count,
             escalated=escalated_count,
             all=all_count,
             resolved_today=resolved_today_count
@@ -166,6 +174,150 @@ async def counts(request: Request, user: User = Depends(get_current_user)):
         
     finally:
         await conn.close()
+
+@router.get("/my-tickets")
+async def my_tickets(
+    request: Request,
+    status_filter: str = Query("open", pattern="^(open|in_progress|escalated|resolved|closed|all)$"),
+    q: Optional[str] = Query(None, max_length=100),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    user: User = Depends(get_current_user),
+):
+    """
+    Return all tickets assigned to the current rep across every organisation they belong to.
+    Does NOT require an X-Organization-ID header — this is a cross-org view.
+    """
+    require_rep(user)
+    conn = await get_db_connection()
+    try:
+        # All org IDs where this user is an active member with rep/admin/owner role
+        org_rows = await conn.fetch(
+            """
+            SELECT om.organization_id::text, o.name AS org_name
+            FROM app.organization_members om
+            JOIN app.organizations o ON o.id = om.organization_id
+            WHERE om.user_id = $1 AND om.role IN ('owner', 'admin', 'rep')
+            """,
+            user.id,
+        )
+        if not org_rows:
+            return {"items": [], "total": 0, "offset": offset, "limit": limit}
+
+        org_ids = [r["organization_id"] for r in org_rows]
+        org_name_map = {r["organization_id"]: r["org_name"] for r in org_rows}
+
+        where_conditions = [
+            "t.assignee_id = $1",
+            f"t.organization_id = ANY($2::uuid[])",
+        ]
+        params: list = [user.id, org_ids]
+
+        if status_filter != "all":
+            where_conditions.append(f"t.status = ${len(params) + 1}")
+            params.append(status_filter)
+
+        if q:
+            where_conditions.append(f"t.title ILIKE ${len(params) + 1}")
+            params.append(f"%{q}%")
+
+        where_clause = "WHERE " + " AND ".join(where_conditions)
+
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM app.tickets t {where_clause}", *params
+        )
+
+        rows = await conn.fetch(
+            f"""
+            SELECT t.id, t.title, t.status, t.priority, t.priority_level,
+                   t.needs_attention, t.is_overdue, t.message_count,
+                   t.last_message_at, t.created_at, t.organization_id::text,
+                   cu.email AS customer_email
+            FROM app.tickets t
+            LEFT JOIN auth.users cu ON cu.id = t.created_by
+            {where_clause}
+            ORDER BY t.last_message_at DESC
+            LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
+            """,
+            *params, limit, offset,
+        )
+
+        items = [
+            {
+                "id": str(r["id"]),
+                "title": r["title"],
+                "status": r["status"],
+                "priority": r["priority"],
+                "priority_level": r["priority_level"],
+                "needs_attention": r["needs_attention"],
+                "is_overdue": r["is_overdue"],
+                "message_count": r["message_count"],
+                "last_message_at": r["last_message_at"],
+                "created_at": r["created_at"],
+                "organization_id": r["organization_id"],
+                "organization_name": org_name_map.get(r["organization_id"], "Unknown"),
+                "customer_email": r["customer_email"],
+            }
+            for r in rows
+        ]
+
+        return {"items": items, "total": total, "offset": offset, "limit": limit}
+
+    finally:
+        await conn.close()
+
+
+@router.post("/tickets/{ticket_id}/accept", status_code=status.HTTP_200_OK)
+async def accept_ticket(
+    ticket_id: str,
+    request: Request,
+    user: User = Depends(get_current_user)
+):
+    """Accept an open ticket — sets status=in_progress, records accepted_at, assigns to caller."""
+    org_id = require_org_context(request)
+    require_rep(user)
+
+    conn = await get_db_connection()
+    try:
+        async with conn.transaction():
+            ticket = await conn.fetchrow(
+                "SELECT id, status FROM app.tickets WHERE id = $1 AND organization_id = $2",
+                ticket_id, org_id
+            )
+            if not ticket:
+                raise HTTPException(status_code=404, detail="Ticket not found")
+            if ticket['status'] not in ('open', 'escalated'):
+                raise HTTPException(status_code=409, detail="Only open or escalated tickets can be accepted")
+
+            await conn.execute(
+                """
+                UPDATE app.tickets
+                SET status = 'in_progress', accepted_at = NOW(),
+                    assignee_id = $1, updated_at = NOW(), needs_attention = false
+                WHERE id = $2
+                """,
+                user.id, ticket_id
+            )
+            await conn.execute(
+                """
+                INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
+                VALUES ($1, $2, 'system', $3, '[system] Ticket accepted — now in progress', NOW())
+                """,
+                ticket_id, user.id, org_id
+            )
+            await conn.execute(
+                "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
+                ticket_id
+            )
+        from .admin import log_audit
+        asyncio.create_task(log_audit(
+            "ticket.accepted", user,
+            resource_type="ticket", resource_id=ticket_id, org_id=org_id,
+        ))
+        return {"ok": True}
+    finally:
+        await conn.close()
+
 
 @router.post("/tickets/{ticket_id}/escalate", status_code=status.HTTP_200_OK)
 async def escalate(
@@ -242,8 +394,14 @@ async def escalate(
                 ticket_id
             )
             
+        from .admin import log_audit
+        asyncio.create_task(log_audit(
+            "ticket.escalated", user,
+            resource_type="ticket", resource_id=ticket_id, org_id=org_id,
+            metadata={"reason": body.reason},
+        ))
         return {"ok": True}
-        
+
     finally:
         await conn.close()
 
@@ -311,9 +469,14 @@ async def set_status(
                 "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
                 ticket_id
             )
-            
+
+        from .admin import log_audit
+        asyncio.create_task(log_audit(
+            f"ticket.status.{new_status}", user,
+            resource_type="ticket", resource_id=ticket_id, org_id=org_id,
+        ))
         return {"ok": True}
-        
+
     finally:
         await conn.close()
 
