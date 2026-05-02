@@ -9,7 +9,8 @@ import { cn } from '@/lib/utils'
 import {
   Sparkles, Eye, EyeOff, ThumbsUp, ThumbsDown, AlertCircle,
   Lock, Tag, Star, CheckCircle2, X, ChevronLeft, Clock,
-  User, AlertTriangle, MessageSquare, Bot, UserCheck,
+  User, AlertTriangle, MessageSquare, Bot, UserCheck, Phone,
+  History,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -39,6 +40,8 @@ interface TicketDetail {
   created_by: string
   assignee_id?: string
   assignee_email?: string
+  assignee_display_name?: string
+  assignee_phone?: string
   customer_email?: string
   title: string
   description: string
@@ -96,6 +99,58 @@ const formatShort = (s: string) => {
   if (hours > 0) return `${hours}h ago`
   if (mins > 0) return `${mins}m ago`
   return 'just now'
+}
+
+function ActivityTimeline({ ticket, messages }: { ticket: TicketDetail; messages: MessageOut[] }) {
+  type Event = { ts: string; icon: string; label: string; sub?: string }
+  const events: Event[] = []
+
+  events.push({ ts: ticket.created_at, icon: '🎫', label: 'Ticket created', sub: ticket.priority })
+
+  messages
+    .filter(m => isSystemMessage(m))
+    .forEach(m => {
+      const body = m.body.replace('[system]', '').trim()
+      const icon = body.toLowerCase().includes('assign') ? '👤'
+        : body.toLowerCase().includes('escalat') ? '🚨'
+        : body.toLowerCase().includes('casper') ? '🤖'
+        : '⚙️'
+      events.push({ ts: m.created_at, icon, label: body.slice(0, 80) })
+    })
+
+  if (ticket.resolved_at)
+    events.push({ ts: ticket.resolved_at, icon: '✅', label: `Ticket ${ticket.status}`, sub: ticket.resolution_note?.slice(0, 60) })
+
+  events.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-1.5">
+          <History className="h-4 w-4" /> Activity
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="relative pl-4">
+          <div className="absolute left-[7px] top-0 bottom-0 w-px bg-border" />
+          <div className="space-y-3">
+            {events.map((e, i) => (
+              <div key={i} className="relative flex gap-2.5 items-start">
+                <span className="absolute -left-4 w-3.5 h-3.5 bg-card border border-border rounded-full flex items-center justify-center text-[9px] shrink-0 mt-0.5">
+                  {e.icon}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium leading-snug">{e.label}</p>
+                  {e.sub && <p className="text-[10px] text-muted-foreground truncate">{e.sub}</p>}
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{formatShort(e.ts)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 const PRIORITY_LEVEL_COLORS: Record<number, string> = {
@@ -476,6 +531,35 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         )}
       </div>
 
+      {/* Rep contact card — shown to clients when a rep is assigned */}
+      {!isRep && ticket.assignee_id && (ticket.assignee_email || ticket.assignee_display_name) && (
+        <div className="bg-card border rounded-xl p-4 mb-2 flex items-center gap-4 shadow-sm">
+          <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+            <span className="text-sm font-bold text-primary">
+              {(ticket.assignee_display_name || ticket.assignee_email || 'R')[0].toUpperCase()}
+            </span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-0.5">Your Support Rep</p>
+            <p className="text-sm font-medium">
+              {ticket.assignee_display_name || ticket.assignee_email}
+            </p>
+            {ticket.assignee_display_name && ticket.assignee_email && (
+              <p className="text-xs text-muted-foreground">{ticket.assignee_email}</p>
+            )}
+          </div>
+          {ticket.assignee_phone && (
+            <a
+              href={`tel:${ticket.assignee_phone}`}
+              className="flex items-center gap-1.5 text-xs text-primary hover:underline shrink-0"
+            >
+              <Phone className="h-3.5 w-3.5" />
+              {ticket.assignee_phone}
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Two-column layout on desktop */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Messages — left/main column */}
@@ -780,6 +864,9 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
               )}
             </CardContent>
           </Card>
+
+          {/* Activity Timeline */}
+          <ActivityTimeline ticket={ticket} messages={messages} />
 
           {/* Rep actions */}
           {isRep && (
