@@ -1,7 +1,7 @@
 # TicketPilot — Engineering Updates & Changelog
 
 **Document type:** Cumulative engineering journal  
-**Last updated:** 2026-04-27  
+**Last updated:** 2026-05-02  
 **Scope:** Every meaningful change from initial MVP to present, grouped by theme.  
 Each section references the git commit(s) responsible so changes can be traced.
 
@@ -28,24 +28,7 @@ Each section references the git commit(s) responsible so changes can be traced.
 17. [CASPER — Automatic Ticket Routing](#17-casper--automatic-ticket-routing)
 18. [UI Polish, Mobile Layout & Loading Speed](#18-ui-polish-mobile-layout--loading-speed)
 19. [RAG Pipeline & CASPER Optimizations](#19-rag-pipeline--casper-optimizations)
-
----
-2. [Phase 1 — Foundational UX](#2-phase-1--foundational-ux)
-3. [Phase 2 — Workflow Enhancements](#3-phase-2--workflow-enhancements)
-4. [Phase 3 — Strategic Improvements](#4-phase-3--strategic-improvements)
-5. [Email Invite System](#5-email-invite-system)
-6. [Auth, CORS & Security Hardening](#6-auth-cors--security-hardening)
-7. [Vercel + Render Deployment Fixes](#7-vercel--render-deployment-fixes)
-8. [Database Optimization (3 s → 400 ms)](#8-database-optimization-3-s--400-ms)
-9. [Onboarding & Organisation Flow Fixes](#9-onboarding--organisation-flow-fixes)
-10. [Embedding Model Upgrade & Demo Seed Data](#10-embedding-model-upgrade--demo-seed-data)
-11. [Next.js 15 Upgrade & Suspense Fixes](#11-nextjs-15-upgrade--suspense-fixes)
-12. [FAISS Cold-Start Persistence](#12-faiss-cold-start-persistence)
-13. [Rep Email Notifications](#13-rep-email-notifications)
-14. [Invite Email — Resend Migration](#14-invite-email--resend-migration)
-15. [Role-Based KB Access](#15-role-based-kb-access)
-16. [CASPER — Adaptive RAG Scoring](#16-casper--adaptive-rag-scoring)
-17. [CASPER — Automatic Ticket Routing](#17-casper--automatic-ticket-routing)
+20. [Sprint 6 — Application Completeness](#20-sprint-6--application-completeness)
 
 ---
 
@@ -520,6 +503,9 @@ Ticket assignment previously required an admin to either:
 | 0018 | `priority_urgent` | `urgent` added to priority enum |
 | 0019 | `chunk_embeddings` | `embedding float4[]` for FAISS cold-start rebuild |
 | 0020 | `faiss_snapshots` | Binary FAISS snapshot persistence (`bytea`) |
+| 0021 | `org_settings` | Extended org settings JSONB fields (email_notifications, max_file_size_mb, etc.) |
+| 0022 | `audit_log` | `app.audit_log` table — platform-wide action history with actor, action, resource, metadata |
+| 0023 | `notifications` | `app.notifications` table — per-user in-app notification feed with unread tracking |
 
 ---
 
@@ -716,3 +702,240 @@ All three integration points confirmed operational:
 | Ticket creation | `tickets.py` → `create_ticket()` | `profile_ticket()` classifies intent/urgency/complexity; `casper_route()` assigns to best-fit rep |
 | Bulk auto-assign | `admin.py` → `/auto-assign` | Per-ticket profiling and routing, load tracked in-process |
 | AI chat response | `tickets.py` → `/chat` | `casper_confidence()` scores the response; `should_escalate()` uses adaptive threshold |
+
+---
+
+## 20. Sprint 6 — Application Completeness
+
+**Date:** 2026-05-02  
+**Files changed:** `backend/app/tickets.py`, `backend/app/admin.py`, `backend/app/schemas.py`, `backend/app/main.py`, `backend/app/notifications.py` (new), `backend/migrations/0022_audit_log.sql`, `backend/migrations/0023_notifications.sql` (new), `frontend/src/components/Sidebar.tsx`, `frontend/src/app/(protected)/tickets/page.tsx`, `frontend/src/app/(protected)/tickets/[id]/page.tsx`, `frontend/src/app/(protected)/dashboard/page.tsx`, `frontend/src/app/(protected)/rep/page.tsx`, `frontend/src/app/(protected)/admin/settings/page.tsx`, `frontend/src/app/(protected)/admin/audit-log/page.tsx`, `frontend/src/app/(public)/login/page.tsx`
+
+This sprint completed ten features identified in a full product audit. The goal was to close all gaps between "functional prototype" and "shippable application."
+
+---
+
+### 20.1 In-App Notification System
+
+**New files:** `backend/app/notifications.py`, `backend/migrations/0023_notifications.sql`
+
+#### Database (`0023_notifications.sql`)
+Created `app.notifications` table:
+
+| Column | Type | Purpose |
+|---|---|---|
+| `id` | uuid PK | Row identity |
+| `user_id` | uuid FK → auth.users | Recipient |
+| `org_id` | uuid FK → app.organizations | Org scope |
+| `type` | text | Event type (e.g. `ticket_assigned`, `ticket_resolved`) |
+| `title` | text | Short notification heading |
+| `body` | text | Full message body |
+| `ref_type` | text | Reference entity type (e.g. `ticket`) |
+| `ref_id` | uuid | Reference entity ID |
+| `read_at` | timestamptz | Null until read |
+| `created_at` | timestamptz | Row timestamp |
+
+Two indexes: partial index on `(user_id, org_id) WHERE read_at IS NULL` for unread-badge count, and full timeline index on `(user_id, org_id, created_at DESC)`.
+
+#### Backend API (`notifications.py`)
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/notifications` | Returns `{"unread": N, "items": [...]}` — latest 30 items, unread-first |
+| `POST /api/notifications/{id}/read` | Marks a single notification as read |
+| `POST /api/notifications/read-all` | Marks all of the user's notifications as read |
+| `DELETE /api/notifications/{id}` | Deletes a notification |
+
+**`notify_sync()`** — sync helper that calls the psycopg3 pool (`db_sync`), safe to fire from background threads. Used by ticket assignment and message handlers in `tickets.py`.
+
+**`create_notification()`** — async variant for use in native async routes.
+
+#### Notification triggers wired in `tickets.py`
+- Ticket created + assigned → notify assigned rep
+- Ticket resolved → notify ticket creator
+- Rep posts a reply → notify customer
+- Customer posts a reply → notify assigned rep
+
+---
+
+### 20.2 Notification Bell in Sidebar
+
+**File:** `frontend/src/components/Sidebar.tsx`
+
+New `NotificationBell` component added to the sidebar footer:
+- Polls `GET /api/notifications` every 30 seconds
+- Unread count badge on the bell icon (capped display at 99+)
+- Click opens a dropdown panel listing the latest notifications
+- Each row: title, body excerpt, relative timestamp, individual mark-read and delete buttons
+- "Mark all read" button in panel header
+- Clicking a notification that references a ticket navigates to `/tickets/<id>`
+
+---
+
+### 20.3 Dark Mode Toggle
+
+**File:** `frontend/src/components/Sidebar.tsx`
+
+New `DarkModeToggle` component added to the sidebar footer alongside the notification bell:
+- Reads `localStorage` key `theme` on mount; falls back to `window.matchMedia('(prefers-color-scheme: dark)')` for system preference
+- Toggles `dark` class on `document.documentElement` (Tailwind dark-mode selector)
+- Persists choice to `localStorage` so preference survives page reload
+- Icon switches between `Sun` and `Moon` (lucide-react)
+
+---
+
+### 20.4 Forgot Password on Login Page
+
+**File:** `frontend/src/app/(public)/login/page.tsx`
+
+Added a "Forgot password?" button in the password field label row. Taps the existing `signInMagic()` function (already present for magic-link auth) using the email from the login form. Users receive a Supabase magic link that logs them in without a password.
+
+---
+
+### 20.5 Bulk Ticket Operations
+
+**Files:** `frontend/src/app/(protected)/tickets/page.tsx`, `backend/app/tickets.py`, `backend/app/schemas.py`
+
+#### Backend (`POST /api/tickets/bulk`)
+New `BulkTicketRequest` schema:
+```python
+class BulkTicketRequest(BaseModel):
+    ticket_ids: list[str] = Field(..., min_length=1, max_length=100)
+    action: str = Field(pattern="^(resolve|close|reopen|assign)$")
+    assignee_id: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=400)
+```
+
+Uses `WHERE id = ANY(%s::uuid[])` for a single-query batch update regardless of selection size. Supported actions: `resolve`, `close`, `reopen`, `assign`.
+
+#### Frontend
+- Each ticket row gets a checkbox; header checkbox selects/deselects all visible rows
+- When ≥1 row is selected a floating action bar appears at the bottom of the list with: **Resolve**, **Close**, **Reopen**, **Assign to me** buttons
+- Individual buttons show a spinner while the bulk request is in-flight
+- On completion, the list refreshes and selection is cleared
+
+---
+
+### 20.6 Admin Settings — Wired Save + Quick Actions
+
+**File:** `frontend/src/app/(protected)/admin/settings/page.tsx`
+
+Previously the settings page had a "Save Changes" button that did nothing and Quick Action buttons that fired toast messages only.
+
+**Save Changes** now calls `PATCH /api/admin/organizations/{id}/settings` with the current form values:
+- Site title, site domain, session timeout (hours)
+- Require approval toggle, max file size (MB)
+- Email notifications toggle
+
+**Quick Actions wired:**
+| Button | Action |
+|---|---|
+| Clear Cache | `GET /api/wake` — warms the backend dyno |
+| Test Email | `POST /api/admin/test-email` — sends a test email to the current admin's address |
+| Backup Data | Toast info (export-via-API path noted as future work) |
+
+`POST /api/admin/test-email` was added to `admin.py` — looks up the authenticated admin's email and sends a test message via the configured email provider.
+
+---
+
+### 20.7 Audit Log CSV Export
+
+**File:** `frontend/src/app/(protected)/admin/audit-log/page.tsx`
+
+Added `exportCsv()` function that converts the current page of audit entries to a CSV blob and triggers a browser download. Columns exported: `timestamp`, `actor_email`, `action`, `resource_type`, `resource_id`, `org_id`, `metadata` (JSON-stringified). Filename format: `audit-log-YYYY-MM-DD.csv`. Export button is disabled when the list is empty.
+
+---
+
+### 20.8 Ticket Activity Timeline
+
+**File:** `frontend/src/app/(protected)/tickets/[id]/page.tsx`
+
+New `ActivityTimeline` component renders a vertical timeline in the ticket detail right sidebar, above the "Rep actions" card.
+
+Timeline events are derived client-side from existing data (no extra API call):
+- **Ticket created** — timestamp from `ticket.created_at`
+- **System messages** — each message with `sender_role === 'system'` appears as a labelled step
+- **Resolved / Closed** — shown when `ticket.status` is `resolved` or `closed`
+
+Each event shows an icon (from lucide-react), a label, and a relative timestamp ("2 hours ago", "3 days ago", etc.).
+
+---
+
+### 20.9 Empty States
+
+**Files:** `frontend/src/app/(protected)/rep/page.tsx`, `frontend/src/app/(protected)/tickets/page.tsx`
+
+#### Rep queue empty state
+When the queue finishes loading and contains no tickets, a centred card is shown:
+- Icon: `CheckCircle2`
+- Heading: "Queue is clear"
+- Sub-text: "No tickets match your current filter."
+
+#### Filtered tickets empty state
+When the tickets list has active filters and returns no results:
+- Icon: `Ticket`
+- Heading: "No tickets match your filters"
+- **"Clear filters"** button resets all active filters so the user can see the full list without navigating away
+
+---
+
+### 20.10 Description Search
+
+**Files:** `backend/app/tickets.py`, `backend/app/admin.py`
+
+Ticket search previously matched only the `title` field. Extended to also match `description`:
+
+**`tickets.py`** (`list_tickets`, sync psycopg3 path):
+```python
+# Before
+where_conditions.append("t.title ILIKE %s")
+params.append(f"%{q}%")
+
+# After
+where_conditions.append("(t.title ILIKE %s OR t.description ILIKE %s)")
+params.extend([f"%{q}%", f"%{q}%"])
+```
+
+**`admin.py`** (`/api/admin/tickets`, asyncpg path):
+```python
+# Before
+where.append(f"t.title ILIKE ${len(params)+1}")
+params.append(f"%{q}%")
+
+# After
+p1, p2 = len(params)+1, len(params)+2
+where.append(f"(t.title ILIKE ${p1} OR t.description ILIKE ${p2})")
+params.extend([f"%{q}%", f"%{q}%"])
+```
+
+---
+
+### 20.11 Dashboard Data Fixes
+
+**File:** `frontend/src/app/(protected)/dashboard/page.tsx`
+
+Several metrics on the admin/rep dashboard were using wrong fields or hardcoded mock data:
+
+| Issue | Fix |
+|---|---|
+| Satisfaction score showed `resolution_rate` | Changed to `avg_customer_rating`; displays "—" when null, labelled "CSAT" |
+| Urgent ticket count read from `statusCounts` | Changed to `priorityCounts.find(p => p.priority === 'urgent')` |
+| In-progress count used `s.status === 'pending'` | Changed to `s.status === 'in_progress'` |
+| Today / This Week were hardcoded "0" | Backend now returns `today_count` and `week_count`; dashboard reads these fields |
+| Recent Activity showed fake tickets #1234/1235/1236 | Admin fetches real data from `GET /api/admin/activity`; rep/customer fetch their own tickets |
+
+Backend additions in `admin.py`:
+```python
+today_count = await conn.fetchval(
+    "SELECT count(*) FROM app.tickets WHERE organization_id = $1 AND created_at >= CURRENT_DATE", org_id)
+week_count = await conn.fetchval(
+    "SELECT count(*) FROM app.tickets WHERE organization_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '7 days'", org_id)
+```
+
+---
+
+### Sprint 6 Migration Summary
+
+| # | Migration | What it adds |
+|---|---|---|
+| 0022 | `audit_log` | `app.audit_log` table — platform-wide action history |
+| 0023 | `notifications` | `app.notifications` table — per-user in-app notification feed |
