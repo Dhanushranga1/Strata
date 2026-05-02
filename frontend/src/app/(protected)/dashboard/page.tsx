@@ -55,6 +55,21 @@ interface AdminAnalytics {
   total_tickets: number;
   resolution_rate: number;
   avg_response_hours: number;
+  avg_customer_rating: number | null;
+  today_count: number;
+  week_count: number;
+  open_tickets: number;
+  overdue_tickets: number;
+  needs_attention: number;
+}
+
+interface ActivityItem {
+  id: string;
+  ticketId: string;
+  action: string;
+  detail: string;
+  time: string;
+  status: string;
 }
 
 interface RepCounts {
@@ -81,12 +96,37 @@ interface TicketsResponse {
   limit: number;
 }
 
+function formatRelativeTime(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`
+  const days = Math.floor(hrs / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}
+
+function activityStatusFromType(type: string): string {
+  if (type === 'ticket_resolved') return 'resolved'
+  if (type === 'ticket_created') return 'open'
+  return 'in_progress'
+}
+
+function activityLabelFromType(type: string): string {
+  if (type === 'ticket_resolved') return 'Ticket resolved'
+  if (type === 'ticket_created') return 'New ticket created'
+  if (type === 'message_sent') return 'Response sent'
+  return type.replace(/_/g, ' ')
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const { currentOrganization, isReady, switchingOrg } = useOrganization()
   const orgId = currentOrganization?.id
   const [me, setMe] = useState<Me | null>(null)
   const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -97,28 +137,33 @@ export default function DashboardPage() {
           api.get<AdminAnalytics>('/api/admin/analytics/summary', orgId),
           api.get<any>('/api/admin/analytics/by-category', orgId).catch(() => ({ status_counts: [], priority_counts: [] }))
         ]);
-        
+
         const statusCounts = categorystats.status_counts || [];
+        const priorityCounts = categorystats.priority_counts || [];
         const openCount = statusCounts.find((s: any) => s.status === 'open')?.count || 0;
         const resolvedCount = statusCounts.find((s: any) => s.status === 'resolved')?.count || 0;
-        const urgentCount = statusCounts.find((s: any) => s.priority === 'urgent')?.count || 0;
-        
+        const inProgressCount = statusCounts.find((s: any) => s.status === 'in_progress')?.count || 0;
+        const urgentCount = priorityCounts.find((p: any) => p.priority === 'urgent')?.count || 0;
+        const satisfaction = analytics.avg_customer_rating != null
+          ? parseFloat(analytics.avg_customer_rating.toFixed(1))
+          : 0;
+
         return {
           tickets: {
             total: analytics.total_tickets || 0,
             open: openCount,
-            pending: statusCounts.find((s: any) => s.status === 'pending')?.count || 0,
+            pending: inProgressCount,
             resolved: resolvedCount,
             urgent: urgentCount
           },
           performance: {
             avgResponseTime: `${analytics.avg_response_hours || 0}h`,
-            satisfaction: analytics.resolution_rate || 0,
+            satisfaction,
             resolution_rate: analytics.resolution_rate || 0
           },
           activity: {
-            today: statusCounts.reduce((sum: number, s: any) => sum + s.count, 0),
-            thisWeek: analytics.total_tickets || 0,
+            today: analytics.today_count || 0,
+            thisWeek: analytics.week_count || 0,
             trend: 'up' as const
           }
         };
@@ -192,8 +237,46 @@ export default function DashboardPage() {
         setLoading(true)
         const userInfo = await api.get<Me>('/api/me')
         setMe(userInfo)
-        const dashboardStats = await loadDashboardStats(userInfo.role || 'customer', orgId);
-        setStats(dashboardStats);
+        const role = userInfo.role || 'customer'
+        const [dashboardStats] = await Promise.all([
+          loadDashboardStats(role, orgId),
+        ])
+        setStats(dashboardStats)
+
+        // Load recent activity per role (non-blocking — don't fail the whole page)
+        if (role === 'admin') {
+          api.get<any[]>(`/api/admin/activity?limit=5`, orgId)
+            .then((items) => {
+              setRecentActivity((items || []).map((item: any) => ({
+                id: item.id,
+                ticketId: item.ticket_id,
+                action: activityLabelFromType(item.type),
+                detail: item.detail || '',
+                time: formatRelativeTime(item.ts),
+                status: activityStatusFromType(item.type),
+              })))
+            })
+            .catch(() => {})
+        } else {
+          api.get<TicketsResponse>('/api/tickets?mine=true&status=all&limit=5', orgId)
+            .then((res) => {
+              const items = (res.items || [])
+                .sort((a: TicketItem, b: TicketItem) =>
+                  new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+                )
+              setRecentActivity(items.map((t: TicketItem) => ({
+                id: t.id,
+                ticketId: t.id,
+                action: t.status === 'resolved' ? 'Ticket resolved' :
+                        t.status === 'in_progress' ? 'In progress' :
+                        t.status === 'open' ? 'Open ticket' : t.status,
+                detail: t.title,
+                time: formatRelativeTime(t.updated_at),
+                status: t.status,
+              })))
+            })
+            .catch(() => {})
+        }
       } catch (e: unknown) {
         const error = e as Error
         setError(error.message)
@@ -215,11 +298,13 @@ export default function DashboardPage() {
   const getStatusColor = (status: string): "open" | "in_progress" | "resolved" | "closed" | "escalated" => {
     switch (status.toLowerCase()) {
       case 'open': return 'open'
+      case 'in_progress':
       case 'pending': return 'in_progress'
       case 'resolved': return 'resolved'
       case 'closed': return 'closed'
+      case 'escalated':
       case 'urgent': return 'escalated'
-      default: return 'closed'
+      default: return 'open'
     }
   }
 
@@ -248,7 +333,7 @@ export default function DashboardPage() {
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-sm truncate">{me.email ?? me.id}</p>
                       <Badge variant="secondary" className="text-xs">
-                        {me.role}
+                        {me.role === 'customer' ? 'Client' : me.role}
                       </Badge>
                     </div>
                   </div>
@@ -413,9 +498,11 @@ export default function DashboardPage() {
                     </div>
                     <div className="text-center">
                       <div className="text-2xl font-bold text-green-600">
-                        {stats.performance.satisfaction}★
+                        {stats.performance.satisfaction > 0
+                          ? `${stats.performance.satisfaction}★`
+                          : '—'}
                       </div>
-                      <div className="text-xs text-muted-foreground">Satisfaction</div>
+                      <div className="text-xs text-muted-foreground">CSAT</div>
                     </div>
                     <div className="text-center">
                       <div className="text-2xl font-bold text-blue-600">
@@ -442,7 +529,7 @@ export default function DashboardPage() {
                   </div>
                 </BentoGridItem>
 
-                {/* Quick Actions */}
+                {/* Quick Actions — role-aware */}
                 <BentoGridItem
                   title="Quick Actions"
                   description="Common tasks and workflows"
@@ -450,42 +537,68 @@ export default function DashboardPage() {
                   size="md"
                 >
                   <div className="space-y-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="w-full justify-start"
                       onClick={() => router.push('/tickets')}
                     >
                       <TicketIcon className="h-4 w-4 mr-2" />
-                      View All Tickets
+                      {me?.role === 'customer' ? 'My Tickets' : 'All Tickets'}
                     </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="w-full justify-start"
-                      onClick={() => router.push('/rep')}
-                    >
-                      <MessageSquare className="h-4 w-4 mr-2" />
-                      Rep Console
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="w-full justify-start"
-                      onClick={() => router.push('/analytics')}
-                    >
-                      <BarChart3 className="h-4 w-4 mr-2" />
-                      Analytics
-                    </Button>
+                    {['rep', 'admin'].includes(me?.role || '') && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-start"
+                          onClick={() => router.push('/rep')}
+                        >
+                          <MessageSquare className="h-4 w-4 mr-2" />
+                          Rep Console
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-start"
+                          onClick={() => router.push('/rep/my-tickets')}
+                        >
+                          <User className="h-4 w-4 mr-2" />
+                          My Tickets
+                        </Button>
+                      </>
+                    )}
                     {me?.role === 'admin' && (
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-start"
+                          onClick={() => router.push('/analytics')}
+                        >
+                          <BarChart3 className="h-4 w-4 mr-2" />
+                          Analytics
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-start"
+                          onClick={() => router.push('/admin')}
+                        >
+                          <Settings className="h-4 w-4 mr-2" />
+                          Admin Panel
+                        </Button>
+                      </>
+                    )}
+                    {me?.role === 'customer' && (
+                      <Button
+                        variant="default"
+                        size="sm"
                         className="w-full justify-start"
-                        onClick={() => router.push('/admin')}
+                        onClick={() => router.push('/tickets/new')}
                       >
-                        <Settings className="h-4 w-4 mr-2" />
-                        Admin Panel
+                        <TicketIcon className="h-4 w-4 mr-2" />
+                        New Ticket
                       </Button>
                     )}
                   </div>
@@ -499,29 +612,33 @@ export default function DashboardPage() {
                   size="lg"
                 >
                   <div className="space-y-3">
-                    {[
-                      { id: '#1234', action: 'Ticket resolved', time: '2 minutes ago', status: 'resolved' },
-                      { id: '#1235', action: 'New ticket created', time: '15 minutes ago', status: 'open' },
-                      { id: '#1236', action: 'Response sent', time: '1 hour ago', status: 'pending' },
-                    ].map((item) => (
-                      <div key={item.id} className="flex items-center justify-between p-2 rounded-md bg-muted/30">
-                        <div className="flex items-center gap-3">
+                    {recentActivity.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-2">No recent activity</p>
+                    ) : recentActivity.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between p-2 rounded-md bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => router.push(`/tickets/${item.ticketId}`)}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
                           <StatusBadge status={getStatusColor(item.status)} />
-                          <div>
-                            <p className="text-sm font-medium">{item.id}</p>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate max-w-[180px]">
+                              {item.detail || item.ticketId.slice(0, 8)}
+                            </p>
                             <p className="text-xs text-muted-foreground">{item.action}</p>
                           </div>
                         </div>
-                        <div className="text-xs text-muted-foreground">{item.time}</div>
+                        <div className="text-xs text-muted-foreground whitespace-nowrap ml-2">{item.time}</div>
                       </div>
                     ))}
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="w-full"
-                      onClick={() => router.push('/activity')}
+                      onClick={() => router.push(me?.role === 'admin' ? '/admin/tickets' : '/tickets')}
                     >
-                      View All Activity
+                      View All Tickets
                       <ArrowUpRight className="h-4 w-4 ml-2" />
                     </Button>
                   </div>
