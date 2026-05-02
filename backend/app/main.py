@@ -373,6 +373,8 @@ from .admin import router as admin_router
 from .feedback import router as feedback_router
 from .organizations import router as organizations_router
 from .invites import router as invites_router
+from .reports import router as reports_router
+from .notifications import router as notifications_router
 
 app.include_router(auth_router)
 app.include_router(kb_router)
@@ -382,11 +384,48 @@ app.include_router(admin_router)
 app.include_router(feedback_router)
 app.include_router(organizations_router)
 app.include_router(invites_router)
+app.include_router(reports_router)
+app.include_router(notifications_router)
 
 
 @app.get("/api/health")
 def health():
     return {"ok": True, "api": "ticketpilot", "version": API_VERSION}
+
+
+@app.get("/api/wake")
+async def wake():
+    """Pre-warm both DB pools and return latency. Bookmark this for demo cold-starts."""
+    import time as _time
+    from .db import get_connection, reinit_pool_if_needed
+    from .db_sync import _pool as _sync_pool
+
+    result: dict = {"ready": True, "asyncpg": {}, "psycopg3": {}}
+
+    # asyncpg pool
+    await reinit_pool_if_needed()
+    t0 = _time.monotonic()
+    try:
+        conn = await get_connection()
+        await conn.fetchval("SELECT 1")
+        await conn.close()
+        result["asyncpg"] = {"ok": True, "latency_ms": round((_time.monotonic() - t0) * 1000)}
+    except Exception as exc:
+        result["asyncpg"] = {"ok": False, "error": type(exc).__name__}
+        result["ready"] = False
+
+    # psycopg3 pool
+    t0 = _time.monotonic()
+    try:
+        from .db_sync import get_db_connection as _sync_conn
+        with _sync_conn() as conn:
+            conn.execute("SELECT 1")
+        result["psycopg3"] = {"ok": True, "latency_ms": round((_time.monotonic() - t0) * 1000)}
+    except Exception as exc:
+        result["psycopg3"] = {"ok": False, "error": type(exc).__name__}
+        result["ready"] = False
+
+    return result
 
 
 @app.get("/api/health/db")
@@ -438,3 +477,45 @@ async def health_db():
 @app.get("/api/me")
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+# ── User profile (display_name + phone for reps) ──────────────────────────────
+
+from fastapi import Body
+
+@app.get("/api/me/profile")
+async def get_my_profile(user: User = Depends(get_current_user)):
+    """Return caller's user_metadata (display_name, phone, bio)."""
+    from .auth import supabase
+    try:
+        resp = supabase.auth.admin.get_user_by_id(user.id)
+        meta = resp.user.user_metadata or {} if resp.user else {}
+    except Exception:
+        meta = {}
+    return {
+        "display_name": meta.get("display_name", ""),
+        "phone": meta.get("phone", ""),
+        "bio": meta.get("bio", ""),
+    }
+
+
+@app.patch("/api/me/profile")
+async def update_my_profile(
+    body: dict = Body(...),
+    user: User = Depends(get_current_user),
+):
+    """Update display_name, phone, and/or bio in Supabase user_metadata."""
+    from .auth import supabase
+    allowed = {k: v for k, v in body.items() if k in ("display_name", "phone", "bio")}
+    if not allowed:
+        from fastapi import HTTPException
+        raise HTTPException(400, "No valid fields provided")
+    try:
+        resp = supabase.auth.admin.get_user_by_id(user.id)
+        existing = resp.user.user_metadata or {} if resp.user else {}
+        merged = {**existing, **allowed}
+        supabase.auth.admin.update_user_by_id(user.id, {"user_metadata": merged})
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(500, f"Failed to update profile: {exc}")
+    return {"ok": True, **allowed}

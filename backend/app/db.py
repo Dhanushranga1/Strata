@@ -67,16 +67,19 @@ async def init_pool() -> None:
     try:
         _pool = await asyncpg.create_pool(
             database_url,
-            min_size=2,
-            max_size=10,
+            min_size=0,
+            max_size=3,
             max_inactive_connection_lifetime=300.0,
-            command_timeout=30,
+            command_timeout=8,
             statement_cache_size=0,
             ssl=ssl,
             timeout=_POOL_CONNECT_TIMEOUT,
-            server_settings={'application_name': 'ticketpilot'},
+            server_settings={
+                'application_name': 'ticketpilot',
+                'statement_timeout': '8000',
+            },
         )
-        logger.info("[db] asyncpg pool ready (min=2, max=10, ssl=%s)", ssl)
+        logger.info("[db] asyncpg pool ready (min=0, max=3, ssl=%s)", ssl)
         _circuit_success()
     except Exception as exc:
         logger.error("[db] Pool init failed: %r — falling back to per-request connections", exc)
