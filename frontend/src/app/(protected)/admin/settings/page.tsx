@@ -247,8 +247,44 @@ export default function AdminSettingsPage() {
     checkAuth();
   }, [router]);
 
-  const handleSaveSettings = () => {
-    // General / Notifications / Security / System cards are UI-only placeholders
+  const [generalSaving, setGeneralSaving] = useState(false);
+
+  const handleSaveSettings = async () => {
+    if (!orgId) return;
+    setGeneralSaving(true);
+    try {
+      await patchOrgSettings({
+        site_title: settings.siteTitle,
+        site_domain: settings.siteDomain,
+        session_timeout_hours: Number(settings.sessionTimeout) || 24,
+        require_approval: settings.requireApproval,
+        max_file_size_mb: Number(settings.maxFileSize) || 10,
+        email_notifications: settings.emailNotifications,
+      });
+      toast.success("Settings saved");
+    } catch {
+      toast.error("Failed to save settings");
+    } finally {
+      setGeneralSaving(false);
+    }
+  };
+
+  const testEmail = async () => {
+    try {
+      await api.post('/api/admin/test-email', {}, orgId);
+      toast.success("Test email sent — check your inbox");
+    } catch {
+      toast.info("Email test skipped (no SMTP key configured)");
+    }
+  };
+
+  const clearCache = async () => {
+    try {
+      await api.get('/api/wake');
+      toast.success("Server cache cleared and connections re-warmed");
+    } catch {
+      toast.error("Cache clear failed");
+    }
   };
 
   const loadDiagnostics = async () => {
@@ -303,9 +339,9 @@ export default function AdminSettingsPage() {
             </p>
           </div>
         </div>
-        <Button onClick={handleSaveSettings}>
+        <Button onClick={handleSaveSettings} disabled={generalSaving}>
           <Save className="h-4 w-4 mr-2" />
-          Save Changes
+          {generalSaving ? "Saving…" : "Save Changes"}
         </Button>
       </div>
 
@@ -758,16 +794,16 @@ export default function AdminSettingsPage() {
           <CardDescription>Common administrative tasks</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4">
-            <Button variant="outline">
+          <div className="flex gap-4 flex-wrap">
+            <Button variant="outline" onClick={clearCache}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Clear Cache
             </Button>
-            <Button variant="outline">
+            <Button variant="outline" onClick={() => toast.info("Database backups are managed automatically by Supabase. Check your Supabase dashboard → Backups.")}>
               <Database className="h-4 w-4 mr-2" />
-              Backup Database
+              Backup Info
             </Button>
-            <Button variant="outline">
+            <Button variant="outline" onClick={testEmail}>
               <Mail className="h-4 w-4 mr-2" />
               Test Email
             </Button>

@@ -2,7 +2,7 @@
 Admin-only API endpoints for Phase 5A
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 import logging
 
@@ -372,11 +372,42 @@ async def get_analytics_summary(
             org_id, str(days)
         )
 
+        open_tickets = await conn.fetchval(
+            "SELECT count(*) FROM app.tickets WHERE organization_id = $1"
+            " AND status NOT IN ('resolved','closed')",
+            org_id,
+        )
+        overdue_tickets = await conn.fetchval(
+            "SELECT count(*) FROM app.tickets WHERE organization_id = $1"
+            " AND is_overdue = true AND status NOT IN ('resolved','closed')",
+            org_id,
+        )
+        needs_attention = await conn.fetchval(
+            "SELECT count(*) FROM app.tickets WHERE organization_id = $1"
+            " AND needs_attention = true AND status NOT IN ('resolved','closed')",
+            org_id,
+        )
+        today_count = await conn.fetchval(
+            "SELECT count(*) FROM app.tickets WHERE organization_id = $1"
+            " AND created_at >= CURRENT_DATE",
+            org_id,
+        )
+        week_count = await conn.fetchval(
+            "SELECT count(*) FROM app.tickets WHERE organization_id = $1"
+            " AND created_at >= CURRENT_DATE - INTERVAL '7 days'",
+            org_id,
+        )
+
         return {
             "total_tickets": int(total_tickets),
             "resolution_rate": round(resolution_rate, 1),
             "avg_response_hours": round(float(avg_response_hours), 1),
             "avg_customer_rating": round(float(avg_rating), 2) if avg_rating else None,
+            "open_tickets": int(open_tickets),
+            "overdue_tickets": int(overdue_tickets),
+            "needs_attention": int(needs_attention),
+            "today_count": int(today_count),
+            "week_count": int(week_count),
         }
     finally:
         await conn.close()
@@ -486,6 +517,34 @@ async def get_analytics_by_category(request: Request, user: User = Depends(get_c
         }
     finally:
         await conn.close()
+
+@router.get("/analytics/top-tags")
+async def get_top_tags(
+    request: Request,
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=8, ge=1, le=20),
+    user: User = Depends(get_current_user),
+):
+    """Top ticket tags for the org over the last N days."""
+    org_id = require_org_context(request)
+    require_admin(user)
+    conn = await get_database_connection()
+    try:
+        rows = await conn.fetch("""
+            SELECT tag, COUNT(*) AS count
+            FROM app.tickets t, UNNEST(t.tags) AS tag
+            WHERE t.organization_id = $1
+              AND t.created_at >= NOW() - ($2 || ' days')::interval
+            GROUP BY tag ORDER BY count DESC LIMIT $3
+        """, org_id, str(days), limit)
+        total = sum(r["count"] for r in rows) or 1
+        return [
+            {"tag": r["tag"], "count": int(r["count"]), "pct": round(r["count"] / total * 100, 1)}
+            for r in rows
+        ]
+    finally:
+        await conn.close()
+
 
 @router.get("/analytics/rep-performance")
 async def get_rep_performance(request: Request, user: User = Depends(get_current_user)):
@@ -689,3 +748,366 @@ async def auto_assign_tickets(request: Request, user: User = Depends(get_current
         raise
     finally:
         await conn.close()
+
+
+# ── Platform-admin organisation management ───────────────────────────────────
+
+
+@router.get("/organizations")
+async def admin_list_organizations(user: User = Depends(get_current_user)):
+    """List ALL organisations on the platform (platform admin only, no org header needed)."""
+    require_admin(user)
+    conn = await _get_db()
+    try:
+        rows = await conn.fetch("""
+            SELECT
+                o.id::text,
+                o.name,
+                o.slug,
+                o.is_active,
+                o.created_at,
+                COUNT(om.user_id) AS member_count,
+                COUNT(t.id)       AS ticket_count
+            FROM app.organizations o
+            LEFT JOIN app.organization_members om ON om.organization_id = o.id
+            LEFT JOIN app.tickets t              ON t.organization_id   = o.id
+            GROUP BY o.id, o.name, o.slug, o.is_active, o.created_at
+            ORDER BY o.created_at DESC
+        """)
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
+@router.patch("/organizations/{org_id}")
+async def admin_update_organization(
+    org_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+):
+    """Rename or toggle active status of any organisation (platform admin only)."""
+    require_admin(user)
+    import json as _json
+    updates, params = [], []
+    if "name" in body:
+        updates.append(f"name = ${len(params)+1}")
+        params.append(body["name"])
+    if "is_active" in body:
+        updates.append(f"is_active = ${len(params)+1}")
+        params.append(bool(body["is_active"]))
+    if not updates:
+        raise HTTPException(400, "Nothing to update")
+    params.append(org_id)
+
+    conn = await _get_db()
+    try:
+        row = await conn.fetchrow(
+            f"""UPDATE app.organizations
+                SET {', '.join(updates)}, updated_at = NOW()
+                WHERE id = ${len(params)}
+                RETURNING id::text, name, slug, is_active, created_at""",
+            *params,
+        )
+        if not row:
+            raise HTTPException(404, "Organisation not found")
+        return dict(row)
+    finally:
+        await conn.close()
+
+
+@router.get("/organizations/{org_id}/members")
+async def admin_list_org_members(org_id: str, user: User = Depends(get_current_user)):
+    """List members of any organisation (platform admin only)."""
+    require_admin(user)
+    conn = await _get_db()
+    try:
+        rows = await conn.fetch("""
+            SELECT om.user_id::text, om.role, om.joined_at,
+                   au.email AS user_email, au.last_sign_in_at
+            FROM app.organization_members om
+            LEFT JOIN auth.users au ON au.id = om.user_id
+            WHERE om.organization_id = $1
+            ORDER BY om.joined_at
+        """, org_id)
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
+@router.post("/organizations/{org_id}/members", status_code=201)
+async def admin_add_org_member(
+    org_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+):
+    """Add any user to any organisation by email or user_id (platform admin only)."""
+    require_admin(user)
+    role = body.get("role", "rep")
+    if role not in ("owner", "admin", "rep", "member"):
+        raise HTTPException(400, "Invalid role")
+
+    conn = await _get_db()
+    try:
+        # Resolve email → user_id if needed
+        user_id = body.get("user_id")
+        if not user_id:
+            email = body.get("email", "").strip().lower()
+            if not email:
+                raise HTTPException(400, "Provide user_id or email")
+            row = await conn.fetchrow("SELECT id::text FROM auth.users WHERE email = $1", email)
+            if not row:
+                raise HTTPException(404, f"No user found with email {email}")
+            user_id = row["id"]
+
+        # Idempotent insert
+        existing = await conn.fetchval(
+            "SELECT 1 FROM app.organization_members WHERE organization_id = $1 AND user_id = $2",
+            org_id, user_id,
+        )
+        if existing:
+            raise HTTPException(409, "User is already a member of this organisation")
+
+        await conn.execute(
+            """INSERT INTO app.organization_members (organization_id, user_id, role, invited_by)
+               VALUES ($1, $2, $3, $4)""",
+            org_id, user_id, role, user.id,
+        )
+        email_row = await conn.fetchrow("SELECT email FROM auth.users WHERE id = $1", user_id)
+        import asyncio as _aio
+        _aio.create_task(log_audit(
+            "org.member.added", user,
+            resource_type="org_member", resource_id=user_id, org_id=org_id,
+            metadata={"role": role, "email": email_row["email"] if email_row else user_id},
+        ))
+        return {"user_id": user_id, "role": role, "user_email": email_row["email"] if email_row else None}
+    finally:
+        await conn.close()
+
+
+@router.patch("/organizations/{org_id}/members/{target_user_id}")
+async def admin_update_org_member_role(
+    org_id: str,
+    target_user_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+):
+    """Change a member's org-level role (platform admin only)."""
+    require_admin(user)
+    role = body.get("role")
+    if role not in ("owner", "admin", "rep", "member"):
+        raise HTTPException(400, "Invalid role")
+
+    conn = await _get_db()
+    try:
+        row = await conn.fetchrow(
+            """UPDATE app.organization_members SET role = $1
+               WHERE organization_id = $2 AND user_id = $3
+               RETURNING user_id::text, role""",
+            role, org_id, target_user_id,
+        )
+        if not row:
+            raise HTTPException(404, "Member not found")
+        return dict(row)
+    finally:
+        await conn.close()
+
+
+@router.delete("/organizations/{org_id}/members/{target_user_id}")
+async def admin_remove_org_member(
+    org_id: str,
+    target_user_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Remove any member from any organisation (platform admin only)."""
+    require_admin(user)
+    conn = await _get_db()
+    try:
+        result = await conn.execute(
+            "DELETE FROM app.organization_members WHERE organization_id = $1 AND user_id = $2",
+            org_id, target_user_id,
+        )
+        if result == "DELETE 0":
+            raise HTTPException(404, "Member not found")
+        import asyncio as _aio
+        _aio.create_task(log_audit(
+            "org.member.removed", user,
+            resource_type="org_member", resource_id=target_user_id, org_id=org_id,
+        ))
+        return {"ok": True}
+    finally:
+        await conn.close()
+
+
+# ── S4-1: Cross-org ticket view ───────────────────────────────────────────────
+
+
+@router.get("/tickets")
+async def admin_list_all_tickets(
+    org_id: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, max_length=100),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    user: User = Depends(get_current_user),
+):
+    """List tickets across all orgs (or filter to one org). Platform admin only."""
+    require_admin(user)
+    conn = await _get_db()
+    try:
+        where: list[str] = []
+        params: list[Any] = []
+
+        if org_id:
+            where.append(f"t.organization_id = ${len(params)+1}::uuid")
+            params.append(org_id)
+        if status_filter and status_filter != "all":
+            where.append(f"t.status = ${len(params)+1}")
+            params.append(status_filter)
+        if q:
+            p1, p2 = len(params)+1, len(params)+2
+            where.append(f"(t.title ILIKE ${p1} OR t.description ILIKE ${p2})")
+            params.extend([f"%{q}%", f"%{q}%"])
+
+        where_clause = ("WHERE " + " AND ".join(where)) if where else ""
+
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM app.tickets t {where_clause}", *params
+        )
+        rows = await conn.fetch(
+            f"""
+            SELECT t.id::text, t.title, t.status, t.priority, t.priority_level,
+                   t.needs_attention, t.is_overdue,
+                   t.created_at, t.last_message_at,
+                   o.name AS org_name,
+                   au.email AS assignee_email
+            FROM app.tickets t
+            JOIN app.organizations o ON o.id = t.organization_id
+            LEFT JOIN auth.users au ON au.id = t.assignee_id
+            {where_clause}
+            ORDER BY t.created_at DESC
+            LIMIT ${len(params)+1} OFFSET ${len(params)+2}
+            """,
+            *params, limit, offset,
+        )
+        return {
+            "items": [dict(r) for r in rows],
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+        }
+    finally:
+        await conn.close()
+
+
+# ── S4-2: Audit log ────────────────────────────────────────────────────────────
+
+
+async def log_audit(
+    action: str,
+    actor: User,
+    resource_type: str = "",
+    resource_id: str = "",
+    org_id: str = "",
+    metadata: dict | None = None,
+) -> None:
+    """Fire-and-forget audit log write. Silently skips if table doesn't exist."""
+    try:
+        conn = await _get_db()
+        try:
+            await conn.execute(
+                """
+                INSERT INTO app.audit_log
+                  (actor_id, actor_email, action, resource_type, resource_id, org_id, metadata)
+                VALUES ($1, $2, $3, $4, $5, $6::uuid, $7::jsonb)
+                """,
+                actor.id,
+                actor.email or "",
+                action,
+                resource_type,
+                resource_id,
+                org_id or None,
+                __import__("json").dumps(metadata or {}),
+            )
+        finally:
+            await conn.close()
+    except Exception:
+        pass  # Non-fatal — app works even without audit log table
+
+
+@router.get("/audit-log")
+async def get_audit_log(
+    org_id: Optional[str] = Query(None),
+    actor_email: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    user: User = Depends(get_current_user),
+):
+    """Paginated platform audit log (admin only, most recent first)."""
+    require_admin(user)
+    conn = await _get_db()
+    try:
+        where: list[str] = []
+        params: list[Any] = []
+
+        if org_id:
+            where.append(f"org_id = ${len(params)+1}::uuid")
+            params.append(org_id)
+        if actor_email:
+            where.append(f"actor_email ILIKE ${len(params)+1}")
+            params.append(f"%{actor_email}%")
+        if action:
+            where.append(f"action ILIKE ${len(params)+1}")
+            params.append(f"%{action}%")
+        if date_from:
+            where.append(f"created_at >= ${len(params)+1}::timestamptz")
+            params.append(date_from)
+        if date_to:
+            where.append(f"created_at <= ${len(params)+1}::timestamptz")
+            params.append(date_to)
+
+        where_clause = ("WHERE " + " AND ".join(where)) if where else ""
+
+        try:
+            total = await conn.fetchval(
+                f"SELECT COUNT(*) FROM app.audit_log {where_clause}", *params
+            )
+            rows = await conn.fetch(
+                f"""
+                SELECT id::text, actor_id::text, actor_email, action,
+                       resource_type, resource_id, org_id::text,
+                       metadata, created_at
+                FROM app.audit_log
+                {where_clause}
+                ORDER BY created_at DESC
+                LIMIT ${len(params)+1} OFFSET ${len(params)+2}
+                """,
+                *params, limit, offset,
+            )
+            return {
+                "items": [dict(r) for r in rows],
+                "total": total,
+                "offset": offset,
+                "limit": limit,
+            }
+        except Exception:
+            # Table doesn't exist yet — return empty result
+            return {"items": [], "total": 0, "offset": offset, "limit": limit, "note": "Audit log table not yet created"}
+    finally:
+        await conn.close()
+
+
+@router.post("/test-email")
+async def test_email(user: User = Depends(get_current_user)):
+    """Send a test email to the current admin to verify email configuration."""
+    require_admin(user)
+    if not user.email:
+        raise HTTPException(400, "No email address on this account")
+    try:
+        from .email import send_new_ticket_email
+        send_new_ticket_email(user.email, "test-000", "TicketPilot Test Email", "system")
+        return {"ok": True, "sent_to": user.email}
+    except Exception as exc:
+        raise HTTPException(500, f"Email send failed: {exc}")
