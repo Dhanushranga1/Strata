@@ -2,30 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, s
 from pydantic import BaseModel
 from typing import Optional, List
 import os
-import psycopg
-from psycopg.rows import dict_row
 from .utils import normalize_text, sha256, sniff_and_read
 from .chunker import make_chunks
 from .embeddings import embed_texts
 from .store import add_org_vectors, search_org_vectors
 from .auth import User, get_current_user
 from .org_middleware import require_org_context
+from .db_sync import get_db_connection
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
 
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE_CHARS", "2400"))
 OVERLAP = int(os.getenv("CHUNK_OVERLAP_CHARS", "400"))
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-
-def get_db_connection():
-    """Get database connection (simplified for Phase 2)."""
-    if not DATABASE_URL:
-        raise HTTPException(500, "DATABASE_URL not configured")
-    try:
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=5)
-    except Exception:
-        raise HTTPException(503, "Database temporarily unavailable — please retry in a moment")
 
 
 def require_rep(user: User):

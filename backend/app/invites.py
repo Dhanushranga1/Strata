@@ -89,11 +89,11 @@ def _send_invite_email(email: str, invite_url: str, org_name: str, role: str) ->
         logger.info("Email not configured — skipping invite email for %s. Share invite_url manually.", email)
         return False
 
-    role_label = {"admin": "Admin", "rep": "Support Rep", "member": "Member"}.get(role, role.capitalize())
+    role_label = {"admin": "Admin", "rep": "Support Rep", "member": "Client"}.get(role, role.capitalize())
     role_desc = {
-        "admin": "manage members, knowledge base, and organisation settings",
+        "admin": "manage clients, knowledge base, and organisation settings",
         "rep": "handle and reply to support tickets",
-        "member": "submit and track support tickets",
+        "member": "submit and track support tickets as a client",
     }.get(role, "collaborate on support tickets")
 
     html = f"""<!DOCTYPE html>

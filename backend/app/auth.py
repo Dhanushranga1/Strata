@@ -132,7 +132,7 @@ async def get_user_organizations(user_id: str) -> List[UserOrganization]:
                     om.role as your_role
                 FROM app.organizations o
                 JOIN app.organization_members om ON o.id = om.organization_id
-                WHERE om.user_id = $1
+                WHERE om.user_id = $1 AND o.is_active = true
                 ORDER BY o.name ASC
             """, user_uuid)
         finally:

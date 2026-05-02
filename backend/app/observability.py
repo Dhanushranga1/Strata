@@ -6,7 +6,6 @@ Provides comprehensive logging, monitoring, and debugging capabilities.
 import json
 import time
 import logging
-import psycopg
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
@@ -16,6 +15,8 @@ import os
 logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+from .db_sync import get_db_connection as _get_db_connection  # noqa: E402
 
 @dataclass
 class RAGMetrics:
@@ -158,7 +159,7 @@ def log_rag_metrics(metrics: RAGMetrics):
         return
     
     try:
-        with psycopg.connect(DATABASE_URL, connect_timeout=5) as conn:
+        with _get_db_connection() as conn:
             with conn.cursor() as cursor:
                 # Enhanced ai_runs logging with comprehensive metrics
                 cursor.execute("""
@@ -195,7 +196,7 @@ def get_rag_analytics(hours: int = 24) -> Dict[str, Any]:
         return {"error": "DATABASE_URL not configured"}
     
     try:
-        with psycopg.connect(DATABASE_URL, connect_timeout=5) as conn:
+        with _get_db_connection() as conn:
             with conn.cursor() as cursor:
                 # Calculate time window
                 start_time = datetime.utcnow() - timedelta(hours=hours)

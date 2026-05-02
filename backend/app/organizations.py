@@ -7,9 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-import os
-import psycopg
-from psycopg.rows import dict_row
+from .db_sync import get_db_connection  # noqa: F401 — re-exported for invites.py
 import logging
 import json
 import re
@@ -58,18 +56,6 @@ def generate_slug_from_name(name: str) -> str:
     return slug
 
 router = APIRouter(prefix="/api/organizations", tags=["organizations"])
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-
-def get_db_connection():
-    """Get database connection."""
-    if not DATABASE_URL:
-        raise HTTPException(500, "DATABASE_URL not configured")
-    try:
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=5)
-    except Exception:
-        raise HTTPException(503, "Database temporarily unavailable — please retry in a moment")
 
 
 # ============================================================================
