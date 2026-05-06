@@ -1,162 +1,105 @@
 import os
 import time
 import logging
-import google.generativeai as genai
-from typing import List, Optional
+import httpx
+from typing import List
 
-MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-001")
+MODEL = os.getenv("EMBEDDING_MODEL", "jina-embeddings-v3")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
+MAX_TEXT_LENGTH = 8000
+BATCH_SIZE = 20          # small batch — fewer tokens per call on free tier
 MAX_RETRY_ATTEMPTS = 3
-RETRY_DELAY_SECONDS = 1.0
-MAX_TEXT_LENGTH = 20000  # Google's text-embedding-004 limit
+RETRY_DELAY_SECONDS = 5.0   # wait 5 s before retrying a failed batch
+INTER_BATCH_DELAY = 3.0     # wait 3 s between successful batches
+JINA_API_URL = "https://api.jina.ai/v1/embeddings"
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
+
 class EmbeddingError(Exception):
-    """Custom exception for embedding-related errors"""
     pass
 
-def init_provider():
-    """Initialize Google AI provider with API key and comprehensive error handling."""
-    try:
-        key = os.getenv("GOOGLE_API_KEY")
-        if not key:
-            raise EmbeddingError("GOOGLE_API_KEY is required but not found in environment")
-        
-        genai.configure(api_key=key)
-        logger.info("Google AI provider initialized successfully")
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize Google AI provider: {e}")
-        raise EmbeddingError(f"Provider initialization failed: {e}") from e
 
-def validate_text_input(text: str) -> str:
-    """
-    Validate and clean text input for embedding.
-    
-    Args:
-        text: Input text to validate
-        
-    Returns:
-        Cleaned text ready for embedding
-        
-    Raises:
-        EmbeddingError: If text is invalid or too long
-    """
-    if not isinstance(text, str):
-        raise EmbeddingError(f"Text must be string, got {type(text)}")
-    
-    if not text.strip():
-        raise EmbeddingError("Text cannot be empty or whitespace only")
-    
-    if len(text) > MAX_TEXT_LENGTH:
-        logger.warning(f"Text length {len(text)} exceeds limit {MAX_TEXT_LENGTH}, truncating")
-        text = text[:MAX_TEXT_LENGTH]
-    
-    return text.strip()
+def _api_key() -> str:
+    key = os.getenv("JINA_API_KEY")
+    if not key:
+        raise EmbeddingError("JINA_API_KEY is required but not set")
+    return key
 
-def embed_single_text_with_retry(text: str, task_type: str = "retrieval_document") -> List[float]:
-    """
-    Generate embedding for single text with retry logic.
 
-    Args:
-        text: Text to embed
-        task_type: Google embedding task type. Use "retrieval_document" for KB
-                   chunks and "retrieval_query" for search queries.
+def _clean(text: str) -> str:
+    if not isinstance(text, str) or not text.strip():
+        raise EmbeddingError("Text must be a non-empty string")
+    return text.strip()[:MAX_TEXT_LENGTH]
 
-    Returns:
-        Embedding vector
 
-    Raises:
-        EmbeddingError: If all retry attempts fail
-    """
-    validated_text = validate_text_input(text)
+def _embed_batch(texts: List[str]) -> List[List[float]]:
+    headers = {
+        "Authorization": f"Bearer {_api_key()}",
+        "Content-Type": "application/json",
+    }
+    payload = {"model": MODEL, "input": texts}
 
     for attempt in range(MAX_RETRY_ATTEMPTS):
         try:
-            response = genai.embed_content(
-                model=MODEL,
-                content=validated_text,
-                task_type=task_type,
-            )
-            
-            if not response or "embedding" not in response:
-                raise EmbeddingError("Invalid response format from Google API")
-            
-            embedding = response["embedding"]
-            if not isinstance(embedding, list) or not embedding:
-                raise EmbeddingError("Invalid embedding format received")
-            
-            logger.debug(f"Successfully embedded text of length {len(validated_text)}")
-            return embedding
-            
+            with httpx.Client(timeout=60) as client:
+                response = client.post(JINA_API_URL, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                items = sorted(data["data"], key=lambda x: x["index"])
+                return [item["embedding"] for item in items]
         except Exception as e:
-            attempt_num = attempt + 1
-            logger.warning(f"Embedding attempt {attempt_num}/{MAX_RETRY_ATTEMPTS} failed: {e}")
-            
-            if attempt_num < MAX_RETRY_ATTEMPTS:
-                time.sleep(RETRY_DELAY_SECONDS * attempt_num)
+            wait = RETRY_DELAY_SECONDS * (attempt + 1)
+            logger.warning(f"Batch attempt {attempt + 1}/{MAX_RETRY_ATTEMPTS} failed: {e} — waiting {wait}s")
+            if attempt + 1 < MAX_RETRY_ATTEMPTS:
+                time.sleep(wait)
             else:
-                raise EmbeddingError(f"All {MAX_RETRY_ATTEMPTS} embedding attempts failed. Last error: {e}") from e
+                raise EmbeddingError(f"All {MAX_RETRY_ATTEMPTS} attempts failed: {e}") from e
+
 
 def embed_texts(texts: List[str], task_type: str = "retrieval_document") -> List[List[float]]:
     """
-    Generate embeddings for a list of texts with comprehensive error handling.
-
-    Args:
-        texts: List of texts to embed
-        task_type: "retrieval_document" for KB chunks, "retrieval_query" for search queries
-
-    Returns:
-        List of embedding vectors
-
-    Raises:
-        EmbeddingError: If critical errors occur
+    Embed texts via Jina AI in small batches with inter-batch delays to
+    stay well within the free tier rate limit.
     """
     if not texts:
         raise EmbeddingError("Cannot embed empty list of texts")
-    
-    if not isinstance(texts, list):
-        raise EmbeddingError(f"texts must be a list, got {type(texts)}")
-    
-    # Initialize provider
-    init_provider()
-    
-    embeddings = []
-    failed_indices = []
-    
-    logger.info(f"Starting embedding generation for {len(texts)} texts")
-    
-    for i, text in enumerate(texts):
+
+    cleaned = [_clean(t) for t in texts]
+    embeddings: List[List[float]] = []
+    failed_count = 0
+    total_batches = (len(cleaned) + BATCH_SIZE - 1) // BATCH_SIZE
+
+    logger.info(f"Embedding {len(cleaned)} texts in {total_batches} batch(es) — {INTER_BATCH_DELAY}s between each")
+
+    for i, batch_start in enumerate(range(0, len(cleaned), BATCH_SIZE)):
+        batch = cleaned[batch_start: batch_start + BATCH_SIZE]
         try:
-            embedding = embed_single_text_with_retry(text, task_type=task_type)
-            embeddings.append(embedding)
-            
+            batch_embeddings = _embed_batch(batch)
+            embeddings.extend(batch_embeddings)
+            logger.info(f"Batch {i + 1}/{total_batches} done ({len(batch)} texts)")
         except EmbeddingError as e:
-            logger.error(f"Failed to embed text {i}: {e}")
-            failed_indices.append(i)
-            
-            # For critical failures, use zero vector as fallback
-            if embeddings:
-                # Use same dimension as successful embeddings
-                fallback_embedding = [0.0] * len(embeddings[0])
-            else:
-                # Use standard dimension for gemini-embedding-001
-                fallback_embedding = [0.0] * int(os.getenv("EMBEDDING_DIM", "3072"))
-            
-            embeddings.append(fallback_embedding)
-            logger.warning(f"Using zero vector fallback for text {i}")
-    
-    # Log summary
-    success_count = len(texts) - len(failed_indices)
-    logger.info(f"Embedding complete: {success_count}/{len(texts)} successful")
-    
-    if failed_indices:
-        logger.warning(f"Failed to embed texts at indices: {failed_indices}")
-    
-    # If too many failures, raise error
-    failure_rate = len(failed_indices) / len(texts)
-    if failure_rate > 0.5:  # More than 50% failure
-        raise EmbeddingError(f"High embedding failure rate: {failure_rate:.1%} ({len(failed_indices)}/{len(texts)})")
-    
+            logger.error(f"Batch {i + 1} failed: {e}")
+            failed_count += len(batch)
+            fallback = [0.0] * (len(embeddings[0]) if embeddings else EMBEDDING_DIM)
+            embeddings.extend([fallback] * len(batch))
+
+        # Pause between batches — skip delay after the last batch
+        if i < total_batches - 1:
+            logger.info(f"Waiting {INTER_BATCH_DELAY}s before next batch...")
+            time.sleep(INTER_BATCH_DELAY)
+
+    failure_rate = failed_count / len(texts)
+    logger.info(f"Embedding complete: {len(texts) - failed_count}/{len(texts)} successful")
+
+    if failure_rate > 0.5:
+        raise EmbeddingError(
+            f"High embedding failure rate: {failure_rate:.1%} ({failed_count}/{len(texts)})"
+        )
+
     return embeddings
+
+
+def embed_single_text_with_retry(text: str, task_type: str = "retrieval_document") -> List[float]:
+    """Single-text wrapper used by the RAG query path."""
+    return embed_texts([text], task_type=task_type)[0]
