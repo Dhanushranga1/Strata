@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, s
 from pydantic import BaseModel
 from typing import Optional, List
 import os
+import logging
 from .utils import normalize_text, sha256, sniff_and_read
 from .chunker import make_chunks
 from .embeddings import embed_texts
@@ -9,6 +10,8 @@ from .store import add_org_vectors, search_org_vectors
 from .auth import User, get_current_user
 from .org_middleware import require_org_context
 from .db_sync import get_db_connection
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
 
@@ -122,17 +125,23 @@ async def ingest(
                 raise HTTPException(400, "All chunks were duplicates")
 
             # 5) Generate embeddings and add to FAISS
+            _log.info("[kb] starting embed_texts for %d chunks", len(unique_chunks))
             vectors = embed_texts(unique_chunks)
+            _log.info("[kb] embed_texts done; adding to FAISS")
             assigned_faiss_ids = add_org_vectors(org_id, unique_ids, vectors)
+            _log.info("[kb] FAISS add done (%d ids); updating DB", len(assigned_faiss_ids))
 
             # 6) Update chunks with FAISS IDs and persist raw vectors for cold-start rebuild
-            for chunk_id, faiss_id, vec in zip(unique_ids, assigned_faiss_ids, vectors):
+            for idx_i, (chunk_id, faiss_id, vec) in enumerate(zip(unique_ids, assigned_faiss_ids, vectors)):
+                _log.info("[kb] DB update chunk %d/%d", idx_i + 1, len(unique_ids))
                 cur.execute(
-                    "UPDATE app.chunks SET faiss_id = %s, embedding = %s WHERE id = %s",
-                    (faiss_id, vec, chunk_id)
+                    "UPDATE app.chunks SET faiss_id = %s, embedding = %s::float4[] WHERE id = %s::uuid",
+                    (faiss_id, list(vec), chunk_id)
                 )
 
+            _log.info("[kb] all updates done; committing")
             conn.commit()
+            _log.info("[kb] commit done")
 
             # Refresh per-org snapshot in background so next cold start is fast
             import threading
