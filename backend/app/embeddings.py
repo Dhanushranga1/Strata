@@ -4,7 +4,7 @@ import logging
 import httpx
 from typing import List
 
-MODEL = os.getenv("EMBEDDING_MODEL", "jina-embeddings-v3-text-small")
+MODEL = os.getenv("EMBEDDING_MODEL", "jina-embeddings-v5-text-small")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
 MAX_RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 2.0
