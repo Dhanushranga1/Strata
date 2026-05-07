@@ -1,16 +1,17 @@
 import os
 import time
 import logging
-import google.generativeai as genai
+import httpx
 from typing import List
 
-MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-001")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "3072"))
+MODEL = os.getenv("EMBEDDING_MODEL", "jina-embeddings-v3-text-small")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
 MAX_RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 2.0
-INTER_BATCH_DELAY = 1.0   # seconds between batches to avoid rate limits
-BATCH_SIZE = 20           # embed in small batches
+INTER_BATCH_DELAY = 3.0   # seconds between batches (free tier rate limit)
+BATCH_SIZE = 20
 MAX_TEXT_LENGTH = 20000
+JINA_API_URL = "https://api.jina.ai/v1/embeddings"
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +20,11 @@ class EmbeddingError(Exception):
     pass
 
 
-def _init():
-    key = os.getenv("GOOGLE_API_KEY")
+def _get_api_key() -> str:
+    key = os.getenv("JINA_API_KEY")
     if not key:
-        raise EmbeddingError("GOOGLE_API_KEY is required but not set")
-    genai.configure(api_key=key)
+        raise EmbeddingError("JINA_API_KEY is required but not set")
+    return key
 
 
 def _clean(text: str) -> str:
@@ -32,17 +33,29 @@ def _clean(text: str) -> str:
     return text.strip()[:MAX_TEXT_LENGTH]
 
 
+def _call_jina(texts: List[str], api_key: str) -> List[List[float]]:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": MODEL,
+        "input": texts,
+    }
+    with httpx.Client(timeout=60.0) as client:
+        resp = client.post(JINA_API_URL, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+    items = sorted(data["data"], key=lambda x: x["index"])
+    return [item["embedding"] for item in items]
+
+
 def embed_single_text_with_retry(text: str, task_type: str = "retrieval_document") -> List[float]:
-    _init()
+    api_key = _get_api_key()
     validated = _clean(text)
     for attempt in range(MAX_RETRY_ATTEMPTS):
         try:
-            response = genai.embed_content(
-                model=MODEL,
-                content=validated,
-                task_type=task_type,
-            )
-            return response["embedding"]
+            return _call_jina([validated], api_key)[0]
         except Exception as e:
             logger.warning(f"Embedding attempt {attempt + 1}/{MAX_RETRY_ATTEMPTS} failed: {e}")
             if attempt + 1 < MAX_RETRY_ATTEMPTS:
@@ -54,35 +67,36 @@ def embed_single_text_with_retry(text: str, task_type: str = "retrieval_document
 def embed_texts(texts: List[str], task_type: str = "retrieval_document") -> List[List[float]]:
     """
     Embed texts in small batches with inter-batch delays to avoid
-    hitting the Gemini free-tier rate limit.
+    hitting the Jina free-tier rate limit.
     """
     if not texts:
         raise EmbeddingError("Cannot embed empty list of texts")
 
-    _init()
+    api_key = _get_api_key()
     cleaned = [_clean(t) for t in texts]
     embeddings: List[List[float]] = []
     failed_count = 0
     total_batches = (len(cleaned) + BATCH_SIZE - 1) // BATCH_SIZE
 
-    logger.info(f"Embedding {len(cleaned)} texts in {total_batches} batch(es)")
+    logger.info(f"Embedding {len(cleaned)} texts in {total_batches} batch(es) via Jina AI")
 
     for i, batch_start in enumerate(range(0, len(cleaned), BATCH_SIZE)):
         batch = cleaned[batch_start: batch_start + BATCH_SIZE]
 
-        for j, text in enumerate(batch):
+        for attempt in range(MAX_RETRY_ATTEMPTS):
             try:
-                response = genai.embed_content(
-                    model=MODEL,
-                    content=text,
-                    task_type=task_type,
-                )
-                embeddings.append(response["embedding"])
+                batch_embeddings = _call_jina(batch, api_key)
+                embeddings.extend(batch_embeddings)
+                break
             except Exception as e:
-                logger.error(f"Failed text {batch_start + j}: {e}")
-                failed_count += 1
-                fallback = [0.0] * (len(embeddings[0]) if embeddings else EMBEDDING_DIM)
-                embeddings.append(fallback)
+                logger.warning(f"Batch {i + 1} attempt {attempt + 1}/{MAX_RETRY_ATTEMPTS} failed: {e}")
+                if attempt + 1 < MAX_RETRY_ATTEMPTS:
+                    time.sleep(RETRY_DELAY_SECONDS * (attempt + 1))
+                else:
+                    logger.error(f"Batch {i + 1} failed after all retries: {e}")
+                    failed_count += len(batch)
+                    fallback = [0.0] * (len(embeddings[0]) if embeddings else EMBEDDING_DIM)
+                    embeddings.extend([fallback] * len(batch))
 
         logger.info(f"Batch {i + 1}/{total_batches} done")
         if i < total_batches - 1:
