@@ -21,11 +21,10 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Configuration from environment
-# Note: Use gemini-1.5-flash-latest or gemini-1.5-pro-latest for stable API
-PRIMARY_MODEL = os.getenv("GENAI_MODEL", "gemini-1.5-flash-latest")
-FLASH_MODEL = "gemini-1.5-flash-latest"
-PRO_MODEL = "gemini-1.5-pro-latest"
-FALLBACK_MODEL = "gemini-1.5-flash-latest"
+PRIMARY_MODEL = os.getenv("GENAI_MODEL", "gemini-2.0-flash")
+FLASH_MODEL = os.getenv("GENAI_MODEL", "gemini-2.0-flash")
+PRO_MODEL = os.getenv("GENAI_PRO_MODEL", "gemini-1.5-pro")
+FALLBACK_MODEL = os.getenv("GENAI_MODEL", "gemini-2.0-flash")
 TEMPERATURE = float(os.getenv("GENAI_TEMPERATURE", "0.2"))
 MAX_OUTPUT_TOKENS = int(os.getenv("GENAI_MAX_OUTPUT_TOKENS", "1024"))
 CONTEXT_SIZE_THRESHOLD = 15000
