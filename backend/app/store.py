@@ -63,14 +63,14 @@ def _org_paths(org_id: str) -> Tuple[str, str]:
 _cache: Dict[str, Tuple[faiss.Index, Dict, float]] = {}
 _cache_lock = threading.Lock()          # guards _cache mutations
 
-_per_org_locks: Dict[str, threading.Lock] = {}
+_per_org_locks: Dict[str, threading.RLock] = {}
 _per_org_locks_lock = threading.Lock()  # guards _per_org_locks mutations
 
 
-def _get_org_lock(org_id: str) -> threading.Lock:
+def _get_org_lock(org_id: str) -> threading.RLock:
     with _per_org_locks_lock:
         if org_id not in _per_org_locks:
-            _per_org_locks[org_id] = threading.Lock()
+            _per_org_locks[org_id] = threading.RLock()
         return _per_org_locks[org_id]
 
 
