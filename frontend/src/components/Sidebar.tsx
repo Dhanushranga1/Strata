@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -113,7 +114,11 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
   const [unread, setUnread] = useState(0);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   const fetchNotifications = async () => {
     try {
@@ -134,15 +139,35 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
     return () => clearInterval(interval);
   }, []);
 
+  // Close on outside click — checks both button and portal panel
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (!buttonRef.current?.contains(target) && !panelRef.current?.contains(target)) {
         setOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Compute fixed viewport position and apply via DOM (avoids inline style= attribute)
+  useEffect(() => {
+    if (!open || !buttonRef.current || !panelRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const panelWidth = 320;
+    const panelMaxHeight = 460;
+    let left = rect.right + 8;
+    let top = rect.top;
+    if (top + panelMaxHeight > window.innerHeight - 8) {
+      top = Math.max(8, window.innerHeight - panelMaxHeight - 8);
+    }
+    if (left + panelWidth > window.innerWidth - 8) {
+      left = Math.max(8, rect.left - panelWidth - 8);
+    }
+    panelRef.current.style.setProperty("--np-t", `${top}px`);
+    panelRef.current.style.setProperty("--np-l", `${left}px`);
   }, [open]);
 
   const markRead = async (id: string) => {
@@ -173,69 +198,52 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
     }
   };
 
-  return (
-    <div className="relative" ref={panelRef}>
-      <button
-        type="button"
-        onClick={() => { setOpen((v) => !v); if (!open) fetchNotifications(); }}
-        title="Notifications"
-        className={cn(
-          "relative flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors",
-          isCollapsed && "justify-center px-2"
-        )}
-      >
-        <Bell className="w-4 h-4 shrink-0" />
-        {!isCollapsed && <span>Notifications</span>}
-        {unread > 0 && (
-          <span className="absolute top-1.5 left-5 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1 leading-none">
-            {unread > 99 ? "99+" : unread}
-          </span>
-        )}
-      </button>
+  const panelContent = (
+    <div
+      ref={panelRef}
+      className="fixed w-80 rounded-xl border border-border bg-card shadow-2xl z-[9999] overflow-hidden [top:var(--np-t,0px)] [left:var(--np-l,0px)]"
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <span className="font-semibold text-sm">Notifications</span>
+        <div className="flex items-center gap-2">
+          {unread > 0 && (
+            <button type="button" onClick={markAllRead} className="text-xs text-primary hover:underline">
+              Mark all read
+            </button>
+          )}
+          <button type="button" title="Close notifications" onClick={() => setOpen(false)}>
+            <X className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+          </button>
+        </div>
+      </div>
 
-      {open && (
-        <div className="absolute left-full top-0 ml-2 w-80 rounded-xl border border-border bg-card shadow-xl z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-            <span className="font-semibold text-sm">Notifications</span>
-            <div className="flex items-center gap-2">
-              {unread > 0 && (
-                <button type="button" onClick={markAllRead} className="text-xs text-primary hover:underline">
-                  Mark all read
-                </button>
-              )}
-              <button type="button" title="Close notifications" onClick={() => setOpen(false)}>
-                <X className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-              </button>
-            </div>
+      <div className="max-h-[380px] overflow-y-auto">
+        {loading && items.length === 0 ? (
+          <div className="flex justify-center py-8">
+            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
-
-          <div className="max-h-[360px] overflow-y-auto">
-            {loading && items.length === 0 ? (
-              <div className="flex justify-center py-8">
-                <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : items.length === 0 ? (
-              <div className="flex flex-col items-center py-10 text-muted-foreground gap-2">
-                <Bell className="w-8 h-8 opacity-30" />
-                <p className="text-sm">No notifications yet</p>
-              </div>
-            ) : (
-              items.map((notif) => (
-                <div
-                  key={notif.id}
-                  onClick={() => handleClick(notif)}
-                  className={cn(
-                    "flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors border-b border-border/40 last:border-0",
-                    !notif.read_at && "bg-primary/5"
-                  )}
-                >
-                  <span className="text-lg shrink-0 mt-0.5">{NOTIF_ICONS[notif.type] ?? "🔔"}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className={cn("text-sm leading-snug", !notif.read_at && "font-semibold")}>{notif.title}</p>
-                    {notif.body && (
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.body}</p>
-                    )}
-                    <p className="text-[10px] text-muted-foreground mt-1">{formatRelTime(notif.created_at)}</p>
+        ) : items.length === 0 ? (
+          <div className="flex flex-col items-center py-10 text-muted-foreground gap-2">
+            <Bell className="w-8 h-8 opacity-30" />
+            <p className="text-sm">No notifications yet</p>
+          </div>
+        ) : (
+          items.map((notif) => (
+            <div
+              key={notif.id}
+              onClick={() => handleClick(notif)}
+              className={cn(
+                "flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors border-b border-border/40 last:border-0",
+                !notif.read_at && "bg-primary/5"
+              )}
+            >
+              <span className="text-lg shrink-0 mt-0.5">{NOTIF_ICONS[notif.type] ?? "🔔"}</span>
+              <div className="flex-1 min-w-0">
+                <p className={cn("text-sm leading-snug", !notif.read_at && "font-semibold")}>{notif.title}</p>
+                {notif.body && (
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.body}</p>
+                )}
+                <p className="text-[10px] text-muted-foreground mt-1">{formatRelTime(notif.created_at)}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     {notif.ref_type === "ticket" && <ExternalLink className="w-3 h-3 text-muted-foreground" />}
@@ -262,8 +270,31 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
               ))
             )}
           </div>
-        </div>
-      )}
+    </div>
+  );
+
+  return (
+    <div>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => { setOpen((v) => !v); if (!open) fetchNotifications(); }}
+        title="Notifications"
+        className={cn(
+          "relative flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors",
+          open && "bg-accent text-foreground",
+          isCollapsed && "justify-center px-2"
+        )}
+      >
+        <Bell className="w-4 h-4 shrink-0" />
+        {!isCollapsed && <span>Notifications</span>}
+        {unread > 0 && (
+          <span className="absolute top-1.5 left-5 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1 leading-none">
+            {unread > 99 ? "99+" : unread}
+          </span>
+        )}
+      </button>
+      {mounted && open && createPortal(panelContent, document.body)}
     </div>
   );
 }

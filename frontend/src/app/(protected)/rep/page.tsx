@@ -85,19 +85,19 @@ const TicketCardSkeleton = () => (
     <CardHeader className="pb-3">
       <div className="flex justify-between items-start">
         <div className="space-y-2 flex-1">
-          <div className="h-4 bg-zinc-700/50 rounded animate-pulse w-3/4"></div>
-          <div className="h-3 bg-zinc-700/50 rounded animate-pulse w-1/2"></div>
+          <div className="h-4 bg-muted rounded animate-pulse w-3/4"></div>
+          <div className="h-3 bg-muted rounded animate-pulse w-1/2"></div>
         </div>
-        <div className="h-6 bg-zinc-700/50 rounded animate-pulse w-16"></div>
+        <div className="h-6 bg-muted rounded animate-pulse w-16"></div>
       </div>
     </CardHeader>
     <CardContent>
       <div className="space-y-3">
-        <div className="h-3 bg-zinc-700/50 rounded animate-pulse w-full"></div>
-        <div className="h-3 bg-zinc-700/50 rounded animate-pulse w-2/3"></div>
+        <div className="h-3 bg-muted rounded animate-pulse w-full"></div>
+        <div className="h-3 bg-muted rounded animate-pulse w-2/3"></div>
         <div className="flex gap-2">
-          <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-20"></div>
-          <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-20"></div>
+          <div className="h-8 bg-muted rounded animate-pulse w-20"></div>
+          <div className="h-8 bg-muted rounded animate-pulse w-20"></div>
         </div>
       </div>
     </CardContent>
@@ -755,7 +755,7 @@ export default function RepConsolePage() {
     const diffMs = etr.getTime() - now.getTime()
     const diffHours = diffMs / (1000 * 60 * 60)
     const formatted = etr.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    if (diffMs < 0) return { text: `ETR: ${formatted} (overdue)`, className: 'text-red-600' }
+    if (diffMs < 0) return { text: `ETR: ${formatted} (overdue)`, className: 'text-danger' }
     if (diffHours < 2) return { text: `ETR: ${formatted}`, className: 'text-amber-600' }
     return { text: `ETR: ${formatted}`, className: 'text-muted-foreground' }
   }
@@ -789,12 +789,6 @@ export default function RepConsolePage() {
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-3">
-              <Button variant="outline" asChild className="min-h-[44px]">
-                <Link href="/dashboard">
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Dashboard
-                </Link>
-              </Button>
               {user?.role === 'admin' && (
                 <Button
                   variant="outline"
@@ -942,101 +936,30 @@ export default function RepConsolePage() {
 
         {/* Stats Overview - Mobile Optimized */}
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
-          <Card className="relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 to-red-600/5" />
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative">
-              <CardTitle className="text-sm font-medium">Needs Attention</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-red-600" />
-            </CardHeader>
-            <CardContent className="relative">
-              <div className="text-2xl font-bold text-red-600">
-                {countsLoading ? (
-                  <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
-                ) : (
-                  counts.needs_attention
-                )}
+          {[
+          { label: "Needs Attention", value: counts.needs_attention, icon: AlertTriangle, color: "text-danger",   bg: "bg-danger/10"   , desc: "Require immediate action" },
+          { label: "Open / Active",   value: counts.open_active,     icon: MessageSquare, color: "text-primary",  bg: "bg-primary/10"  , desc: "Currently open or active" },
+          { label: "Escalated",       value: counts.escalated,       icon: User,          color: "text-warning",  bg: "bg-warning/10"  , desc: "Escalated to higher tiers" },
+          { label: "In Progress",     value: counts.in_progress,     icon: Clock,         color: "text-success",  bg: "bg-success/10"  , desc: "Actively being worked on" },
+          { label: "Resolved Today",  value: counts.resolved_today,  icon: CheckCheck,    color: "text-info",     bg: "bg-info/10"     , desc: "Closed since midnight" },
+        ].map((stat) => (
+          <Card key={stat.label} className="relative overflow-hidden">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl ${stat.bg} flex items-center justify-center shrink-0`}>
+                <stat.icon className={`h-5 w-5 ${stat.color}`} />
               </div>
-              <p className="text-xs text-muted-foreground">
-                Urgent tickets requiring immediate action
-              </p>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground truncate">{stat.label}</p>
+                <p className={`text-2xl font-bold leading-tight ${stat.color}`}>
+                  {countsLoading
+                    ? <span className="inline-block h-7 w-10 bg-muted rounded animate-pulse" />
+                    : stat.value}
+                </p>
+                <p className="text-[10px] text-muted-foreground truncate">{stat.desc}</p>
+              </div>
             </CardContent>
           </Card>
-          <Card className="relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-blue-600/5" />
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative">
-              <CardTitle className="text-sm font-medium">Open/Active</CardTitle>
-              <MessageSquare className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent className="relative">
-              <div className="text-2xl font-bold text-blue-600">
-                {countsLoading ? (
-                  <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
-                ) : (
-                  counts.open_active
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Currently being worked on
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 to-orange-600/5" />
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative">
-              <CardTitle className="text-sm font-medium">Escalated</CardTitle>
-              <User className="h-4 w-4 text-orange-600" />
-            </CardHeader>
-                    <CardContent className="relative">
-            <div className="text-2xl font-bold text-orange-600">
-              {countsLoading ? (
-                <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
-              ) : (
-                counts.escalated
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Escalated to higher tiers
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-green-500/10 to-green-600/5" />
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative">
-            <CardTitle className="text-sm font-medium">Total In Progress</CardTitle>
-            <Clock className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent className="relative">
-            <div className="text-2xl font-bold text-green-600">
-              {countsLoading ? (
-                <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
-              ) : (
-                counts.in_progress
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Tickets currently in progress
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-emerald-600/5" />
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative">
-            <CardTitle className="text-sm font-medium">Resolved Today</CardTitle>
-            <CheckCheck className="h-4 w-4 text-emerald-600" />
-          </CardHeader>
-          <CardContent className="relative">
-            <div className="text-2xl font-bold text-emerald-600">
-              {countsLoading ? (
-                <div className="h-8 bg-zinc-700/50 rounded animate-pulse w-12"></div>
-              ) : (
-                counts.resolved_today
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Resolved since midnight
-            </p>
-          </CardContent>
-        </Card>
+        ))}
       </div>
 
       {/* Filters and Queue Management */}
@@ -1196,22 +1119,20 @@ export default function RepConsolePage() {
                       {ticket.message_count}
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      <span className={cn(age.urgent && 'text-red-600 font-medium')}>
+                      <Clock className="h-3 w-3 shrink-0" />
+                      <span className={cn(age.urgent && 'text-danger font-medium')}>
                         {age.text}
                       </span>
                       {age.urgent && (
-                        <Badge variant="destructive" className="text-xs">
-                          OVERDUE
-                        </Badge>
+                        <Badge variant="destructive" className="text-xs">OVERDUE</Badge>
                       )}
                     </div>
                     <div className="hidden sm:flex items-center gap-1 text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      {formatTimeAgo(ticket.last_message_at)}
+                      <MessageSquare className="h-3 w-3 shrink-0" />
+                      <span className="text-xs">{formatTimeAgo(ticket.last_message_at)}</span>
                     </div>
                     {ticket.status === 'in_progress' && ticket.accepted_at && (
-                      <div className="flex items-center gap-1 text-xs font-medium text-emerald-600">
+                      <div className="flex items-center gap-1 text-xs font-medium text-success">
                         <Clock className="h-3 w-3" />
                         In progress: {formatElapsed(ticket.accepted_at)}
                       </div>
