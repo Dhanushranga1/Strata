@@ -12,8 +12,14 @@ from .org_middleware import require_org_context
 
 router = APIRouter(prefix="/api/rep", tags=["rep"])
 
-def require_rep(user: User):
-    """Helper to enforce rep/admin role requirement"""
+def require_rep(user: User, request: Request = None):
+    """Enforce rep/admin role, preferring org-scoped role when org context is available."""
+    if request is not None:
+        org_role = getattr(request.state, "user_role_in_org", None)
+        if org_role is not None:
+            if org_role not in ("rep", "admin", "owner"):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rep/admin access required")
+            return
     if (user.role or "customer") not in ("rep", "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rep/admin access required")
 
@@ -33,7 +39,7 @@ async def queue(
 ):
     """Get tickets queue based on lane with optional filters"""
     org_id = require_org_context(request)
-    require_rep(user)
+    require_rep(user, request)
     
     conn = await get_db_connection()
     try:
@@ -128,7 +134,7 @@ async def queue(
 async def counts(request: Request, user: User = Depends(get_current_user)):
     """Get counts for all queue lanes"""
     org_id = require_org_context(request)
-    require_rep(user)
+    require_rep(user, request)
     
     conn = await get_db_connection()
     try:
@@ -188,7 +194,7 @@ async def my_tickets(
     Return all tickets assigned to the current rep across every organisation they belong to.
     Does NOT require an X-Organization-ID header — this is a cross-org view.
     """
-    require_rep(user)
+    require_rep(user, request)
     conn = await get_db_connection()
     try:
         # All org IDs where this user is an active member with rep/admin/owner role
@@ -275,7 +281,7 @@ async def accept_ticket(
 ):
     """Accept an open ticket — sets status=in_progress, records accepted_at, assigns to caller."""
     org_id = require_org_context(request)
-    require_rep(user)
+    require_rep(user, request)
 
     conn = await get_db_connection()
     try:
@@ -414,7 +420,7 @@ async def set_status(
 ):
     """Change ticket status with transition validation"""
     org_id = require_org_context(request)
-    require_rep(user)
+    require_rep(user, request)
     
     conn = await get_db_connection()
     try:
@@ -489,7 +495,7 @@ async def assign(
 ):
     """Assign ticket to a rep"""
     org_id = require_org_context(request)
-    require_rep(user)
+    require_rep(user, request)
     
     conn = await get_db_connection()
     try:
@@ -552,7 +558,7 @@ async def acknowledge_attention(
 ):
     """Acknowledge attention flag on ticket"""
     org_id = require_org_context(request)
-    require_rep(user)
+    require_rep(user, request)
     
     conn = await get_db_connection()
     try:
@@ -610,7 +616,7 @@ async def set_priority_level(
 ):
     """Set the numeric priority level (1–7) on a ticket."""
     org_id = require_org_context(request)
-    require_rep(user)
+    require_rep(user, request)
 
     conn = await get_db_connection()
     try:
@@ -655,7 +661,7 @@ async def set_etr(
 ):
     """Set or update the Expected Time to Resolve (ETR) for a ticket."""
     org_id = require_org_context(request)
-    require_rep(user)
+    require_rep(user, request)
 
     conn = await get_db_connection()
     try:
@@ -708,7 +714,7 @@ async def set_priority(
 ):
     """Set ticket priority"""
     org_id = require_org_context(request)
-    require_rep(user)
+    require_rep(user, request)
     
     conn = await get_db_connection()
     try:
@@ -760,7 +766,7 @@ async def set_priority(
 async def get_workload(request: Request, user: User = Depends(get_current_user)):
     """Return all reps/admins in the org with their open ticket counts."""
     org_id = require_org_context(request)
-    require_rep(user)
+    require_rep(user, request)
 
     conn = await get_db_connection()
     try:

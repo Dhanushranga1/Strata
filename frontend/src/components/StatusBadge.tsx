@@ -1,6 +1,6 @@
 export function StatusBadge({ status }: { status: "open"|"in_progress"|"resolved"|"closed"|"escalated" }) {
   const map: Record<string, string> = {
-    open: "bg-brand-100 text-brand-700 dark:bg-brand-900/20 dark:text-brand-400",
+    open: "bg-primary/10 text-primary",
     in_progress: "bg-warning/15 text-warning dark:bg-warning/20 dark:text-warning",
     resolved: "bg-success/15 text-success dark:bg-success/20 dark:text-success",
     closed: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",

@@ -2,149 +2,150 @@
 @tailwind components;
 @tailwind utilities;
 
-/* TicketPilot V2 "Midnight Prism" Design Tokens */
-:root,
-:root[data-theme="v2-dark"] {
-  /* Base neutrals (dark mode) */
-  --bg:           9 9 11;      /* #09090B  zinc-950 */
-  --surface:      24 24 27;    /* #18181B  zinc-900 */
-  --surface2:     39 39 42;    /* #27272A  zinc-800 */
-  --border-v2:    63 63 70;    /* #3F3F46  zinc-700 — V2 rgb border, no shadcn conflict */
-  --text:         250 250 250; /* #FAFAFA  zinc-50 */
-  --muted:        161 161 170; /* #A1A1AA  zinc-400 */
+/* ──────────────────────────────────────────────────────────────────────────────
+   TicketPilot Design Tokens — "Midnight Prism"
 
-  /* Brand (indigo -> rose gradient system) */
-  --primary:      91 124 255;  /* #5B7CFF  indigo-400 */
-  --primary2:     139 92 246;  /* #8B5CF6  violet-500 */
-  --ring:         91 124 255;  /* #5B7CFF  (same as primary) */
+   Architecture:
+   - :root          → LIGHT mode defaults (HSL for shadcn + RGB for V2)
+   - .dark          → DARK mode overrides
+   - Custom V2 tokens (space-separated RGB) live alongside shadcn HSL tokens.
+   - One source of truth per token: never set the same semantic in both layers.
+   ────────────────────────────────────────────────────────────────────────────── */
 
-  /* Semantic colors */
-  --success:      34 197 94;   /* #22C55E  green-500 */
-  --warning:      251 191 36;  /* #FBBF24  amber-400 */
-  --danger:       248 113 113; /* #F87171  red-400 */
-  --info:         56 189 248;  /* #38BDF8  sky-400 */
-
-  /* Overlay for modals/scrims */
-  --overlay:      0 0 0;
-}
-
-/* Optional light mode scaffold (keep tokens consistent) */
-:root[data-theme="v2-light"] {
-  --bg:          255 255 255; /* #FFFFFF  */
-  --surface:     248 250 252; /* #F8FAFC  slate-50 */
-  --surface2:    241 245 249; /* #F1F5F9  slate-100 */
-  --border:      226 232 240; /* #E2E8F0  slate-200 */
-  --text:        15 23 42;    /* #0F172A  slate-900 */
-  --muted:       100 116 139; /* #64748B  slate-500 */
-  --primary:     59 130 246;  /* #3B82F6  blue-500 */
-  --primary2:    147 51 234;  /* #9333EA  purple-600 */
-  --ring:        59 130 246;  /* #3B82F6  */
-  --success:     22 163 74;   /* #16A34A  green-600 */
-  --warning:     217 119 6;   /* #D97706  amber-600 */
-  --danger:      220 38 38;   /* #DC2626  red-600 */
-  --info:        56 189 248;  /* #38BDF8  */
-  --overlay:     0 0 0;       /* rgba(0 0 0 / 0.40) lighter for light mode */
-}
-
-/* Shared design system tokens — app is always-dark so these mirror .dark values */
+/* ── Light mode (:root) ─────────────────────────────────────────────────────── */
 :root {
-  --brand: 59 130 246;
   --radius: 0.5rem;
-  --shadow-md: 0 8px 30px rgba(2,12,27,0.06);
-  --heroui-primary: 59 130 246;
 
-  --background:           240 10% 3.9%;
-  --foreground:           0 0% 98%;
-  --card:                 240 6% 10%;
-  --card-foreground:      0 0% 98%;
-  --popover:              240 6% 10%;
-  --popover-foreground:   0 0% 98%;
+  /* V2 RGB tokens (used as rgb(var(--token))) */
+  --bg:           255 255 255;   /* white */
+  --surface:      248 250 252;   /* slate-50 */
+  --surface2:     241 245 249;   /* slate-100 */
+  --border-v2:    226 232 240;   /* slate-200 */
+  --text:         15  23  42;    /* slate-900 */
+  --primary:      99  102 241;   /* indigo-500 — single brand color, both modes */
+  --primary2:     139 92  246;   /* violet-500 */
+  --success:      34  197 94;    /* green-500 */
+  --warning:      245 158 11;    /* amber-500 */
+  --danger:       239 68  68;    /* red-500 */
+  --info:         56  189 248;   /* sky-400 */
+  --overlay:      0   0   0;
+
+  /* Shadcn HSL tokens — light mode */
+  --background:           0 0% 100%;
+  --foreground:           222 47% 11%;
+  --card:                 0 0% 100%;
+  --card-foreground:      222 47% 11%;
+  --popover:              0 0% 100%;
+  --popover-foreground:   222 47% 11%;
   --primary-foreground:   0 0% 100%;
-  --secondary:            240 5% 17%;
-  --secondary-foreground: 0 0% 98%;
-  --muted-foreground:     240 5% 64.9%;
-  --accent:               240 5% 17%;
-  --accent-foreground:    0 0% 98%;
-  --destructive:          0 62.8% 30.6%;
-  --destructive-foreground: 0 0% 98%;
-  --border:               240 5% 26%;
-  --input:                240 5% 17%;
-  --ring:                 240 5% 64.9%;
+  --secondary:            220 14% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted:                220 14% 96%;
+  --muted-foreground:     215 16% 47%;
+  --accent:               220 14% 96%;
+  --accent-foreground:    222 47% 11%;
+  --destructive:          0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border:               220 13% 91%;
+  --input:                220 13% 91%;
+  --ring:                 243 75% 59%;   /* indigo-500 — visible focus ring */
+
+  --shadow-md: 0 8px 30px rgba(2, 12, 27, 0.06);
 }
 
-/* Font Variables */
-.font-geist { font-family: var(--font-geist), sans-serif; }
-.font-inter  { font-family: var(--font-inter), sans-serif; }
-
-/* Dark class — V2 RGB tokens + shadcn HSL tokens (no --border conflict) */
+/* ── Dark mode ──────────────────────────────────────────────────────────────── */
 .dark {
-  /* V2 tokens (space-separated RGB — used with rgb() in Tailwind config) */
-  --bg:        9 9 11;        /* zinc-950 */
-  --surface:   24 24 27;      /* zinc-900 */
-  --surface2:  39 39 42;      /* zinc-800 */
+  /* V2 RGB tokens */
+  --bg:        9   9   11;    /* zinc-950 */
+  --surface:   24  24  27;    /* zinc-900 */
+  --surface2:  39  39  42;    /* zinc-800 */
+  --border-v2: 63  63  70;    /* zinc-700 */
   --text:      250 250 250;   /* zinc-50  */
-  --primary:   99 102 241;    /* indigo-500 */
-  --muted:     39 39 42;      /* zinc-800 — bg-muted section backgrounds */
-  --border-v2: 63 63 70;      /* zinc-700 — explicit V2 rgb border */
+  --primary:   99  102 241;   /* indigo-500 — same as light (consistent brand) */
 
-  /* Shadcn HSL tokens
-   * --card and --border are intentionally lighter than --background so
-   * cards and borders are visually distinct from the page background.
-   *
-   * These use specificity (0,1,0) — they win because :root[data-theme="v2-dark"]
-   * no longer sets --border (renamed to --border-v2 above), removing the conflict.
-   */
-  --background:           240 10% 3.9%;   /* zinc-950 — page bg */
+  /* Shadcn HSL tokens — dark mode */
+  --background:           240 10% 3.9%;   /* zinc-950 */
   --foreground:           0 0% 98%;
-  --card:                 240 6% 10%;     /* zinc-900 — lifted above bg */
+  --card:                 240 6% 10%;     /* zinc-900 */
   --card-foreground:      0 0% 98%;
   --popover:              240 6% 10%;     /* zinc-900 */
   --popover-foreground:   0 0% 98%;
   --primary-foreground:   0 0% 100%;
   --secondary:            240 5% 17%;     /* zinc-800 */
   --secondary-foreground: 0 0% 98%;
-  --muted-foreground:     240 5% 64.9%;
-  --accent:               240 5% 17%;
+  --muted:                240 5% 17%;     /* zinc-800 — muted bg sections */
+  --muted-foreground:     240 5% 65%;     /* zinc-400 — readable muted text */
+  --accent:               240 5% 17%;     /* zinc-800 — hover bg */
   --accent-foreground:    0 0% 98%;
-  --destructive:          0 62.8% 30.6%;
+  --destructive:          0 62% 30%;
   --destructive-foreground: 0 0% 98%;
-  --border:               240 5% 26%;     /* zinc-700 — visible border */
+  --border:               240 5% 26%;     /* zinc-700 */
   --input:                240 5% 17%;     /* zinc-800 */
-  --ring:                 240 4.9% 83.9%;
+  --ring:                 243 75% 59%;    /* indigo-500 — same as light, always visible */
 }
 
-html, body { 
-  background: rgb(var(--bg)); 
-  color: rgb(var(--text)); 
-}
-* { 
-  outline: none; 
+/* ── Base layer ─────────────────────────────────────────────────────────────── */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+  color-scheme: dark; /* tells browser to use dark scrollbars/inputs by default */
 }
 
-/* V2 Focus Ring System */
-.focus-ring:focus-visible {
+html, body {
+  background: rgb(var(--bg));
+  color: rgb(var(--text));
+}
+
+/* Selection highlight using brand primary */
+::selection {
+  background: rgb(var(--primary) / 0.25);
+  color: rgb(var(--text));
+}
+
+/* Remove all native outlines — restored via :focus-visible below */
+* {
   outline: none;
-  box-shadow: 0 0 0 2px rgb(var(--ring) / .5);
 }
 
-:focus-visible { 
-  box-shadow: 0 0 0 2px rgb(var(--ring) / .5); 
-  border-radius: 6px; 
+/* ── Focus ring — accessible, branded, keyboard-only ─────────────────────────
+   Uses :focus-visible so mouse clicks are unaffected.
+   Ring color = --ring (indigo-500 in both modes) → always visible.
+   ────────────────────────────────────────────────────────────────────────────── */
+:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.7);
+  border-radius: 6px;
 }
 
-/* Dialog "glass" surface for overlays */
+/* Button/interactive element focus — slightly tighter ring */
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.7);
+  outline: none;
+}
+
+/* ── Font utilities ─────────────────────────────────────────────────────────── */
+.font-geist { font-family: var(--font-geist), sans-serif; }
+.font-inter  { font-family: var(--font-inter), sans-serif; }
+
+/* ── Glass surface (overlays / modals) ─────────────────────────────────────── */
 .glass {
-  background: rgba(255,255,255,.08);
+  background: rgba(255, 255, 255, 0.08);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,.15);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 .dark .glass {
-  background: rgba(17,17,20,.5);
-  border-color: rgba(255,255,255,.08);
+  background: rgba(17, 17, 20, 0.5);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
-/* V2 Surface Helpers */
+/* ── V2 Surface helpers ─────────────────────────────────────────────────────── */
 [data-surface="1"] {
   background: rgb(var(--surface));
   border: 1px solid rgb(var(--border-v2));
@@ -154,12 +155,12 @@ html, body {
   border: 1px solid rgb(var(--border-v2));
 }
 
-/* Hero Gradient Utility */
+/* ── Brand gradient utility ─────────────────────────────────────────────────── */
 .ticketpilot-gradient {
-  background: linear-gradient(90deg, #5B7CFF 0%, #FF73A1 100%);
+  background: linear-gradient(90deg, #6366F1 0%, #8B5CF6 100%);
 }
 
-/* V2 Badge and Lozenge Utilities */
+/* ── Badge / lozenge utilities ──────────────────────────────────────────────── */
 .badge-numeric {
   display: inline-flex;
   align-items: center;
@@ -172,26 +173,11 @@ html, body {
   height: 1.5rem;
 }
 
-.badge-primary { 
-  background-color: rgb(var(--primary));
-  color: white;
-}
-.badge-success { 
-  background-color: rgb(var(--success));
-  color: white;
-}
-.badge-warning { 
-  background-color: rgb(var(--warning));
-  color: white;
-}
-.badge-danger { 
-  background-color: rgb(var(--danger));
-  color: white;
-}
-.badge-info { 
-  background-color: rgb(var(--info));
-  color: white;
-}
+.badge-primary  { background-color: rgb(var(--primary));  color: white; }
+.badge-success  { background-color: rgb(var(--success));  color: white; }
+.badge-warning  { background-color: rgb(var(--warning));  color: white; }
+.badge-danger   { background-color: rgb(var(--danger));   color: white; }
+.badge-info     { background-color: rgb(var(--info));     color: white; }
 
 .lozenge-state {
   display: inline-flex;
@@ -202,27 +188,9 @@ html, body {
   padding: 0.25rem 0.5rem;
 }
 
-.lozenge-primary { 
-  background-color: rgb(var(--primary) / 0.15);
-  color: rgb(var(--primary));
-}
-.lozenge-success { 
-  background-color: rgb(var(--success) / 0.15);
-  color: rgb(var(--success));
-}
-.lozenge-warning { 
-  background-color: rgb(var(--warning) / 0.15);
-  color: rgb(var(--warning));
-}
-.lozenge-danger { 
-  background-color: rgb(var(--danger) / 0.15);
-  color: rgb(var(--danger));
-}
-.lozenge-info { 
-  background-color: rgb(var(--info) / 0.15);
-  color: rgb(var(--info));
-}
-.lozenge-muted { 
-  background-color: rgb(var(--surface2));
-  color: rgb(var(--muted));
-}
+.lozenge-primary { background-color: rgb(var(--primary) / 0.15); color: rgb(var(--primary)); }
+.lozenge-success { background-color: rgb(var(--success) / 0.15); color: rgb(var(--success)); }
+.lozenge-warning { background-color: rgb(var(--warning) / 0.15); color: rgb(var(--warning)); }
+.lozenge-danger  { background-color: rgb(var(--danger)  / 0.15); color: rgb(var(--danger));  }
+.lozenge-info    { background-color: rgb(var(--info)    / 0.15); color: rgb(var(--info));    }
+.lozenge-muted   { background-color: rgb(var(--surface2));       color: hsl(var(--muted-foreground)); }

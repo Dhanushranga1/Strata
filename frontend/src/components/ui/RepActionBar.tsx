@@ -23,7 +23,7 @@ interface ActionItem {
   id: string;
   label: string;
   icon?: React.ComponentType<{ className?: string }>;
-  variant?: "primary" | "secondary" | "outline" | "destructive" | "ghost" | "link";
+  variant?: "default" | "primary" | "secondary" | "outline" | "destructive" | "ghost" | "link";
   badge?: string;
   badgeVariant?: "secondary" | "outline" | "destructive";
   onClick?: () => void;

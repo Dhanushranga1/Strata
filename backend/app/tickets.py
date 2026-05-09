@@ -58,9 +58,22 @@ def get_user_role(user_id: str) -> str:
         return result["role"] if result else "customer"
 
 def is_rep(user: User) -> bool:
-    """Check if user has rep or admin role."""
+    """Check if user has rep or admin role (global role, no org context)."""
     actual_role = get_user_role(user.id)
     return actual_role in ("rep", "admin")
+
+def is_rep_in_org(user: User, request: Request) -> bool:
+    """Check rep access using org-scoped role when available.
+
+    Uses request.state.user_role_in_org (injected by OrganizationContextMiddleware)
+    so a user demoted in an org loses access immediately, and a user invited as rep
+    without a global rep role gains access. Falls back to global role when no org
+    header is present (e.g. cross-org endpoints).
+    """
+    org_role = getattr(request.state, "user_role_in_org", None)
+    if org_role is not None:
+        return org_role in ("rep", "admin", "owner")
+    return get_user_role(user.id) in ("rep", "admin")
 
 @router.post("/tickets", response_model=TicketDetail, status_code=status.HTTP_201_CREATED)
 def create_ticket(payload: TicketCreate, request: Request, user: User = Depends(get_current_user)):
@@ -120,27 +133,38 @@ def create_ticket(payload: TicketCreate, request: Request, user: User = Depends(
 
         updated_ticket = cursor.fetchone()
 
-        # 4) Apply org default ETR if configured and not already set
+        # 4) Apply SLA-policy ETR (falls back to org default) if not already set
         if not ticket_row.get("expected_resolve_at"):
-            cursor.execute("SELECT settings FROM app.organizations WHERE id = %s", (org_id,))
-            org_row = cursor.fetchone()
-            if org_row:
-                org_settings = org_row.get("settings") or {}
-                default_etr_hours = org_settings.get("default_etr_hours")
-                if default_etr_hours:
-                    try:
-                        cursor.execute("""
-                            UPDATE app.tickets
-                            SET expected_resolve_at = NOW() + (%s || ' hours')::interval
-                            WHERE id = %s
-                            RETURNING expected_resolve_at
-                        """, (str(int(default_etr_hours)), ticket_id))
-                        etr_row = cursor.fetchone()
-                        if etr_row:
-                            ticket_row = dict(ticket_row)
-                            ticket_row["expected_resolve_at"] = etr_row["expected_resolve_at"]
-                    except Exception:
-                        pass
+            etr_hours = None
+            priority_level = ticket_row.get("priority_level")
+            if priority_level:
+                cursor.execute(
+                    "SELECT resolution_hours FROM app.sla_policies "
+                    "WHERE organization_id = %s AND priority_level = %s AND is_active = TRUE",
+                    (org_id, priority_level),
+                )
+                sla_row = cursor.fetchone()
+                if sla_row:
+                    etr_hours = float(sla_row["resolution_hours"])
+            if etr_hours is None:
+                cursor.execute("SELECT settings FROM app.organizations WHERE id = %s", (org_id,))
+                org_row = cursor.fetchone()
+                if org_row:
+                    etr_hours = (org_row.get("settings") or {}).get("default_etr_hours")
+            if etr_hours:
+                try:
+                    cursor.execute("""
+                        UPDATE app.tickets
+                        SET expected_resolve_at = NOW() + (%s || ' hours')::interval
+                        WHERE id = %s
+                        RETURNING expected_resolve_at
+                    """, (str(float(etr_hours)), ticket_id))
+                    etr_row = cursor.fetchone()
+                    if etr_row:
+                        ticket_row = dict(ticket_row)
+                        ticket_row["expected_resolve_at"] = etr_row["expected_resolve_at"]
+                except Exception:
+                    pass
 
         # 5) CASPER-driven auto-assignment — always runs, no admin gate needed
         try:
@@ -279,7 +303,7 @@ def list_tickets(
 ):
     """List tickets with filters and pagination."""
     org_id = require_org_context(request)
-    user_is_rep = is_rep(user)
+    user_is_rep = is_rep_in_org(user, request)
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -362,7 +386,7 @@ def list_tickets(
 def get_ticket(ticket_id: str, request: Request, user: User = Depends(get_current_user)):
     """Get ticket details with messages."""
     org_id = require_org_context(request)
-    user_is_rep = is_rep(user)
+    user_is_rep = is_rep_in_org(user, request)
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -463,7 +487,7 @@ def get_messages(
 ):
     """Get messages for a ticket."""
     org_id = require_org_context(request)
-    user_is_rep = is_rep(user)
+    user_is_rep = is_rep_in_org(user, request)
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
@@ -482,7 +506,7 @@ def get_messages(
             raise HTTPException(status_code=403, detail="Access denied")
         
         order_clause = "ASC" if order == "asc" else "DESC"
-        user_is_rep_msg = is_rep(user)
+        user_is_rep_msg = is_rep_in_org(user, request)
         internal_filter = "" if user_is_rep_msg else "AND is_internal = false"
         cursor.execute(f"""
             SELECT id, ticket_id, sender_id, sender_role, body, created_at, is_internal, meta
@@ -512,7 +536,7 @@ def get_messages(
 def post_message(ticket_id: str, payload: MessageCreate, request: Request, user: User = Depends(get_current_user)):
     """Add a message to a ticket."""
     org_id = require_org_context(request)
-    user_is_rep = is_rep(user)
+    user_is_rep = is_rep_in_org(user, request)
     user_role = get_user_role(user.id)
     
     # Map admin to rep for messages (DB constraint only allows: customer, rep, ai, system)
@@ -553,6 +577,14 @@ def post_message(ticket_id: str, payload: MessageCreate, request: Request, user:
                 updated_at = %s
             WHERE id = %s
         """, (message_row["created_at"], datetime.utcnow(), ticket_id))
+
+        # Record first rep response time (never overwrite once set)
+        if user_is_rep and not is_internal:
+            cursor.execute(
+                "UPDATE app.tickets SET first_response_at = NOW() "
+                "WHERE id = %s AND first_response_at IS NULL",
+                (ticket_id,),
+            )
 
         conn.commit()
 
@@ -676,7 +708,7 @@ def chat_with_ai(
         cursor = conn.cursor()
         
         # Check ticket access (same rules as viewing ticket)
-        if is_rep(user):
+        if is_rep_in_org(user, request):
             cursor.execute("SELECT id FROM app.tickets WHERE id = %s AND organization_id = %s", (ticket_id, org_id))
         else:
             cursor.execute("SELECT id FROM app.tickets WHERE id = %s AND created_by = %s AND organization_id = %s", 
@@ -1051,7 +1083,7 @@ def update_tags(
 ):
     """Update ticket tags (reps/admins only)."""
     org_id = require_org_context(request)
-    if not is_rep(user):
+    if not is_rep_in_org(user, request):
         raise HTTPException(403, "Rep/admin access required")
 
     # Normalise: lowercase, strip whitespace, deduplicate, max 10
@@ -1085,7 +1117,7 @@ def resolve_ticket(
 ):
     """Resolve a ticket with an optional closing note (reps/admins only)."""
     org_id = require_org_context(request)
-    if not is_rep(user):
+    if not is_rep_in_org(user, request):
         raise HTTPException(403, "Rep/admin access required")
 
     with get_db_connection() as conn:
@@ -1164,9 +1196,9 @@ def rate_ticket(
 
         cursor.execute("""
             UPDATE app.tickets
-            SET customer_rating = %s, updated_at = NOW()
+            SET customer_rating = %s, customer_rating_comment = %s, updated_at = NOW()
             WHERE id = %s
-        """, (payload.rating, ticket_id))
+        """, (payload.rating, payload.comment, ticket_id))
         conn.commit()
 
     return {"ok": True, "rating": payload.rating}
@@ -1181,7 +1213,7 @@ def bulk_ticket_action(
 ):
     """Bulk status change or assignment for reps/admins."""
     org_id = require_org_context(request)
-    if not is_rep(user):
+    if not is_rep_in_org(user, request):
         raise HTTPException(403, "Rep/admin access required")
 
     ids = payload.ticket_ids

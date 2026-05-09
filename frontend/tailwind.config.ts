@@ -28,7 +28,7 @@ const config: Config = {
         warning: "rgb(var(--warning))",
         danger: "rgb(var(--danger))",
         info: "rgb(var(--info))",
-        ring: "rgb(var(--ring))",
+        ring: "hsl(var(--ring))",
 
         /* Legacy brand colors (preserve compatibility) */
         brand: {
@@ -44,7 +44,11 @@ const config: Config = {
           800: "#1E40AF",
           900: "#1E3A8A"
         },
-        accent: { DEFAULT: "#EC4899" },
+        /* shadcn accent — hover/focus bg, NOT a brand color */
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
 
         /* Legacy shadcn tokens (preserved for existing components) */
         background: "hsl(var(--background))",

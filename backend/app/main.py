@@ -140,17 +140,55 @@ async def _overdue_scan():
                       AND EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 > $3
                 """, org_id, lvl, hours)
 
-            # ── 2. Mark overdue (ETR-aware) ────────────────────────────────────
-            # Tickets without ETR: use org-level threshold_h
+            # ── 2. Mark overdue (ETR-aware, SLA-policy-aware) ─────────────────
+            # Fetch per-priority SLA policies for this org (empty if not configured)
+            sla_rows = await conn.fetch(
+                "SELECT priority_level, resolution_hours FROM app.sla_policies "
+                "WHERE organization_id = $1 AND is_active = TRUE",
+                org_id,
+            )
+            sla_map = {r['priority_level']: float(r['resolution_hours']) for r in sla_rows}
+
+            # Tickets without ETR: per-priority SLA hours, fallback to org threshold_h
+            for lvl in range(1, 8):
+                hours = sla_map.get(lvl, threshold_h)
+                await conn.execute("""
+                    UPDATE app.tickets
+                    SET is_overdue = true
+                    WHERE organization_id = $1
+                      AND priority_level = $2
+                      AND is_overdue = false
+                      AND expected_resolve_at IS NULL
+                      AND status NOT IN ('resolved', 'closed')
+                      AND EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 > $3
+                """, org_id, lvl, hours)
+
+            # Tickets with no priority_level set — use flat org threshold
             await conn.execute("""
                 UPDATE app.tickets
                 SET is_overdue = true
                 WHERE organization_id = $1
+                  AND priority_level IS NULL
                   AND is_overdue = false
                   AND expected_resolve_at IS NULL
                   AND status NOT IN ('resolved', 'closed')
                   AND EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 > $2
             """, org_id, threshold_h)
+
+            # First-response SLA breach: flag needs_attention if no rep reply yet
+            for lvl, first_resp_h in {r['priority_level']: float(r['first_response_hours']) for r in sla_rows}.items():
+                if first_resp_h <= 0:
+                    continue
+                await conn.execute("""
+                    UPDATE app.tickets
+                    SET needs_attention = true
+                    WHERE organization_id = $1
+                      AND priority_level = $2
+                      AND needs_attention = false
+                      AND first_response_at IS NULL
+                      AND status NOT IN ('resolved', 'closed')
+                      AND EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 > $3
+                """, org_id, lvl, first_resp_h)
 
             # Tickets WITH ETR: overdue only if past their ETR
             await conn.execute("""
@@ -375,6 +413,9 @@ from .organizations import router as organizations_router
 from .invites import router as invites_router
 from .reports import router as reports_router
 from .notifications import router as notifications_router
+from .sla import router as sla_router
+from .canned_responses import router as canned_responses_router
+from .custom_fields import router as custom_fields_router
 
 app.include_router(auth_router)
 app.include_router(kb_router)
@@ -386,6 +427,9 @@ app.include_router(organizations_router)
 app.include_router(invites_router)
 app.include_router(reports_router)
 app.include_router(notifications_router)
+app.include_router(sla_router)
+app.include_router(canned_responses_router)
+app.include_router(custom_fields_router)
 
 
 @app.get("/api/health")

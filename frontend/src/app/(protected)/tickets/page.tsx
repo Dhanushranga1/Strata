@@ -48,6 +48,7 @@ interface TicketSummary {
   created_at: string;
   assignee_email: string | null;
   tags: string[];
+  customer_rating?: number | null;
 }
 
 interface TicketListResponse {
@@ -269,6 +270,7 @@ function TicketsPageInner() {
   const [tickets, setTickets] = useState<TicketSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [csatBannerDismissed, setCsatBannerDismissed] = useState(false)
   const [creating, setCreating] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkLoading, setBulkLoading] = useState(false)
@@ -479,6 +481,34 @@ function TicketsPageInner() {
           </CardContent>
         </Card>
       )}
+
+      {/* CSAT pending banner (customers only) */}
+      {!isRepOrAdmin && !csatBannerDismissed && (() => {
+        const pending = tickets.filter(t => t.status === 'resolved' && !t.customer_rating)
+        if (pending.length === 0) return null
+        return (
+          <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+            <CardContent className="pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                  <p className="text-sm text-amber-800 dark:text-amber-300">
+                    You have {pending.length} resolved ticket{pending.length > 1 ? 's' : ''} awaiting your feedback.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCsatBannerDismissed(true)}
+                  className="text-amber-600 hover:text-amber-800 shrink-0"
+                  aria-label="Dismiss"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

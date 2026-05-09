@@ -26,6 +26,7 @@ import {
   Settings,
   BookOpen,
   Users,
+  CheckCircle2,
 } from 'lucide-react'
 import { PageShell } from '@/ui/motion/PageShell'
 
@@ -120,6 +121,86 @@ function activityLabelFromType(type: string): string {
   return type.replace(/_/g, ' ')
 }
 
+function GettingStartedChecklist({
+  checklist,
+  onCheck,
+  onNavigate,
+}: {
+  checklist: Record<string, boolean>
+  onCheck: (id: string) => void
+  onNavigate: (href: string) => void
+}) {
+  const items = [
+    { id: 'workspace', label: 'Workspace created',          sub: 'Your organisation is live.',             icon: Zap,        color: 'text-indigo-400', bg: 'bg-indigo-500/10', href: null },
+    { id: 'kb',        label: 'Upload a knowledge base doc', sub: 'AI answers will cite it automatically.', icon: BookOpen,   color: 'text-violet-400', bg: 'bg-violet-500/10', href: '/kb' },
+    { id: 'team',      label: 'Invite a team member',        sub: 'Reps handle tickets routed by CASPER.',  icon: Users,      color: 'text-emerald-400', bg: 'bg-emerald-500/10', href: '/admin/users' },
+    { id: 'ticket',    label: 'Create your first ticket',    sub: 'See the AI in action end-to-end.',       icon: TicketIcon, color: 'text-amber-400', bg: 'bg-amber-500/10', href: '/tickets' },
+  ]
+  const done = items.filter(i => checklist[i.id]).length
+  const allDone = done === items.length
+
+  if (allDone) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-8 text-center"
+      >
+        <div className="text-3xl mb-3">🚀</div>
+        <p className="font-bold text-emerald-400 text-lg">All set — your workspace is live!</p>
+        <p className="text-sm text-muted-foreground mt-1">Your first tickets will show up here as they come in.</p>
+      </motion.div>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="px-5 pt-5 pb-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-sm font-semibold">Getting started</p>
+          <p className="text-xs text-muted-foreground">{done} of {items.length} complete</p>
+        </div>
+        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+          <motion.div
+            className="h-full bg-primary rounded-full"
+            initial={{ width: 0 }}
+            animate={{ width: `${(done / items.length) * 100}%` }}
+            transition={{ duration: 0.5 }}
+          />
+        </div>
+      </div>
+      <div className="divide-y divide-border">
+        {items.map((item) => {
+          const checked = !!checklist[item.id]
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                onCheck(item.id)
+                if (item.href) onNavigate(item.href)
+              }}
+              className="w-full flex items-center gap-4 px-5 py-4 hover:bg-accent/50 transition-colors text-left"
+            >
+              <div className={`w-8 h-8 rounded-lg ${item.bg} flex items-center justify-center shrink-0`}>
+                {checked
+                  ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  : <item.icon className={`w-4 h-4 ${item.color}`} />
+                }
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${checked ? 'line-through text-muted-foreground' : ''}`}>{item.label}</p>
+                <p className="text-xs text-muted-foreground truncate">{item.sub}</p>
+              </div>
+              {!checked && <ArrowUpRight className="w-4 h-4 text-muted-foreground shrink-0" />}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const { currentOrganization, isReady, switchingOrg } = useOrganization()
@@ -129,6 +210,7 @@ export default function DashboardPage() {
   const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [checklist, setChecklist] = useState<Record<string, boolean>>({ workspace: true })
 
   const loadDashboardStats = async (userRole: string, orgId: string) => {
     try {
@@ -288,6 +370,23 @@ export default function DashboardPage() {
     loadDashboardData()
   }, [isReady, orgId])
 
+  // Load/persist getting-started checklist state per org
+  useEffect(() => {
+    if (!orgId) return
+    const key = `org-checklist-${orgId}`
+    try {
+      const stored = localStorage.getItem(key)
+      if (stored) setChecklist(JSON.parse(stored))
+    } catch { /* ignore */ }
+  }, [orgId])
+
+  const tickChecklist = (id: string) => {
+    if (!orgId) return
+    const next = { ...checklist, [id]: true }
+    setChecklist(next)
+    try { localStorage.setItem(`org-checklist-${orgId}`, JSON.stringify(next)) } catch { /* ignore */ }
+  }
+
   const getGreeting = () => {
     const hour = new Date().getHours()
     if (hour < 12) return 'Good morning'
@@ -361,42 +460,12 @@ export default function DashboardPage() {
                 </div>
 
                 {me?.role === 'admin' ? (
-                  <div className="max-w-2xl mx-auto grid gap-4 sm:grid-cols-3">
-                    <div
-                      onClick={() => router.push('/kb')}
-                      className="group cursor-pointer rounded-xl border border-border bg-card p-5 hover:border-primary/50 hover:shadow-md transition-all"
-                    >
-                      <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center mb-3">
-                        <BookOpen className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <p className="font-semibold text-sm mb-1">Upload Knowledge Base</p>
-                      <p className="text-xs text-muted-foreground">Add docs so the AI can answer questions automatically.</p>
-                      <p className="text-xs text-primary mt-2 group-hover:underline">Upload docs →</p>
-                    </div>
-
-                    <div
-                      onClick={() => router.push('/admin/users')}
-                      className="group cursor-pointer rounded-xl border border-border bg-card p-5 hover:border-primary/50 hover:shadow-md transition-all"
-                    >
-                      <div className="w-9 h-9 rounded-lg bg-green-100 dark:bg-green-900/40 flex items-center justify-center mb-3">
-                        <Users className="w-5 h-5 text-green-600 dark:text-green-400" />
-                      </div>
-                      <p className="font-semibold text-sm mb-1">Invite Your Team</p>
-                      <p className="text-xs text-muted-foreground">Add support reps who will handle incoming tickets.</p>
-                      <p className="text-xs text-primary mt-2 group-hover:underline">Invite members →</p>
-                    </div>
-
-                    <div
-                      onClick={() => router.push('/tickets')}
-                      className="group cursor-pointer rounded-xl border border-border bg-card p-5 hover:border-primary/50 hover:shadow-md transition-all"
-                    >
-                      <div className="w-9 h-9 rounded-lg bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center mb-3">
-                        <TicketIcon className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                      </div>
-                      <p className="font-semibold text-sm mb-1">Create a Test Ticket</p>
-                      <p className="text-xs text-muted-foreground">Try submitting a ticket to see how the AI responds.</p>
-                      <p className="text-xs text-primary mt-2 group-hover:underline">Open tickets →</p>
-                    </div>
+                  <div className="max-w-lg mx-auto">
+                    <GettingStartedChecklist
+                      checklist={checklist}
+                      onCheck={tickChecklist}
+                      onNavigate={(href) => router.push(href)}
+                    />
                   </div>
                 ) : me?.role === 'rep' ? (
                   <div className="text-center">

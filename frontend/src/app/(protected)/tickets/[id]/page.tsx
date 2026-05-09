@@ -12,6 +12,8 @@ import {
   User, AlertTriangle, MessageSquare, Bot, UserCheck, Phone,
   History,
 } from 'lucide-react'
+import { CannedResponsePicker } from '@/components/rep/CannedResponsePicker'
+import { CustomFieldsPanel } from '@/components/rep/CustomFieldsPanel'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
@@ -236,6 +238,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
 
   // CSAT
   const [csat, setCsat] = useState(0)
+  const [csatComment, setCsatComment] = useState('')
   const [csatSubmitted, setCsatSubmitted] = useState(false)
 
   // Assignment
@@ -405,7 +408,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   const handleCsatSubmit = async (rating: number) => {
     if (!orgId || csatSubmitted) return
     try {
-      await api.post(`/api/tickets/${ticketId}/rating`, { rating }, orgId)
+      await api.post(`/api/tickets/${ticketId}/rating`, { rating, comment: csatComment || undefined }, orgId)
       setCsat(rating)
       setCsatSubmitted(true)
       toast.success('Thanks for your feedback!')
@@ -743,15 +746,23 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     : '💬 Add a message'}
                 </h3>
                 {isRep && (
-                  <Button
-                    variant={isInternal ? 'secondary' : 'outline'}
-                    size="sm"
-                    onClick={() => setIsInternal(p => !p)}
-                    className={cn('text-xs', isInternal && 'bg-amber-500 hover:bg-amber-600 text-white')}
-                  >
-                    <Lock className="h-3 w-3 mr-1" />
-                    {isInternal ? 'Internal' : 'Public'}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {orgId && (
+                      <CannedResponsePicker
+                        orgId={orgId}
+                        onSelect={body => setNewMessage(body)}
+                      />
+                    )}
+                    <Button
+                      variant={isInternal ? 'secondary' : 'outline'}
+                      size="sm"
+                      onClick={() => setIsInternal(p => !p)}
+                      className={cn('text-xs', isInternal && 'bg-amber-500 hover:bg-amber-600 text-white')}
+                    >
+                      <Lock className="h-3 w-3 mr-1" />
+                      {isInternal ? 'Internal' : 'Public'}
+                    </Button>
+                  </div>
                 )}
               </div>
               <form onSubmit={handleSendMessage} className="space-y-3">
@@ -779,11 +790,27 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
             <div className="bg-muted rounded-xl p-6 text-center text-muted-foreground text-sm">
               This ticket is {ticket.status}.
               {!isRep && ticket.status === 'resolved' && !csatSubmitted && (
-                <div className="mt-4">
-                  <p className="font-medium text-foreground mb-2">How satisfied are you with the resolution?</p>
+                <div className="mt-4 space-y-3">
+                  <p className="font-medium text-foreground">How satisfied are you with the resolution?</p>
                   <div className="flex justify-center">
-                    <StarRating value={csat} onChange={handleCsatSubmit} />
+                    <StarRating value={csat} onChange={v => setCsat(v)} />
                   </div>
+                  <Textarea
+                    value={csatComment}
+                    onChange={e => setCsatComment(e.target.value)}
+                    placeholder="Optional comment…"
+                    rows={2}
+                    maxLength={500}
+                    className="text-sm resize-none"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={csat === 0}
+                    onClick={() => handleCsatSubmit(csat)}
+                    className="w-full"
+                  >
+                    Submit Feedback
+                  </Button>
                 </div>
               )}
               {!isRep && csatSubmitted && (
@@ -864,6 +891,11 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
               )}
             </CardContent>
           </Card>
+
+          {/* Custom Fields */}
+          {orgId && (
+            <CustomFieldsPanel ticketId={ticketId} orgId={orgId} />
+          )}
 
           {/* Activity Timeline */}
           <ActivityTimeline ticket={ticket} messages={messages} />

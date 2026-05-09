@@ -77,6 +77,7 @@ class ResolutionRequest(BaseModel):
 
 class RatingRequest(BaseModel):
     rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = Field(default=None, max_length=500)
 
 # Phase 4: AI Chat schemas
 class ChatRequest(BaseModel):
@@ -215,3 +216,85 @@ class AutoAssignResponse(BaseModel):
     assigned: int
     skipped: int
     details: List[dict]
+
+
+# ── SLA policies ──────────────────────────────────────────────────────────────
+
+class SLAPolicyItem(BaseModel):
+    priority_level: int = Field(ge=1, le=7)
+    first_response_hours: float = Field(ge=0)
+    resolution_hours: float = Field(ge=0)
+
+class SLAPolicyUpsert(BaseModel):
+    policies: List[SLAPolicyItem]
+
+class SLAPolicyResponse(BaseModel):
+    policies: List[SLAPolicyItem]
+
+
+# ── Canned responses ──────────────────────────────────────────────────────────
+
+class CannedResponseCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    body: str = Field(min_length=1, max_length=4000)
+    tags: Optional[List[str]] = Field(default_factory=list)
+
+class CannedResponseUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    body: Optional[str] = Field(default=None, min_length=1, max_length=4000)
+    tags: Optional[List[str]] = None
+
+class CannedResponseOut(BaseModel):
+    id: str
+    title: str
+    body: str
+    tags: List[str]
+    created_by: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+# ── Custom ticket fields ──────────────────────────────────────────────────────
+
+class FieldDefCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    label: str = Field(min_length=1, max_length=80)
+    field_type: Literal["text", "number", "select", "date", "boolean"]
+    options: Optional[List[str]] = None
+    is_required: bool = False
+    sort_order: int = 0
+
+class FieldDefUpdate(BaseModel):
+    label: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    options: Optional[List[str]] = None
+    is_required: Optional[bool] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+class FieldDefOut(BaseModel):
+    id: str
+    name: str
+    label: str
+    field_type: str
+    options: Optional[List[str]]
+    is_required: bool
+    is_active: bool
+    sort_order: int
+    created_at: datetime
+
+class FieldValueInput(BaseModel):
+    field_def_id: str
+    value_text: Optional[str] = None
+    value_number: Optional[float] = None
+    value_date: Optional[str] = None
+    value_bool: Optional[bool] = None
+
+class FieldValueUpsert(BaseModel):
+    values: List[FieldValueInput]
+
+class TicketFieldEntry(BaseModel):
+    field_def: FieldDefOut
+    value_text: Optional[str] = None
+    value_number: Optional[float] = None
+    value_date: Optional[str] = None
+    value_bool: Optional[bool] = None

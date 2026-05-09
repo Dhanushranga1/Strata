@@ -26,7 +26,10 @@ import {
   Check,
   Trash2,
   ExternalLink,
+  UserCircle,
 } from "lucide-react";
+
+// ─── Nav group definitions ────────────────────────────────────────────────────
 
 interface NavItem {
   name: string;
@@ -34,18 +37,46 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
   repOnly?: boolean;
+  orgAdminOnly?: boolean;
 }
 
-const navItems: NavItem[] = [
-  { name: "Dashboard", href: "/dashboard", icon: Home },
-  { name: "Tickets", href: "/tickets", icon: Ticket },
-  { name: "My Tickets", href: "/rep/my-tickets", icon: Inbox, repOnly: true },
-  { name: "Knowledge Base", href: "/kb", icon: BookOpen, repOnly: true },
-  { name: "Rep Console", href: "/rep", icon: UserCheck, repOnly: true },
-  { name: "Admin Panel", href: "/admin", icon: Shield, adminOnly: true },
-  { name: "Team Members", href: "/admin/users", icon: Users, adminOnly: true },
-  { name: "Account", href: "/account", icon: Settings },
+interface NavGroup {
+  label?: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    items: [
+      { name: "Dashboard", href: "/dashboard", icon: Home },
+      { name: "Tickets",   href: "/tickets",   icon: Ticket },
+    ],
+  },
+  {
+    label: "Support",
+    items: [
+      { name: "My Tickets",     href: "/rep/my-tickets", icon: Inbox,      repOnly: true },
+      { name: "Rep Console",    href: "/rep",             icon: UserCheck,  repOnly: true },
+      { name: "Knowledge Base", href: "/kb",              icon: BookOpen,   repOnly: true },
+    ],
+  },
+  {
+    label: "Workspace",
+    items: [
+      { name: "Org Settings",  href: "/settings",    icon: Settings, orgAdminOnly: true },
+      { name: "Admin Panel",   href: "/admin",        icon: Shield,   adminOnly: true },
+      { name: "Team Members",  href: "/admin/users",  icon: Users,    adminOnly: true },
+    ],
+  },
+  {
+    label: "Account",
+    items: [
+      { name: "Account", href: "/account", icon: UserCircle },
+    ],
+  },
 ];
+
+// ─── Notifications ─────────────────────────────────────────────────────────────
 
 interface NotificationItem {
   id: string;
@@ -164,16 +195,11 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
 
       {open && (
         <div className="absolute left-full top-0 ml-2 w-80 rounded-xl border border-border bg-card shadow-xl z-50 overflow-hidden">
-          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <span className="font-semibold text-sm">Notifications</span>
             <div className="flex items-center gap-2">
               {unread > 0 && (
-                <button
-                  type="button"
-                  onClick={markAllRead}
-                  className="text-xs text-primary hover:underline"
-                >
+                <button type="button" onClick={markAllRead} className="text-xs text-primary hover:underline">
                   Mark all read
                 </button>
               )}
@@ -183,7 +209,6 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
             </div>
           </div>
 
-          {/* List */}
           <div className="max-h-[360px] overflow-y-auto">
             {loading && items.length === 0 ? (
               <div className="flex justify-center py-8">
@@ -204,26 +229,16 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
                     !notif.read_at && "bg-primary/5"
                   )}
                 >
-                  <span className="text-lg shrink-0 mt-0.5">
-                    {NOTIF_ICONS[notif.type] ?? "🔔"}
-                  </span>
+                  <span className="text-lg shrink-0 mt-0.5">{NOTIF_ICONS[notif.type] ?? "🔔"}</span>
                   <div className="flex-1 min-w-0">
-                    <p className={cn("text-sm leading-snug", !notif.read_at && "font-semibold")}>
-                      {notif.title}
-                    </p>
+                    <p className={cn("text-sm leading-snug", !notif.read_at && "font-semibold")}>{notif.title}</p>
                     {notif.body && (
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                        {notif.body}
-                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.body}</p>
                     )}
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      {formatRelTime(notif.created_at)}
-                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-1">{formatRelTime(notif.created_at)}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    {notif.ref_type === "ticket" && (
-                      <ExternalLink className="w-3 h-3 text-muted-foreground" />
-                    )}
+                    {notif.ref_type === "ticket" && <ExternalLink className="w-3 h-3 text-muted-foreground" />}
                     {!notif.read_at && (
                       <button
                         type="button"
@@ -287,8 +302,11 @@ function DarkModeToggle({ isCollapsed }: { isCollapsed: boolean }) {
   );
 }
 
+// ─── Main Sidebar ──────────────────────────────────────────────────────────────
+
 interface SidebarProps {
   userRole?: string;
+  orgRole?: string;
   userName?: string;
   userEmail?: string;
   mobileOpen?: boolean;
@@ -297,6 +315,7 @@ interface SidebarProps {
 
 export function Sidebar({
   userRole,
+  orgRole,
   userName,
   userEmail,
   mobileOpen = false,
@@ -306,11 +325,14 @@ export function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
 
-  const filteredNavItems = navItems.filter((item) => {
+  const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
+
+  const canSeeItem = (item: NavItem) => {
     if (item.adminOnly && userRole !== "admin") return false;
     if (item.repOnly && !["admin", "rep"].includes(userRole || "")) return false;
+    if (item.orgAdminOnly && !isOrgAdmin) return false;
     return true;
-  });
+  };
 
   const isItemActive = (item: NavItem) => {
     if (item.href === "/admin") return pathname === "/admin";
@@ -322,26 +344,15 @@ export function Sidebar({
     router.push("/login");
   };
 
-  const handleNavClick = () => {
-    onMobileClose?.();
-  };
+  const handleNavClick = () => { onMobileClose?.(); };
 
-  const roleBadgeClass =
-    userRole === "admin"
-      ? "bg-red-900/40 text-red-300"
-      : userRole === "rep"
-      ? "bg-blue-900/40 text-blue-300"
-      : "bg-green-900/40 text-green-300";
+  const initials = (userName || userEmail || "U").charAt(0).toUpperCase();
 
   return (
     <>
       {/* Mobile backdrop */}
       {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 z-40 md:hidden"
-          onClick={onMobileClose}
-          aria-hidden="true"
-        />
+        <div className="fixed inset-0 bg-black/60 z-40 md:hidden" onClick={onMobileClose} aria-hidden="true" />
       )}
 
       {/* Sidebar panel */}
@@ -376,16 +387,11 @@ export function Sidebar({
             onClick={() => setIsCollapsed(!isCollapsed)}
             className={cn(
               "hidden md:flex p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0",
-              isCollapsed &&
-                "absolute -right-3 top-4 bg-card border border-border shadow-sm z-10 rounded-full p-0.5"
+              isCollapsed && "absolute -right-3 top-4 bg-card border border-border shadow-sm z-10 rounded-full p-0.5"
             )}
             title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            {isCollapsed ? (
-              <ChevronRight className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronLeft className="w-3.5 h-3.5" />
-            )}
+            {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
           </button>
 
           <button
@@ -399,45 +405,35 @@ export function Sidebar({
         </div>
 
         {/* User Info */}
-        {!isCollapsed && (
+        {!isCollapsed ? (
           <div className="px-3 py-3 border-b border-border">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-primary/15 rounded-full flex items-center justify-center shrink-0">
-                <span className="text-xs font-bold text-primary">
-                  {(userName || userEmail || "U").charAt(0).toUpperCase()}
-                </span>
+              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-full flex items-center justify-center shrink-0">
+                <span className="text-xs font-bold text-white">{initials}</span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate leading-tight">
-                  {userName || userEmail || "User"}
-                </p>
+                <p className="text-sm font-medium truncate leading-tight">{userName || userEmail || "User"}</p>
                 {userName && userEmail && (
-                  <p className="text-xs text-muted-foreground truncate leading-tight">
-                    {userEmail}
-                  </p>
+                  <p className="text-xs text-muted-foreground truncate leading-tight">{userEmail}</p>
                 )}
-                <span
-                  className={cn(
-                    "inline-block px-1.5 py-px rounded text-[10px] font-semibold mt-0.5",
-                    roleBadgeClass
-                  )}
-                >
+                <span className={cn(
+                  "inline-block px-1.5 py-px rounded text-[10px] font-semibold mt-0.5",
+                  userRole === "admin" ? "bg-red-900/40 text-red-300" :
+                  userRole === "rep"   ? "bg-blue-900/40 text-blue-300" :
+                                         "bg-green-900/40 text-green-300"
+                )}>
                   {userRole === "customer" ? "Client" : userRole || "Client"}
                 </span>
               </div>
             </div>
           </div>
-        )}
-
-        {isCollapsed && (
+        ) : (
           <div className="flex justify-center py-3 border-b border-border">
             <div
-              className="w-8 h-8 bg-primary/15 rounded-full flex items-center justify-center"
+              className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-full flex items-center justify-center"
               title={userName || userEmail || "User"}
             >
-              <span className="text-xs font-bold text-primary">
-                {(userName || userEmail || "U").charAt(0).toUpperCase()}
-              </span>
+              <span className="text-xs font-bold text-white">{initials}</span>
             </div>
           </div>
         )}
@@ -450,26 +446,48 @@ export function Sidebar({
         )}
 
         {/* Navigation */}
-        <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-          {filteredNavItems.map((item) => {
-            const active = isItemActive(item);
+        <nav className="flex-1 px-2 py-2 overflow-y-auto">
+          {NAV_GROUPS.map((group, gi) => {
+            const visibleItems = group.items.filter(canSeeItem);
+            if (visibleItems.length === 0) return null;
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={handleNavClick}
-                title={isCollapsed ? item.name : undefined}
-                className={cn(
-                  "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors",
-                  active
-                    ? "bg-primary text-white"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                  isCollapsed && "justify-center px-2"
+              <div key={gi}>
+                {group.label && !isCollapsed && (
+                  <p className="px-2.5 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 select-none">
+                    {group.label}
+                  </p>
                 )}
-              >
-                <item.icon className="w-4 h-4 shrink-0" />
-                {!isCollapsed && <span>{item.name}</span>}
-              </Link>
+                {group.label && isCollapsed && gi > 0 && (
+                  <div className="my-2 mx-2 border-t border-border/50" />
+                )}
+                <div className="space-y-0.5">
+                  {visibleItems.map((item) => {
+                    const active = isItemActive(item);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={handleNavClick}
+                        className={cn(
+                          "relative group flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors",
+                          active
+                            ? "bg-primary/10 text-primary border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground border-l-2 border-transparent",
+                          isCollapsed && "justify-center px-2"
+                        )}
+                      >
+                        <item.icon className="w-4 h-4 shrink-0" />
+                        {!isCollapsed && <span>{item.name}</span>}
+                        {isCollapsed && (
+                          <span className="absolute left-full ml-2 px-2 py-1 bg-popover border border-border text-xs rounded-md shadow-lg whitespace-nowrap z-50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            {item.name}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
             );
           })}
         </nav>

@@ -3,8 +3,44 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Menu, Ticket } from "lucide-react";
+import { motion } from "framer-motion";
 import { Sidebar } from "@/components/Sidebar";
 import { useOrganization } from "@/contexts/OrganizationContext";
+
+function OrgMissingScreen({ refreshOrganizations }: { refreshOrganizations: () => Promise<void> }) {
+  useEffect(() => {
+    const id = setInterval(refreshOrganizations, 3000);
+    return () => clearInterval(id);
+  }, [refreshOrganizations]);
+
+  return (
+    <div className="flex flex-col items-center justify-center h-screen gap-6 bg-background">
+      <div className="relative">
+        {/* Spinning gradient ring */}
+        <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 animate-[spin_3s_linear_infinite] opacity-60 blur-[1px]" />
+        <div className="relative w-12 h-12 bg-primary rounded-xl flex items-center justify-center z-10">
+          <Ticket className="w-6 h-6 text-white" />
+        </div>
+      </div>
+      <div className="text-center max-w-xs px-4">
+        <h2 className="text-lg font-semibold">Creating your workspace&hellip;</h2>
+        <p className="text-sm text-muted-foreground mt-1.5">
+          Your account is ready. Hang tight while we set up your organisation.
+        </p>
+      </div>
+      <div className="flex gap-1.5">
+        {[0, 1, 2].map((i) => (
+          <motion.div
+            key={i}
+            className="w-1.5 h-1.5 bg-primary rounded-full"
+            animate={{ opacity: [0.3, 1, 0.3] }}
+            transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -12,7 +48,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
-  const { user, loading, isOrgMissing, refreshOrganizations } = useOrganization();
+  const { user, currentOrganization, loading, isOrgMissing, refreshOrganizations } = useOrganization();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Close mobile menu on route change
@@ -29,8 +65,23 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      <div className="flex flex-col items-center justify-center h-screen gap-5 bg-background">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+            <Ticket className="w-4 h-4 text-white" />
+          </div>
+          <span className="font-bold text-lg tracking-tight">TicketPilot</span>
+        </div>
+        <div className="flex gap-1.5">
+          {[0, 1, 2].map((i) => (
+            <motion.div
+              key={i}
+              className="w-1.5 h-1.5 bg-primary rounded-full"
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+            />
+          ))}
+        </div>
       </div>
     );
   }
@@ -39,27 +90,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   if (isOrgMissing) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <div className="text-center space-y-4 max-w-sm px-6">
-          <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center mx-auto">
-            <Ticket className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold">Setting up your workspace&hellip;</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Your account is ready. We&apos;re creating your organization &mdash; this takes just a
-              moment.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={refreshOrganizations}
-            className="text-sm text-primary hover:underline"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
+      <OrgMissingScreen refreshOrganizations={refreshOrganizations} />
     );
   }
 
@@ -67,6 +98,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     <div className="flex h-screen bg-background overflow-hidden">
       <Sidebar
         userRole={user.role}
+        orgRole={currentOrganization?.your_role}
         userName={user.email}
         userEmail={user.email}
         mobileOpen={mobileMenuOpen}
