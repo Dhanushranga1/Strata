@@ -1,5 +1,3 @@
-# TicketPilot - Root .gitignore
-
 # Environment files
 .env
 .env.local
@@ -59,8 +57,6 @@ out/
 
 # Logs
 *.log
-server.log
-frontend.log
 
 # IDE
 .vscode/
@@ -78,8 +74,8 @@ frontend.log
 ehthumbs.db
 Thumbs.db
 
-# FAISS data (might be too large for Git)
-data/faiss/
+# FAISS binary data (runtime, not source)
+backend/data/
 *.index
 
 # Temporary files
@@ -98,45 +94,5 @@ coverage/
 # Deployment
 .serverless/
 
-# Development/Testing Documentation (keep local only)
-DAY*.md
-PHASE*.md
-BUG_FIXES*.md
-*_COMPLETE.md
-*_SUMMARY.md
-*_REPORT.md
-*_GUIDE.md
-*_CHECKLIST.md
-*_ANALYSIS.md
-*_ACTION_PLAN.md
-TESTING_*.md
-LIVE_TEST_EXECUTION.md
-EXECUTIVE_SUMMARY.md
-IMPLEMENTATION_PROGRESS.md
-GITHUB_PUSH_COMPLETE.md
-ARCHITECTURE_COMPARISON.md
-COMPREHENSIVE_TEST_PLAN.md
-
-# Test scripts (keep local only)
-test_*.py
-test_*.sh
-verify_*.py
-verify_*.sh
-production_audit.py
+# Runtime outputs
 production_audit_results.json
-day14_final_testing.py
-
-# Helper scripts (keep local only)
-create_test_jwt.py
-setup-deployment*.sh
-quick-start.sh
-start-local.sh
-stop-local.sh
-
-# Context and resume analysis (keep local only)
-context/
-resume-analysis/
-prompt/
-
-# Audit reports (keep local only)
-audit/
