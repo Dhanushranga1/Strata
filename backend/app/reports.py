@@ -29,6 +29,7 @@ from fastapi.responses import StreamingResponse
 from .auth import User, get_current_user
 from .db import get_connection
 from .org_middleware import require_org_context
+from .entitlements import requires_feature
 
 router = APIRouter(prefix="/api/admin/reports", tags=["reports"])
 
@@ -603,6 +604,7 @@ async def monthly_report(
     month: int = Query(..., ge=1, le=12),
     fmt: str = Query("json", alias="format", pattern="^(json|csv|pdf)$"),
     user: User = Depends(get_current_user),
+    _gate: None = requires_feature("monthly_reports"),
 ):
     """
     Export a monthly support report for the current org.

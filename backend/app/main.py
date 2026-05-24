@@ -416,6 +416,7 @@ from .notifications import router as notifications_router
 from .sla import router as sla_router
 from .canned_responses import router as canned_responses_router
 from .custom_fields import router as custom_fields_router
+from .entitlements_router import router as entitlements_router
 
 app.include_router(auth_router)
 app.include_router(kb_router)
@@ -430,6 +431,7 @@ app.include_router(notifications_router)
 app.include_router(sla_router)
 app.include_router(canned_responses_router)
 app.include_router(custom_fields_router)
+app.include_router(entitlements_router)
 
 
 @app.get("/api/health")

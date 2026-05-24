@@ -7,6 +7,7 @@ import logging
 from .auth import User, get_current_user
 from .org_middleware import require_org_context, require_org_role
 from .schemas import SLAPolicyItem, SLAPolicyUpsert, SLAPolicyResponse
+from .entitlements import requires_feature
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ async def upsert_sla_policies(
     payload: SLAPolicyUpsert,
     request: Request,
     user: User = Depends(get_current_user),
+    _gate: None = requires_feature("sla_config"),
 ):
     """Upsert all SLA policy rows for the org in one batch. Requires owner or admin."""
     org_id = require_org_context(request)

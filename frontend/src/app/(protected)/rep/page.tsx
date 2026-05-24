@@ -22,6 +22,7 @@ import { KBIngestModal } from '@/components/ui/KBIngestModal'
 import { RepQueueSkeleton } from '@/components/skeletons/RepQueueSkeleton'
 import { buildAISuggestionQuery, prepareTicketContext } from '@/lib/ai/prompt'
 import { useOrganization } from '@/contexts/OrganizationContext'
+import { useEntitlements } from '@/hooks/useEntitlements'
 import api from '@/lib/api-client'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -110,6 +111,7 @@ export default function RepConsolePage() {
   // Use org context — eliminates a separate /api/me auth round-trip
   const { currentOrganization, isReady, switchingOrg, user, loading } = useOrganization()
   const orgId = currentOrganization?.id
+  const { can, upgradeUrl } = useEntitlements()
 
   const [ticketsLoading, setTicketsLoading] = useState(false)
   const [countsLoading, setCountsLoading] = useState(false)
@@ -1172,24 +1174,34 @@ export default function RepConsolePage() {
                     },
                     {
                       id: "ai-assist",
-                      label: (() => {
-                        const cooldownEnd = aiCooldowns[ticket.id]
-                        if (cooldownEnd && cooldownEnd > Date.now()) {
-                          const remainingSeconds = Math.ceil((cooldownEnd - Date.now()) / 1000)
-                          return `AI (${remainingSeconds}s)`
-                        }
-                        return "Get AI Suggestion"
-                      })(),
-                      description: (() => {
-                        const cooldownEnd = aiCooldowns[ticket.id]
-                        if (cooldownEnd && cooldownEnd > Date.now()) {
-                          return "Rate limited - please wait"
-                        }
-                        return "AI will analyze this ticket and suggest a response"
-                      })(),
+                      label: !can("ai_rag")
+                        ? "Upgrade for AI"
+                        : (() => {
+                            const cooldownEnd = aiCooldowns[ticket.id]
+                            if (cooldownEnd && cooldownEnd > Date.now()) {
+                              const remainingSeconds = Math.ceil((cooldownEnd - Date.now()) / 1000)
+                              return `AI (${remainingSeconds}s)`
+                            }
+                            return "Get AI Suggestion"
+                          })(),
+                      description: !can("ai_rag")
+                        ? "Requires Starter plan"
+                        : (() => {
+                            const cooldownEnd = aiCooldowns[ticket.id]
+                            if (cooldownEnd && cooldownEnd > Date.now()) {
+                              return "Rate limited - please wait"
+                            }
+                            return "AI will analyze this ticket and suggest a response"
+                          })(),
                       icon: Bot,
-                      color: (aiCooldowns[ticket.id] && aiCooldowns[ticket.id] > Date.now()) ? "text-muted-foreground" : "text-primary",
+                      color: !can("ai_rag")
+                        ? "text-muted-foreground"
+                        : (aiCooldowns[ticket.id] && aiCooldowns[ticket.id] > Date.now()) ? "text-muted-foreground" : "text-primary",
                       onClick: () => {
+                        if (!can("ai_rag")) {
+                          window.location.href = upgradeUrl("starter")
+                          return
+                        }
                         const cooldownEnd = aiCooldowns[ticket.id]
                         if (cooldownEnd && cooldownEnd > Date.now()) {
                           const remainingSeconds = Math.ceil((cooldownEnd - Date.now()) / 1000)

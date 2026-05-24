@@ -12,6 +12,7 @@ interface Organization {
   your_role: 'owner' | 'admin' | 'member'
   is_default: boolean
   settings: Record<string, unknown>
+  plan_id: 'community' | 'starter' | 'business' | 'enterprise'
 }
 
 interface User {

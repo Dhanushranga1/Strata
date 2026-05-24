@@ -10,6 +10,7 @@ from .store import add_org_vectors, search_org_vectors
 from .auth import User, get_current_user
 from .org_middleware import require_org_context
 from .db_sync import get_db_connection
+from .entitlements import requires_feature
 
 _log = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class IngestResponse(BaseModel):
 async def ingest(
     request: Request,
     user: User = Depends(get_current_user),
+    _gate: None = requires_feature("kb"),
     file: UploadFile = File(None),
     raw_text: Optional[str] = Form(None),
     filename: Optional[str] = Form(None),
@@ -240,7 +242,7 @@ class SearchResult(BaseModel):
 
 
 @router.get("/search", response_model=List[SearchResult])
-async def search(q: str, k: int = 3, request: Request = None, user: User = Depends(get_current_user)):
+async def search(q: str, k: int = 3, request: Request = None, user: User = Depends(get_current_user), _gate: None = requires_feature("kb")):
     """Search knowledge base for similar content."""
     org_id = require_org_context(request)
     

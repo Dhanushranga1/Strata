@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import api from "@/lib/api-client";
+import { FeatureGate } from "@/components/FeatureGate";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -403,6 +404,7 @@ export default function KnowledgeBasePage() {
           {/* ── Upload tab ── */}
           {hasRepAccess && (
             <TabsContent value="upload">
+              <FeatureGate feature="kb" description="Knowledge Base upload and AI indexing require Starter plan or above.">
               <m.div {...v.scaleIn}>
                 <Card className="bg-surface border">
                   <CardHeader className="pb-3">
@@ -519,12 +521,14 @@ export default function KnowledgeBasePage() {
                   </CardContent>
                 </Card>
               </m.div>
+              </FeatureGate>
             </TabsContent>
           )}
 
           {/* ── Manage tab ── */}
           {hasRepAccess && (
             <TabsContent value="manage">
+              <FeatureGate feature="kb" description="Knowledge Base document management requires Starter plan or above.">
               <m.div {...v.scaleIn}>
                 <Card className="bg-surface border">
                   <CardHeader className="pb-3 flex flex-row items-center justify-between">
@@ -627,6 +631,7 @@ export default function KnowledgeBasePage() {
                   </CardContent>
                 </Card>
               </m.div>
+              </FeatureGate>
             </TabsContent>
           )}
         </Tabs>

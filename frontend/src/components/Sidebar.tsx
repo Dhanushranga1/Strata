@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { cn } from "@/lib/utils";
 import { OrganizationSelector } from "@/components/OrganizationSelector";
 import api from "@/lib/api-client";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import {
   Home,
   Ticket,
@@ -357,11 +358,14 @@ export function Sidebar({
   const router = useRouter();
 
   const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
+  const { planId, can } = useEntitlements();
 
   const canSeeItem = (item: NavItem) => {
     if (item.adminOnly && userRole !== "admin") return false;
     if (item.repOnly && !["admin", "rep"].includes(userRole || "")) return false;
     if (item.orgAdminOnly && !isOrgAdmin) return false;
+    // Hide KB from community plan users entirely
+    if (item.href === "/kb" && !can("kb")) return false;
     return true;
   };
 
@@ -447,14 +451,19 @@ export function Sidebar({
                 {userName && userEmail && (
                   <p className="text-xs text-muted-foreground truncate leading-tight">{userEmail}</p>
                 )}
-                <span className={cn(
-                  "inline-block px-1.5 py-px rounded text-[10px] font-semibold mt-0.5",
-                  userRole === "admin" ? "bg-red-900/40 text-red-300" :
-                  userRole === "rep"   ? "bg-blue-900/40 text-blue-300" :
-                                         "bg-green-900/40 text-green-300"
-                )}>
-                  {userRole === "customer" ? "Client" : userRole || "Client"}
-                </span>
+                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                  <span className={cn(
+                    "inline-block px-1.5 py-px rounded text-[10px] font-semibold",
+                    userRole === "admin" ? "bg-red-900/40 text-red-300" :
+                    userRole === "rep"   ? "bg-blue-900/40 text-blue-300" :
+                                           "bg-green-900/40 text-green-300"
+                  )}>
+                    {userRole === "customer" ? "Client" : userRole || "Client"}
+                  </span>
+                  <span className="inline-block px-1.5 py-px rounded text-[10px] font-semibold bg-primary/10 text-primary">
+                    {planId.toUpperCase()}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

@@ -88,6 +88,7 @@ class OrganizationResponse(BaseModel):
     updated_at: datetime
     member_count: Optional[int] = None
     your_role: Optional[str] = None
+    plan_id: str = "community"
 
 
 class OrganizationMemberAdd(BaseModel):
@@ -229,6 +230,7 @@ def create_organization(
             updated_at=org["updated_at"],
             member_count=1,
             your_role="owner",
+            plan_id="community",
         )
 
 
@@ -240,9 +242,9 @@ def list_user_organizations(user: User = Depends(get_current_user)):
 
         cursor.execute(
             """
-            SELECT 
-                o.id, o.name, o.slug, o.domain, o.settings, o.is_active, 
-                o.created_at, o.updated_at,
+            SELECT
+                o.id, o.name, o.slug, o.domain, o.settings, o.is_active,
+                o.created_at, o.updated_at, o.plan_id,
                 om.role as your_role,
                 (SELECT COUNT(*) FROM app.organization_members WHERE organization_id = o.id) as member_count
             FROM app.organizations o
@@ -267,6 +269,7 @@ def list_user_organizations(user: User = Depends(get_current_user)):
                 updated_at=org["updated_at"],
                 member_count=org["member_count"],
                 your_role=org["your_role"],
+                plan_id=org.get("plan_id", "community") or "community",
             )
             for org in orgs
         ]
@@ -311,6 +314,7 @@ def get_organization(org_id: str, user: User = Depends(get_current_user)):
             updated_at=org["updated_at"],
             member_count=org["member_count"],
             your_role=role,
+            plan_id=org.get("plan_id", "community") or "community",
         )
 
 
@@ -355,7 +359,7 @@ def update_organization(
             UPDATE app.organizations
             SET {', '.join(updates)}, updated_at = NOW()
             WHERE id = %s
-            RETURNING id, name, slug, domain, settings, is_active, created_at, updated_at
+            RETURNING id, name, slug, domain, settings, is_active, created_at, updated_at, plan_id
             """,
             tuple(params),
         )
@@ -386,6 +390,7 @@ def update_organization(
             updated_at=org["updated_at"],
             member_count=count_result["count"] if count_result else 0,
             your_role=caller_role,
+            plan_id=org.get("plan_id", "community") or "community",
         )
 
 

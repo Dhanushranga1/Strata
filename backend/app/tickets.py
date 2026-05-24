@@ -15,6 +15,7 @@ from .schemas import (
 from .auth import User, get_current_user
 from .observability import get_observer, log_rag_metrics
 from .org_middleware import require_org_context
+from .entitlements import requires_feature
 from .email import (
     send_new_ticket_email, send_ai_failure_email,
     send_rep_reply_email, send_ticket_resolved_email,
@@ -689,7 +690,8 @@ def chat_with_ai(
     ticket_id: str,
     payload: ChatRequest,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    _gate: None = requires_feature("ai_rag"),
 ):
     """Generate AI response for a ticket using enhanced RAG with comprehensive observability."""
     org_id = require_org_context(request)
