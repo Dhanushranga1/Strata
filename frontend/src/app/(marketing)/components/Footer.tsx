@@ -1,68 +1,97 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { motion, useScroll, useTransform } from "framer-motion";
-import { Button, Chip } from "@heroui/react";
-import { Github, Twitter, Linkedin, Mail, ArrowRight, Sparkles, Heart, Globe, Building, Users, Zap, Shield } from "lucide-react";
-import { v } from "../../../ui/motion/variants";
+import Link from 'next/link';
+import { motion, useScroll, useTransform } from 'framer-motion';
+import { Button, Chip } from '@heroui/react';
+import {
+  Github,
+  Twitter,
+  Linkedin,
+  Mail,
+  ArrowRight,
+  Sparkles,
+  Heart,
+  Globe,
+  Building,
+  Users,
+  Zap,
+  Shield,
+} from 'lucide-react';
+import { v } from '../../../ui/motion/variants';
 
 const footerSections = [
-  { 
-    title: "Product", 
+  {
+    title: 'Product',
     icon: Zap,
     links: [
-      { label: "AI Chat & RAG", href: "/features/ai-chat" },
-      { label: "Knowledge Base", href: "/features/knowledge-base" },
-      { label: "Smart Ticketing", href: "/features/ticketing" },
-      { label: "Analytics", href: "/features/analytics" },
-      { label: "API & Integrations", href: "/api" }
-    ]
+      { label: 'AI Chat & RAG', href: '/features/ai-chat' },
+      { label: 'Knowledge Base', href: '/features/knowledge-base' },
+      { label: 'Smart Ticketing', href: '/features/ticketing' },
+      { label: 'Analytics', href: '/features/analytics' },
+      { label: 'API & Integrations', href: '/api' },
+    ],
   },
-  { 
-    title: "Solutions", 
+  {
+    title: 'Solutions',
     icon: Building,
     links: [
-      { label: "For Support Teams", href: "/solutions/support" },
-      { label: "For Enterprises", href: "/solutions/enterprise" },
-      { label: "For Startups", href: "/solutions/startups" },
-      { label: "Customer Success", href: "/solutions/customer-success" }
-    ]
+      { label: 'For Support Teams', href: '/solutions/support' },
+      { label: 'For Enterprises', href: '/solutions/enterprise' },
+      { label: 'For Startups', href: '/solutions/startups' },
+      { label: 'Customer Success', href: '/solutions/customer-success' },
+    ],
   },
-  { 
-    title: "Resources", 
+  {
+    title: 'Resources',
     icon: Globe,
     links: [
-      { label: "Documentation", href: "/docs" },
-      { label: "Help Center", href: "/help" },
-      { label: "Blog & Guides", href: "/blog" },
-      { label: "Status Page", href: "/status" },
-      { label: "Changelog", href: "/changelog" }
-    ]
+      { label: 'Documentation', href: '/docs' },
+      { label: 'Help Center', href: '/help' },
+      { label: 'Blog & Guides', href: '/blog' },
+      { label: 'Status Page', href: '/status' },
+      { label: 'Changelog', href: '/changelog' },
+    ],
   },
-  { 
-    title: "Company", 
+  {
+    title: 'Company',
     icon: Users,
     links: [
-      { label: "About Us", href: "/about" },
-      { label: "Careers", href: "/careers" },
-      { label: "Contact", href: "/contact" },
-      { label: "Privacy Policy", href: "/privacy" },
-      { label: "Terms of Service", href: "/terms" }
-    ]
-  }
+      { label: 'About Us', href: '/about' },
+      { label: 'Careers', href: '/careers' },
+      { label: 'Contact', href: '/contact' },
+      { label: 'Privacy Policy', href: '/privacy' },
+      { label: 'Terms of Service', href: '/terms' },
+    ],
+  },
 ];
 
 const socialLinks = [
-  { icon: Twitter, href: "https://twitter.com/ticketpilot", label: "Follow on Twitter" },
-  { icon: Linkedin, href: "https://linkedin.com/company/ticketpilot", label: "Connect on LinkedIn" },
-  { icon: Github, href: "https://github.com/ticketpilot", label: "Star on GitHub" },
-  { icon: Mail, href: "mailto:hello@ticketpilot.com", label: "Send us an email" }
+  {
+    icon: Twitter,
+    href: 'https://twitter.com/ticketpilot',
+    label: 'Follow on Twitter',
+  },
+  {
+    icon: Linkedin,
+    href: 'https://linkedin.com/company/ticketpilot',
+    label: 'Connect on LinkedIn',
+  },
+  {
+    icon: Github,
+    href: 'https://github.com/ticketpilot',
+    label: 'Star on GitHub',
+  },
+  {
+    icon: Mail,
+    href: 'mailto:hello@ticketpilot.com',
+    label: 'Send us an email',
+  },
 ];
 
 const trustBadges = [
-  { icon: Shield, text: "SOC 2 Type II" },
-  { icon: Globe, text: "GDPR Compliant" },
-  { icon: Zap, text: "99.9% Uptime" }
+  { icon: Shield, text: 'SOC 2 Type II' },
+  { icon: Globe, text: 'GDPR Compliant' },
+  { icon: Zap, text: '99.9% Uptime' },
 ];
 
 export default function Footer() {
@@ -89,14 +118,14 @@ export default function Footer() {
             transition={{
               duration: 5 + i * 0.2,
               repeat: Infinity,
-              ease: "easeInOut",
+              ease: 'easeInOut',
               delay: i * 0.3,
             }}
           />
         ))}
       </div>
 
-      <motion.div 
+      <motion.div
         className="relative mx-auto max-w-7xl px-6 py-20"
         style={{ y: footerY }}
       >
@@ -108,9 +137,12 @@ export default function Footer() {
           className="space-y-16"
         >
           {/* Header Section */}
-          <motion.div variants={v.item} className="text-center max-w-3xl mx-auto">
+          <motion.div
+            variants={v.item}
+            className="text-center max-w-3xl mx-auto"
+          >
             {/* Brand with sophisticated animation */}
-            <motion.div 
+            <motion.div
               className="flex items-center justify-center gap-4 mb-8"
               whileHover={{ scale: 1.02 }}
             >
@@ -121,9 +153,11 @@ export default function Footer() {
                 TicketPilot
               </h3>
             </motion.div>
-            
+
             <p className="text-lg text-muted-foreground leading-relaxed mb-8">
-              Transforming customer support with AI-powered insights, seamless knowledge management, and intelligent automation that actually works.
+              Transforming customer support with AI-powered insights, seamless
+              knowledge management, and intelligent automation that actually
+              works.
             </p>
 
             {/* Trust badges - matching Hero chips */}
@@ -137,8 +171,8 @@ export default function Footer() {
                   transition={{ delay: 0.5 + index * 0.1, duration: 0.4 }}
                   whileHover={{ scale: 1.05 }}
                 >
-                  <Chip 
-                    startContent={<badge.icon className="size-3" />} 
+                  <Chip
+                    startContent={<badge.icon className="size-3" />}
                     variant="bordered"
                     size="sm"
                     className="border-border/30 bg-surface/30 backdrop-blur-sm hover:border-primary/50 transition-colors text-xs"
@@ -151,12 +185,12 @@ export default function Footer() {
           </motion.div>
 
           {/* Main Footer Grid */}
-          <motion.div 
+          <motion.div
             variants={v.item}
             className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12"
           >
             {footerSections.map((section, sectionIndex) => (
-              <motion.div 
+              <motion.div
                 key={section.title}
                 className="space-y-6"
                 initial={{ opacity: 0, y: 20 }}
@@ -173,16 +207,19 @@ export default function Footer() {
                     {section.title}
                   </h4>
                 </div>
-                
+
                 {/* Section Links */}
                 <ul className="space-y-3">
                   {section.links.map((link, linkIndex) => (
-                    <motion.li 
+                    <motion.li
                       key={link.label}
                       initial={{ opacity: 0, x: -15 }}
                       whileInView={{ opacity: 1, x: 0 }}
                       viewport={{ once: true }}
-                      transition={{ duration: 0.3, delay: 0.4 + sectionIndex * 0.1 + linkIndex * 0.05 }}
+                      transition={{
+                        duration: 0.3,
+                        delay: 0.4 + sectionIndex * 0.1 + linkIndex * 0.05,
+                      }}
                     >
                       <Link
                         href={link.href}
@@ -199,7 +236,7 @@ export default function Footer() {
           </motion.div>
 
           {/* Newsletter Section */}
-          <motion.div 
+          <motion.div
             variants={v.item}
             className="bg-surface/30 backdrop-blur-xl border border-border/20 rounded-2xl p-8 text-center max-w-2xl mx-auto"
           >
@@ -214,9 +251,10 @@ export default function Footer() {
                 Stay in the loop
               </h4>
               <p className="text-muted-foreground mb-6 leading-relaxed">
-                Get the latest product updates, support insights, and AI innovations delivered to your inbox.
+                Get the latest product updates, support insights, and AI
+                innovations delivered to your inbox.
               </p>
-              
+
               <div className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
                 <input
                   type="email"
@@ -234,7 +272,7 @@ export default function Footer() {
           </motion.div>
 
           {/* Social & Bottom Section */}
-          <motion.div 
+          <motion.div
             variants={v.item}
             className="border-t border-border/20 pt-8 space-y-8"
           >
@@ -262,13 +300,13 @@ export default function Footer() {
             {/* Copyright & Login */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
               <p className="flex items-center gap-2">
-                © {new Date().getFullYear()} TicketPilot. Built with 
-                <Heart className="w-4 h-4 text-red-500 animate-pulse" /> 
+                © {new Date().getFullYear()} TicketPilot. Built with
+                <Heart className="w-4 h-4 text-red-500 animate-pulse" />
                 for amazing support teams.
               </p>
-              
-              <Link 
-                href="/login" 
+
+              <Link
+                href="/login"
                 className="text-primary hover:text-secondary transition-colors duration-200 font-medium flex items-center gap-1"
               >
                 Already have an account? Sign in

@@ -1,0 +1,50 @@
+# TicketPilot — Local Development Services
+#
+# Usage:
+#   docker compose up -d          # start all services
+#   docker compose down           # stop
+#
+# This provides a local PostgreSQL for development when you want
+# to run without a Supabase cloud project. For full auth support
+# (Supabase Auth), use a dev Supabase project instead.
+#
+# Default credentials:
+#   PostgreSQL: postgres / postgres / ticketpilot
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ticketpilot-pg
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ticketpilot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ticketpilot-pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: dev@ticketpilot.local
+      PGADMIN_DEFAULT_PASSWORD: ticketpilot
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - tools
+
+volumes:
+  pgdata:

@@ -6,9 +6,10 @@ Required env vars:
   SENDGRID_API_KEY   from app.sendgrid.com/settings/api_keys
   EMAIL_FROM         sender address (default: noreply@ticketpilot.app)
 """
-import os
+
 import json
 import logging
+import os
 import threading
 import urllib.request
 
@@ -38,12 +39,14 @@ def _send(to: str, subject: str, html: str) -> bool:
                 name = "TicketPilot"
                 addr = EMAIL_FROM.strip()
 
-            payload = json.dumps({
-                "personalizations": [{"to": [{"email": to}]}],
-                "from": {"email": addr, "name": name},
-                "subject": subject,
-                "content": [{"type": "text/html", "value": html}],
-            }).encode()
+            payload = json.dumps(
+                {
+                    "personalizations": [{"to": [{"email": to}]}],
+                    "from": {"email": addr, "name": name},
+                    "subject": subject,
+                    "content": [{"type": "text/html", "value": html}],
+                }
+            ).encode()
 
             req = urllib.request.Request(
                 "https://api.sendgrid.com/v3/mail/send",
@@ -58,7 +61,9 @@ def _send(to: str, subject: str, html: str) -> bool:
                 if resp.status in (200, 202):
                     logger.info("[email] Sent '%s' to %s", subject, to)
                 else:
-                    logger.warning("[email] SendGrid returned %s for %s", resp.status, to)
+                    logger.warning(
+                        "[email] SendGrid returned %s for %s", resp.status, to
+                    )
         except Exception as exc:
             logger.warning("[email] Could not send to %s: %s", to, exc)
 
@@ -93,6 +98,7 @@ def _wrap(title: str, body: str) -> str:
 
 # ── New ticket notification ───────────────────────────────────────────────────
 
+
 def send_new_ticket_email(
     to: str,
     ticket_id: str,
@@ -114,6 +120,7 @@ def send_new_ticket_email(
 
 
 # ── AI failure notification ───────────────────────────────────────────────────
+
 
 def send_ai_failure_email(
     to: str,
@@ -143,6 +150,7 @@ def send_ai_failure_email(
 
 
 # ── Overdue notifications ─────────────────────────────────────────────────────
+
 
 def send_overdue_email(
     to: str,
@@ -196,7 +204,9 @@ def send_rep_reply_email(
 ) -> bool:
     subject = f"Support replied: {ticket_title}"
     short_id = ticket_id[:8]
-    preview = (message_preview[:200] + "…") if len(message_preview) > 200 else message_preview
+    preview = (
+        (message_preview[:200] + "…") if len(message_preview) > 200 else message_preview
+    )
     body = f"""
       <h2 style="font-size:18px;font-weight:600;margin:0 0 12px;">A support rep has replied to your ticket</h2>
       <p style="color:#374151;margin:0 0 16px;">You have a new reply waiting for you.</p>
@@ -220,10 +230,14 @@ def send_ticket_resolved_email(
     subject = f"Resolved: {ticket_title}"
     short_id = ticket_id[:8]
     note_html = (
-        f'<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:0 0 16px;">'
-        f'<p style="margin:0 0 4px;font-size:12px;color:#6b7280;font-weight:600;">RESOLUTION NOTE</p>'
-        f'<p style="margin:0;font-size:14px;color:#374151;">{resolution_note}</p></div>'
-    ) if resolution_note else ''
+        (
+            f'<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:0 0 16px;">'
+            f'<p style="margin:0 0 4px;font-size:12px;color:#6b7280;font-weight:600;">RESOLUTION NOTE</p>'
+            f'<p style="margin:0;font-size:14px;color:#374151;">{resolution_note}</p></div>'
+        )
+        if resolution_note
+        else ""
+    )
     body = f"""
       <h2 style="font-size:18px;font-weight:600;margin:0 0 12px;color:#059669;">Your ticket has been resolved</h2>
       <p style="color:#374151;margin:0 0 16px;">Your support ticket has been marked as resolved.</p>
@@ -246,7 +260,12 @@ def send_ticket_created_for_customer_email(
 ) -> bool:
     subject = f"A support ticket was opened for you: {ticket_title}"
     short_id = ticket_id[:8]
-    priority_color = {"urgent": "#dc2626", "high": "#d97706", "normal": "#2563eb", "low": "#6b7280"}.get(priority, "#2563eb")
+    priority_color = {
+        "urgent": "#dc2626",
+        "high": "#d97706",
+        "normal": "#2563eb",
+        "low": "#6b7280",
+    }.get(priority, "#2563eb")
     body = f"""
       <h2 style="font-size:18px;font-weight:600;margin:0 0 12px;">A support ticket has been created for you</h2>
       <p style="color:#374151;margin:0 0 16px;">
@@ -274,7 +293,9 @@ def send_customer_reply_email(
 ) -> bool:
     subject = f"Customer replied: {ticket_title}"
     short_id = ticket_id[:8]
-    preview = (message_preview[:200] + "…") if len(message_preview) > 200 else message_preview
+    preview = (
+        (message_preview[:200] + "…") if len(message_preview) > 200 else message_preview
+    )
     body = f"""
       <h2 style="font-size:18px;font-weight:600;margin:0 0 12px;">A customer has replied to their ticket</h2>
       <p style="color:#374151;margin:0 0 16px;">A customer has posted a new message and may need your attention.</p>

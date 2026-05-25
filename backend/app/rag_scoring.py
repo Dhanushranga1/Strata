@@ -85,12 +85,13 @@ USAGE
     print(f"Weights: {breakdown['effective_weights']}")
 """
 
-import re
-import math
 import logging
-import numpy as np
+import math
+import re
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +100,12 @@ logger = logging.getLogger(__name__)
 # Query Intent Taxonomy
 # ---------------------------------------------------------------------------
 
+
 class QueryIntent(str, Enum):
-    FACTUAL        = "factual"         # "What is X?", "Who is responsible for Y?"
-    PROCEDURAL     = "procedural"      # "How do I X?", "Steps to Y"
+    FACTUAL = "factual"  # "What is X?", "Who is responsible for Y?"
+    PROCEDURAL = "procedural"  # "How do I X?", "Steps to Y"
     TROUBLESHOOTING = "troubleshooting"  # "X isn't working", "Error Y", "X is broken"
-    COMPARISON     = "comparison"      # "X vs Y", "difference between X and Y"
+    COMPARISON = "comparison"  # "X vs Y", "difference between X and Y"
 
 
 # ---------------------------------------------------------------------------
@@ -139,47 +141,47 @@ _INTENT_WEIGHTS: Dict[QueryIntent, Dict[str, float]] = {
     QueryIntent.FACTUAL: {
         # Upgraded to C1 (Retrieval-Centric) weights — lowest MAE in grid search
         # (ret=0.45, cit=0.25 outperforms original 0.38/0.28 by ~8% MAE on factual subset)
-        "retrieval_quality":    0.45,
-        "citation_coverage":    0.25,
-        "semantic_coherence":   0.15,
+        "retrieval_quality": 0.45,
+        "citation_coverage": 0.25,
+        "semantic_coherence": 0.15,
         "response_completeness": 0.05,
-        "information_density":  0.05,
-        "source_diversity":     0.05,
+        "information_density": 0.05,
+        "source_diversity": 0.05,
     },
     QueryIntent.PROCEDURAL: {
-        "retrieval_quality":    0.28,
-        "citation_coverage":    0.30,
-        "semantic_coherence":   0.15,
+        "retrieval_quality": 0.28,
+        "citation_coverage": 0.30,
+        "semantic_coherence": 0.15,
         "response_completeness": 0.12,
-        "information_density":  0.09,
-        "source_diversity":     0.06,
+        "information_density": 0.09,
+        "source_diversity": 0.06,
     },
     QueryIntent.TROUBLESHOOTING: {
-        "retrieval_quality":    0.30,
-        "citation_coverage":    0.22,
-        "semantic_coherence":   0.13,
+        "retrieval_quality": 0.30,
+        "citation_coverage": 0.22,
+        "semantic_coherence": 0.13,
         "response_completeness": 0.08,
-        "information_density":  0.08,
-        "source_diversity":     0.19,
+        "information_density": 0.08,
+        "source_diversity": 0.19,
     },
     QueryIntent.COMPARISON: {
-        "retrieval_quality":    0.25,
-        "citation_coverage":    0.22,
-        "semantic_coherence":   0.16,
+        "retrieval_quality": 0.25,
+        "citation_coverage": 0.22,
+        "semantic_coherence": 0.16,
         "response_completeness": 0.07,
-        "information_density":  0.13,
-        "source_diversity":     0.17,
+        "information_density": 0.13,
+        "source_diversity": 0.17,
     },
 }
 
 # Baseline weights (current production, for comparison)
 BASELINE_WEIGHTS: Dict[str, float] = {
-    "retrieval_quality":    0.30,
-    "citation_coverage":    0.20,
-    "semantic_coherence":   0.20,
+    "retrieval_quality": 0.30,
+    "citation_coverage": 0.20,
+    "semantic_coherence": 0.20,
     "response_completeness": 0.10,
-    "information_density":  0.10,
-    "source_diversity":     0.10,
+    "information_density": 0.10,
+    "source_diversity": 0.10,
 }
 
 
@@ -188,30 +190,30 @@ BASELINE_WEIGHTS: Dict[str, float] = {
 # ---------------------------------------------------------------------------
 
 _PROCEDURAL_PATTERNS = re.compile(
-    r'\b(how (do|can|to)|steps? (to|for)|configure|setup|install|enable|disable|'
-    r'create|add|remove|update|change|reset|restore|set up|get started|guide|tutorial|'
-    r'walkthrough|process|procedure)\b',
+    r"\b(how (do|can|to)|steps? (to|for)|configure|setup|install|enable|disable|"
+    r"create|add|remove|update|change|reset|restore|set up|get started|guide|tutorial|"
+    r"walkthrough|process|procedure)\b",
     re.IGNORECASE,
 )
 _TROUBLESHOOTING_PATTERNS = re.compile(
-    r'\b(not working|broken|error|issue|problem|fail|failing|failed|crash|bug|'
-    r'cannot|can\'t|won\'t|doesn\'t work|stuck|help|wrong|unexpected|missing|'
-    r'exception|traceback|500|404|403|timeout|slow|lag)\b',
+    r"\b(not working|broken|error|issue|problem|fail|failing|failed|crash|bug|"
+    r"cannot|can\'t|won\'t|doesn\'t work|stuck|help|wrong|unexpected|missing|"
+    r"exception|traceback|500|404|403|timeout|slow|lag)\b",
     re.IGNORECASE,
 )
 _COMPARISON_PATTERNS = re.compile(
-    r'\b(vs\.?|versus|difference between|compare|comparison|better|worse|'
-    r'pros and cons|advantages|disadvantages|which (is|should|one)|'
-    r'between .+ and)\b',
+    r"\b(vs\.?|versus|difference between|compare|comparison|better|worse|"
+    r"pros and cons|advantages|disadvantages|which (is|should|one)|"
+    r"between .+ and)\b",
     re.IGNORECASE,
 )
 _FACTUAL_PATTERNS = re.compile(
-    r'\b(what (is|are|does|do|was|were)|who (is|are|was|manages|handles|owns|'
-    r'responsible)|when (is|was|does)|where (is|are|can|do)|'
-    r'define|definition|explain|meaning of|tell me about|describe|'
-    r'which (team|person|department|role)|do you (offer|have|support|provide)|'
-    r'does .+(include|support|offer|have)|is .+(available|included|supported)|'
-    r'what .+(tier|plan|feature|policy|limit|sla|version))\b',
+    r"\b(what (is|are|does|do|was|were)|who (is|are|was|manages|handles|owns|"
+    r"responsible)|when (is|was|does)|where (is|are|can|do)|"
+    r"define|definition|explain|meaning of|tell me about|describe|"
+    r"which (team|person|department|role)|do you (offer|have|support|provide)|"
+    r"does .+(include|support|offer|have)|is .+(available|included|supported)|"
+    r"what .+(tier|plan|feature|policy|limit|sla|version))\b",
     re.IGNORECASE,
 )
 
@@ -231,19 +233,19 @@ def classify_query_intent(query: str) -> Tuple[QueryIntent, Dict[QueryIntent, fl
       - Normalise to a probability simplex via softmax.
     """
     counts = {
-        QueryIntent.FACTUAL:         len(_FACTUAL_PATTERNS.findall(query)),
-        QueryIntent.PROCEDURAL:      len(_PROCEDURAL_PATTERNS.findall(query)),
+        QueryIntent.FACTUAL: len(_FACTUAL_PATTERNS.findall(query)),
+        QueryIntent.PROCEDURAL: len(_PROCEDURAL_PATTERNS.findall(query)),
         QueryIntent.TROUBLESHOOTING: len(_TROUBLESHOOTING_PATTERNS.findall(query)),
-        QueryIntent.COMPARISON:      len(_COMPARISON_PATTERNS.findall(query)),
+        QueryIntent.COMPARISON: len(_COMPARISON_PATTERNS.findall(query)),
     }
 
     # Prior boosts (log-prior derived from ticket dataset distribution estimates)
     # Troubleshooting: ~40%, Procedural: ~30%, Factual: ~20%, Comparison: ~10%
     priors = {
-        QueryIntent.FACTUAL:         0.5,
-        QueryIntent.PROCEDURAL:      0.8,
+        QueryIntent.FACTUAL: 0.5,
+        QueryIntent.PROCEDURAL: 0.8,
         QueryIntent.TROUBLESHOOTING: 1.0,
-        QueryIntent.COMPARISON:      0.2,
+        QueryIntent.COMPARISON: 0.2,
     }
 
     raw_scores = {k: counts[k] + priors[k] for k in counts}
@@ -261,6 +263,7 @@ def classify_query_intent(query: str) -> Tuple[QueryIntent, Dict[QueryIntent, fl
 # ---------------------------------------------------------------------------
 # Soft-max blended weight vector
 # ---------------------------------------------------------------------------
+
 
 def blend_weights(intent_scores: Dict[QueryIntent, float]) -> Dict[str, float]:
     """
@@ -289,6 +292,7 @@ def blend_weights(intent_scores: Dict[QueryIntent, float]) -> Dict[str, float]:
 # ---------------------------------------------------------------------------
 # KB-density calibration
 # ---------------------------------------------------------------------------
+
 
 def kb_density_calibration(kb_chunk_count: int) -> float:
     """
@@ -320,6 +324,7 @@ def kb_density_calibration(kb_chunk_count: int) -> float:
 # Retrieval-spread penalty
 # ---------------------------------------------------------------------------
 
+
 def retrieval_spread_penalty(scores: List[float]) -> float:
     """
     Penalise high variance in retrieval scores.
@@ -342,6 +347,7 @@ def retrieval_spread_penalty(scores: List[float]) -> float:
 # ---------------------------------------------------------------------------
 # Probabilistic confidence interval
 # ---------------------------------------------------------------------------
+
 
 def confidence_interval(
     point_estimate: float,
@@ -373,6 +379,7 @@ def confidence_interval(
 # Adaptive escalation threshold
 # ---------------------------------------------------------------------------
 
+
 def adaptive_escalation_threshold(
     query_intent: QueryIntent,
     kb_chunk_count: int,
@@ -395,10 +402,10 @@ def adaptive_escalation_threshold(
     Returns a threshold in [0.40, 0.72].
     """
     base = {
-        QueryIntent.FACTUAL:         0.50,
-        QueryIntent.PROCEDURAL:      0.58,
+        QueryIntent.FACTUAL: 0.50,
+        QueryIntent.PROCEDURAL: 0.58,
         QueryIntent.TROUBLESHOOTING: 0.52,
-        QueryIntent.COMPARISON:      0.48,
+        QueryIntent.COMPARISON: 0.48,
     }.get(query_intent, 0.55)
 
     adjustment = 0.0
@@ -418,6 +425,7 @@ def adaptive_escalation_threshold(
 # ---------------------------------------------------------------------------
 # Main CASPER scoring function
 # ---------------------------------------------------------------------------
+
 
 def casper_confidence(
     scores: List[float],
@@ -471,7 +479,9 @@ def casper_confidence(
         try:
             query_intent = QueryIntent(_precomputed)
             _other = (1.0 - 0.70) / max(1, len(QueryIntent) - 1)
-            intent_scores = {k: (0.70 if k == query_intent else _other) for k in QueryIntent}
+            intent_scores = {
+                k: (0.70 if k == query_intent else _other) for k in QueryIntent
+            }
         except ValueError:
             _precomputed = None
 
@@ -489,11 +499,13 @@ def casper_confidence(
     retrieval_confidence = max(0.0, min(1.0, float(np.mean(top_scores))))
 
     # b) Citation coverage — fraction of available [N] slots actually used
-    citations_found = set(re.findall(r'\[(\d+)\]', model_output))
+    #    Intersect with available to prevent phantom citations like [99] from
+    #    inflating coverage beyond 1.0 when only 3 chunks were retrieved.
+    citations_found = set(re.findall(r"\[(\d+)\]", model_output))
     available_citations = set(str(i) for i in range(1, num_chunks + 1))
+    valid_citations = citations_found & available_citations
     citation_coverage = (
-        len(citations_found) / len(available_citations)
-        if available_citations else 0.0
+        len(valid_citations) / len(available_citations) if available_citations else 0.0
     )
     citation_penalty = 0.0 if citations_found else 0.15
 
@@ -513,21 +525,31 @@ def casper_confidence(
 
     # g) Uncertainty phrase penalty
     uncertainty_phrases = [
-        "i don't have", "i'm not sure", "unclear", "uncertain",
-        "may be", "might be", "possibly", "perhaps", "contact support",
-        "i cannot", "i can't",
+        "i don't have",
+        "i'm not sure",
+        "unclear",
+        "uncertain",
+        "may be",
+        "might be",
+        "possibly",
+        "perhaps",
+        "contact support",
+        "i cannot",
+        "i can't",
     ]
     lower_output = model_output.lower()
-    uncertainty_penalty = min(0.20, sum(0.04 for p in uncertainty_phrases if p in lower_output))
+    uncertainty_penalty = min(
+        0.20, sum(0.04 for p in uncertainty_phrases if p in lower_output)
+    )
 
     # ── 3. Weighted combination using blended CASPER weights ─────────────────
     raw_score = (
-        effective_weights["retrieval_quality"]     * retrieval_confidence +
-        effective_weights["citation_coverage"]     * citation_coverage +
-        effective_weights["semantic_coherence"]    * semantic_coherence +
-        effective_weights["response_completeness"] * length_score +
-        effective_weights["information_density"]   * info_density +
-        effective_weights["source_diversity"]      * source_diversity
+        effective_weights["retrieval_quality"] * retrieval_confidence
+        + effective_weights["citation_coverage"] * citation_coverage
+        + effective_weights["semantic_coherence"] * semantic_coherence
+        + effective_weights["response_completeness"] * length_score
+        + effective_weights["information_density"] * info_density
+        + effective_weights["source_diversity"] * source_diversity
         - citation_penalty
         - uncertainty_penalty
     )
@@ -545,7 +567,7 @@ def casper_confidence(
     top_score_val = retrieval_metrics.get("top_score", 0.0)
     if score_gap > 0.20 and top_score_val > 0.75:
         forgiveness = 0.65 if query_intent == QueryIntent.FACTUAL else 0.40
-        spread_penalty *= (1.0 - forgiveness)
+        spread_penalty *= 1.0 - forgiveness
 
     calibrated_score = raw_score * calibration - spread_penalty
 
@@ -557,7 +579,9 @@ def casper_confidence(
     )
 
     # ── 7. Adaptive escalation threshold ────────────────────────────────────
-    threshold = adaptive_escalation_threshold(query_intent, kb_chunk_count, retrieval_metrics)
+    threshold = adaptive_escalation_threshold(
+        query_intent, kb_chunk_count, retrieval_metrics
+    )
 
     breakdown = {
         "overall_confidence": final_confidence,
@@ -591,6 +615,7 @@ def casper_confidence(
 # Drop-in replacement for the baseline compute_confidence
 # ---------------------------------------------------------------------------
 
+
 def compute_confidence_casper(
     scores: List[float],
     model_output: str,
@@ -620,17 +645,17 @@ def compute_confidence_casper(
 
 # Urgency signals: words that suggest time-sensitive or breaking issues.
 _URGENCY_PATTERNS = re.compile(
-    r'\b(urgent|asap|emergency|critical|down|outage|broken|blocked|production|'
-    r'p0|p1|sev.?1|sev.?0|immediately|right now|cannot (access|login|work)|'
-    r'all users|everyone|nothing works?|completely broken|system (down|offline))\b',
+    r"\b(urgent|asap|emergency|critical|down|outage|broken|blocked|production|"
+    r"p0|p1|sev.?1|sev.?0|immediately|right now|cannot (access|login|work)|"
+    r"all users|everyone|nothing works?|completely broken|system (down|offline))\b",
     re.IGNORECASE,
 )
 
 # Broad signals that indicate multi-step or investigative work.
 _COMPLEXITY_SIGNALS = re.compile(
-    r'\b(integrate|integration|migration|migrate|architecture|design|'
-    r'custom|enterprise|security|compliance|audit|performance|scale|'
-    r'multi.?tenant|api|sdk|webhook|automation|workflow|batch|bulk)\b',
+    r"\b(integrate|integration|migration|migrate|architecture|design|"
+    r"custom|enterprise|security|compliance|audit|performance|scale|"
+    r"multi.?tenant|api|sdk|webhook|automation|workflow|batch|bulk)\b",
     re.IGNORECASE,
 )
 
@@ -658,9 +683,15 @@ class TicketProfile:
     routing_reason : str
         Human-readable explanation of the routing decision.
     """
+
     __slots__ = (
-        "intent", "intent_scores", "complexity", "urgency",
-        "suggested_priority_level", "requires_senior", "routing_reason",
+        "intent",
+        "intent_scores",
+        "complexity",
+        "urgency",
+        "suggested_priority_level",
+        "requires_senior",
+        "routing_reason",
     )
 
     def __init__(
@@ -684,7 +715,9 @@ class TicketProfile:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "intent": self.intent.value,
-            "intent_scores": {k.value: round(v, 3) for k, v in self.intent_scores.items()},
+            "intent_scores": {
+                k.value: round(v, 3) for k, v in self.intent_scores.items()
+            },
             "complexity": round(self.complexity, 3),
             "urgency": round(self.urgency, 3),
             "suggested_priority_level": self.suggested_priority_level,
@@ -745,9 +778,9 @@ def profile_ticket(title: str, description: str = "") -> TicketProfile:
     # 2) Complexity
     base_complexity = {
         QueryIntent.TROUBLESHOOTING: 0.65,
-        QueryIntent.COMPARISON:      0.55,
-        QueryIntent.PROCEDURAL:      0.40,
-        QueryIntent.FACTUAL:         0.25,
+        QueryIntent.COMPARISON: 0.55,
+        QueryIntent.PROCEDURAL: 0.40,
+        QueryIntent.FACTUAL: 0.25,
     }.get(intent, 0.45)
 
     complexity_signals = len(_COMPLEXITY_SIGNALS.findall(combined))
@@ -758,7 +791,9 @@ def profile_ticket(title: str, description: str = "") -> TicketProfile:
     dominant_score = intent_scores.get(intent, 0.5)
     ambiguity_penalty = 0.10 if dominant_score < 0.40 else 0.0
 
-    complexity = min(1.0, base_complexity + signal_boost + desc_len_boost + ambiguity_penalty)
+    complexity = min(
+        1.0, base_complexity + signal_boost + desc_len_boost + ambiguity_penalty
+    )
 
     # 3) Urgency
     urgency_matches = len(_URGENCY_PATTERNS.findall(combined))

@@ -1,157 +1,87 @@
-# TicketPilot Quick Setup Commands
+# Quick Start
 
-## 🚀 Quick Start (Execute in Order)
+## First time (requires a Supabase project)
 
-### 1. Supabase Setup
-1. Create project at https://supabase.com
-2. Save these from Settings → Database:
-   - Host: `db.xxxxxxxxxxxxx.supabase.co`
-   - Password: (your project password)
-3. Save these from Settings → API:
-   - Project URL: `https://xxxxxxxxxxxxx.supabase.co`
-   - anon key: `eyJhbGci...`
-   - JWT Secret: (long string under JWT Settings)
-
-### 2. Google API Setup
-1. Create project at https://console.cloud.google.com
-2. Enable "Generative Language API"
-3. Create API Key: APIs & Services → Credentials → Create Credentials → API Key
-4. Save the key: `AIzaSy...`
-
-### 3. Create Environment Files
-
-**Backend .env:**
 ```bash
-cd /home/dhanush/Documents/ticketpilot/backend
-cat > .env << 'EOF'
-SUPABASE_URL=https://xxxxxxxxxxxxx.supabase.co
-SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-SUPABASE_JWT_SECRET=your-jwt-secret-from-supabase
-DATABASE_URL=postgresql://postgres:your-password@db.xxxxxxxxxxxxx.supabase.co:5432/postgres
-GOOGLE_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-CHUNK_SIZE_CHARS=2400
-CHUNK_OVERLAP_CHARS=400
-VECTOR_INDEX_DIR=./data/faiss
-VECTOR_MAP_DIR=./data/maps
-EOF
+git clone <repo-url>
+cd ticketpilot
+make setup     # create .env files, install deps
+make migrate   # run all pending migrations
+make dev       # start backend + frontend
 ```
 
-**Frontend .env.local:**
+Open http://localhost:3000.
+
+## Prerequisites
+
+| What | Why | How |
+|------|-----|-----|
+| Python 3.10+ | Backend | `python3 --version` |
+| Node.js 18+ | Frontend | `node --version` |
+| Supabase project | Database + Auth | [supabase.com](https://supabase.com) → new project |
+| Google AI Studio key | Embeddings + LLM | [makersuite.google.com/app/apikey](https://makersuite.google.com/app/apikey) |
+
+## Supabase project setup
+
+1. Create a **dev** project at [supabase.com](https://supabase.com)
+2. Go to **Settings → API** and copy these into `backend/.env`:
+   - `Project URL` → `SUPABASE_URL`
+   - `anon public key` → `SUPABASE_ANON_KEY`
+   - `service_role key` → `SUPABASE_SERVICE_ROLE_KEY`
+   - `JWT Secret` (under JWT Settings) → `SUPABASE_JWT_SECRET`
+3. Go to **Settings → Database → Connection string → URI**
+   - Copy the **Transaction mode pooler** URI (port **6543**) → `DATABASE_URL`
+
+> `SUPABASE_JWT_SECRET` is the raw signing secret — NOT the service_role token.
+> Wrong value = `401 Invalid token` on every request.
+
+## Daily development
+
 ```bash
-cd /home/dhanush/Documents/ticketpilot/frontend
-cat > .env.local << 'EOF'
-NEXT_PUBLIC_SUPABASE_URL=https://xxxxxxxxxxxxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-NEXT_PUBLIC_API_URL=http://localhost:8000
-EOF
+make dev        # both servers
+make test       # all tests
+make lint       # ESLint + Black + isort + mypy + bandit
+make format     # auto-format
+make type-check # TypeScript check
+make migrate    # run pending migrations
 ```
 
-### 4. Run Database Migrations
+## Manual commands (without Makefile)
+
 ```bash
-cd /home/dhanush/Documents/ticketpilot/backend
+# Terminal 1 — backend
+cd backend && source .venv/bin/activate && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Test connection first
-psql "postgresql://postgres:your-password@db.xxxxxxxxxxxxx.supabase.co:5432/postgres" -c "SELECT version();"
-
-# Run migrations
-psql "postgresql://postgres:your-password@db.xxxxxxxxxxxxx.supabase.co:5432/postgres" < migrations/0001_user_roles.sql
-psql "postgresql://postgres:your-password@db.xxxxxxxxxxxxx.supabase.co:5432/postgres" < migrations/0002_kb.sql
-
-# Verify tables
-psql "postgresql://postgres:your-password@db.xxxxxxxxxxxxx.supabase.co:5432/postgres" -c "\dt app.*"
+# Terminal 2 — frontend
+cd frontend && npm run dev
 ```
 
-### 5. Setup Backend
-```bash
-cd /home/dhanush/Documents/ticketpilot/backend
+## First-time admin setup
 
-# Activate virtual environment
-source .venv/bin/activate
+Register at http://localhost:3000, then in Supabase SQL Editor:
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Create data directories
-mkdir -p data/faiss data/maps
-
-# Test installation
-python test_phase2.py
-
-# Start backend
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```sql
+INSERT INTO app.user_roles (user_id, role)
+VALUES ('your-user-uuid', 'admin')
+ON CONFLICT (user_id) DO UPDATE SET role = 'admin';
 ```
 
-### 6. Setup Frontend
-```bash
-cd /home/dhanush/Documents/ticketpilot/frontend
+Find your UUID in Supabase **Auth → Users**.
 
-# Install dependencies
-npm install
+## URLs
 
-# Start frontend
-npm run dev
-```
+| URL | What |
+|-----|------|
+| http://localhost:3000 | Frontend |
+| http://localhost:8000/api/health | Backend health |
+| http://localhost:8000/docs | Swagger API docs |
 
-### 7. Create Test User with Rep Role
-```bash
-# 1. First, register a user at http://localhost:3000
-# 2. Then grant rep role:
+## Troubleshooting
 
-psql "postgresql://postgres:your-password@db.xxxxxxxxxxxxx.supabase.co:5432/postgres" << EOF
--- Find your user ID (replace email)
-SELECT id, email FROM auth.users WHERE email = 'your-email@example.com';
-
--- Grant rep role (replace USER_ID with actual UUID from above)
-INSERT INTO app.user_roles (user_id, role) 
-VALUES ('USER_ID_HERE', 'rep') 
-ON CONFLICT (user_id) DO UPDATE SET role = 'rep';
-EOF
-```
-
-### 8. Test Knowledge Base API
-```bash
-# Get JWT token by logging in at http://localhost:3000
-# Open browser dev tools → Network → find Authorization header
-
-# Test document upload
-curl -X POST "http://localhost:8000/api/kb/ingest" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "raw_text=This is a test document for the knowledge base system.&filename=test.txt"
-
-# Test search
-curl "http://localhost:8000/api/kb/search?q=test document&k=3" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-
-# Check stats
-curl "http://localhost:8000/api/kb/stats" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-## ✅ Success Checklist
-- [ ] Supabase project created and configured
-- [ ] Google API key created and Generative Language API enabled
-- [ ] Backend .env file created with all variables
-- [ ] Frontend .env.local file created
-- [ ] Database migrations run successfully
-- [ ] Backend dependencies installed and server running on :8000
-- [ ] Frontend dependencies installed and server running on :3000
-- [ ] Test user created with rep role
-- [ ] Knowledge base API tested successfully
-
-## 🆘 Quick Troubleshooting
-- **Database connection fails**: Check DATABASE_URL format and password
-- **Google API errors**: Verify API key and ensure Generative Language API is enabled
-- **Permission denied**: Ensure user has 'rep' role in app.user_roles table
-- **Import errors**: Run `pip install -r requirements.txt` again
-- **Frontend won't start**: Check NEXT_PUBLIC_* variables in .env.local
-
-## 📝 Replace These Placeholders:
-- `xxxxxxxxxxxxx` → Your actual Supabase project ID
-- `your-password` → Your actual Supabase database password
-- `your-jwt-secret-from-supabase` → Actual JWT secret from Supabase Settings → API
-- `eyJhbGci...` → Your actual Supabase anon key
-- `AIzaSy...` → Your actual Google API key
-- `your-email@example.com` → Your test user email
-- `USER_ID_HERE` → Actual user UUID from database
-- `YOUR_JWT_TOKEN` → Actual JWT token from browser login
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `401 Invalid token` everywhere | `SUPABASE_JWT_SECRET` is wrong | Set to raw signing secret, not service_role token |
+| AI responses all low confidence | FAISS index empty | Upload KB docs after every deploy |
+| CORS errors | `WEB_ORIGIN` mismatch | Set to exact frontend URL, no trailing slash |
+| DB connection fails | Wrong port or credentials | Use port 6543 (transaction pooler), not 5432 |
+| Migrations not applied | First startup | Restart backend — migrations auto-apply in lifespan |

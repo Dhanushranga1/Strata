@@ -1,21 +1,33 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
-import { ArrowLeft, Building2, Globe, Link as LinkIcon, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { useOrganization } from '@/contexts/OrganizationContext'
-import api from '@/lib/api-client'
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import {
+  ArrowLeft,
+  Building2,
+  Globe,
+  Link as LinkIcon,
+  Loader2,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import api from '@/lib/api-client';
 
 interface ValidationErrors {
-  name?: string
-  slug?: string
-  domain?: string
+  name?: string;
+  slug?: string;
+  domain?: string;
 }
 
 // Helper function to generate slug from name
@@ -23,141 +35,154 @@ function generateSlug(name: string): string {
   return name
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9]+/g, '-')  // Replace non-alphanumeric with hyphens
-    .replace(/^-+|-+$/g, '')      // Remove leading/trailing hyphens
-    .replace(/-+/g, '-')          // Replace multiple hyphens with single
-    .slice(0, 50)                 // Max 50 characters
+    .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric with hyphens
+    .replace(/^-+|-+$/g, '') // Remove leading/trailing hyphens
+    .replace(/-+/g, '-') // Replace multiple hyphens with single
+    .slice(0, 50); // Max 50 characters
 }
 
 // Validation helper
-function validateForm(name: string, slug: string, domain: string): ValidationErrors {
-  const errors: ValidationErrors = {}
+function validateForm(
+  name: string,
+  slug: string,
+  domain: string
+): ValidationErrors {
+  const errors: ValidationErrors = {};
 
   // Name validation
   if (!name.trim()) {
-    errors.name = 'Organization name is required'
+    errors.name = 'Organization name is required';
   } else if (name.length < 2) {
-    errors.name = 'Name must be at least 2 characters'
+    errors.name = 'Name must be at least 2 characters';
   } else if (name.length > 100) {
-    errors.name = 'Name must be less than 100 characters'
+    errors.name = 'Name must be less than 100 characters';
   }
 
   // Slug validation
   if (!slug.trim()) {
-    errors.slug = 'Slug is required'
+    errors.slug = 'Slug is required';
   } else if (slug.length < 3) {
-    errors.slug = 'Slug must be at least 3 characters'
+    errors.slug = 'Slug must be at least 3 characters';
   } else if (slug.length > 50) {
-    errors.slug = 'Slug must be less than 50 characters'
+    errors.slug = 'Slug must be less than 50 characters';
   } else if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
-    errors.slug = 'Slug can only contain lowercase letters, numbers, and hyphens'
+    errors.slug =
+      'Slug can only contain lowercase letters, numbers, and hyphens';
   }
 
   // Domain validation (optional)
   if (domain && domain.trim()) {
-    const domainPattern = /^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/
+    const domainPattern = /^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/;
     if (!domainPattern.test(domain)) {
-      errors.domain = 'Please enter a valid domain (e.g., company.com)'
+      errors.domain = 'Please enter a valid domain (e.g., company.com)';
     }
   }
 
-  return errors
+  return errors;
 }
 
 export default function NewOrganizationPage() {
-  const router = useRouter()
-  const { refreshOrganizations } = useOrganization()
-  
+  const router = useRouter();
+  const { refreshOrganizations } = useOrganization();
+
   // Form state
-  const [name, setName] = useState('')
-  const [slug, setSlug] = useState('')
-  const [domain, setDomain] = useState('')
-  const [manualSlugEdit, setManualSlugEdit] = useState(false)
-  
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [domain, setDomain] = useState('');
+  const [manualSlugEdit, setManualSlugEdit] = useState(false);
+
   // UI state
-  const [creating, setCreating] = useState(false)
-  const [errors, setErrors] = useState<ValidationErrors>({})
+  const [creating, setCreating] = useState(false);
+  const [errors, setErrors] = useState<ValidationErrors>({});
   const [touched, setTouched] = useState({
     name: false,
     slug: false,
-    domain: false
-  })
+    domain: false,
+  });
 
   // Auto-generate slug when name changes (unless user manually edited it)
   useEffect(() => {
     if (name && !manualSlugEdit) {
-      const generatedSlug = generateSlug(name)
+      const generatedSlug = generateSlug(name);
       if (generatedSlug.length >= 3) {
-        setSlug(generatedSlug)
+        setSlug(generatedSlug);
       }
     }
-  }, [name, manualSlugEdit])
+  }, [name, manualSlugEdit]);
 
   // Validate on blur
   const handleBlur = (field: 'name' | 'slug' | 'domain') => {
-    setTouched({ ...touched, [field]: true })
-    const validationErrors = validateForm(name, slug, domain)
-    setErrors(validationErrors)
-  }
+    setTouched({ ...touched, [field]: true });
+    const validationErrors = validateForm(name, slug, domain);
+    setErrors(validationErrors);
+  };
 
   // Handle slug manual edit
   const handleSlugChange = (value: string) => {
-    setManualSlugEdit(true)
-    setSlug(value.toLowerCase())
-  }
+    setManualSlugEdit(true);
+    setSlug(value.toLowerCase());
+  };
 
   // Create organization
   const handleCreate = async () => {
     // Mark all fields as touched
-    setTouched({ name: true, slug: true, domain: true })
-    
+    setTouched({ name: true, slug: true, domain: true });
+
     // Validate
-    const validationErrors = validateForm(name, slug, domain)
-    setErrors(validationErrors)
-    
+    const validationErrors = validateForm(name, slug, domain);
+    setErrors(validationErrors);
+
     if (Object.keys(validationErrors).length > 0) {
-      toast.error('Please fix the errors before submitting')
-      return
+      toast.error('Please fix the errors before submitting');
+      return;
     }
 
-    setCreating(true)
+    setCreating(true);
 
     try {
       const newOrg = await api.post('/api/organizations', {
         name: name.trim(),
         slug: slug.trim(),
         domain: domain.trim() || null,
-        settings: {}
-      })
+        settings: {},
+      });
 
       toast.success('Organization created successfully!', {
-        description: `${newOrg.name} is ready to use`
-      })
+        description: `${newOrg.name} is ready to use`,
+      });
 
-      await refreshOrganizations()
-      router.push('/organizations')
+      await refreshOrganizations();
+      router.push('/organizations');
     } catch (error: any) {
-      console.error('Error creating organization:', error)
-      const message: string = error?.message || ''
-      if (message.includes('409') || message.toLowerCase().includes('already exists')) {
-        setErrors({ ...errors, slug: 'This slug is already taken. Please choose another.' })
+      console.error('Error creating organization:', error);
+      const message: string = error?.message || '';
+      if (
+        message.includes('409') ||
+        message.toLowerCase().includes('already exists')
+      ) {
+        setErrors({
+          ...errors,
+          slug: 'This slug is already taken. Please choose another.',
+        });
         toast.error('Slug already exists', {
-          description: 'Please choose a different slug for your organization'
-        })
+          description: 'Please choose a different slug for your organization',
+        });
       } else {
         toast.error('Failed to create organization', {
-          description: message || 'An unexpected error occurred. Please try again.'
-        })
+          description:
+            message || 'An unexpected error occurred. Please try again.',
+        });
       }
     } finally {
-      setCreating(false)
+      setCreating(false);
     }
-  }
+  };
 
   // Check if form is valid
-  const isValid = name.trim().length >= 2 && 
-                  slug.trim().length >= 3 && 
-                  Object.keys(errors).length === 0
+  const isValid =
+    name.trim().length >= 2 &&
+    slug.trim().length >= 3 &&
+    Object.keys(errors).length === 0;
 
   return (
     <div className="container max-w-2xl py-8">
@@ -175,7 +200,7 @@ export default function NewOrganizationPage() {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Organizations
         </Button>
-        
+
         <div className="flex items-center gap-3 mb-2">
           <div className="p-2 rounded-lg bg-primary/10">
             <Building2 className="h-6 w-6 text-primary" />
@@ -183,7 +208,8 @@ export default function NewOrganizationPage() {
           <h1 className="text-3xl font-bold">Create Organization</h1>
         </div>
         <p className="text-muted-foreground">
-          Set up a new organization to manage tickets, team members, and knowledge base separately.
+          Set up a new organization to manage tickets, team members, and
+          knowledge base separately.
         </p>
       </motion.div>
 
@@ -212,16 +238,19 @@ export default function NewOrganizationPage() {
                 id="name"
                 placeholder="Acme Corporation"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={e => setName(e.target.value)}
                 onBlur={() => handleBlur('name')}
-                className={errors.name && touched.name ? 'border-destructive' : ''}
+                className={
+                  errors.name && touched.name ? 'border-destructive' : ''
+                }
                 maxLength={100}
               />
               {errors.name && touched.name && (
                 <p className="text-sm text-destructive">{errors.name}</p>
               )}
               <p className="text-xs text-muted-foreground">
-                {name.length}/100 characters • This is the display name for your organization
+                {name.length}/100 characters • This is the display name for your
+                organization
               </p>
             </div>
 
@@ -240,9 +269,11 @@ export default function NewOrganizationPage() {
                   id="slug"
                   placeholder="acme-corp"
                   value={slug}
-                  onChange={(e) => handleSlugChange(e.target.value)}
+                  onChange={e => handleSlugChange(e.target.value)}
                   onBlur={() => handleBlur('slug')}
-                  className={errors.slug && touched.slug ? 'border-destructive' : ''}
+                  className={
+                    errors.slug && touched.slug ? 'border-destructive' : ''
+                  }
                   maxLength={50}
                 />
               </div>
@@ -250,7 +281,8 @@ export default function NewOrganizationPage() {
                 <p className="text-sm text-destructive">{errors.slug}</p>
               )}
               <p className="text-xs text-muted-foreground">
-                {slug.length}/50 characters • Lowercase letters, numbers, and hyphens only
+                {slug.length}/50 characters • Lowercase letters, numbers, and
+                hyphens only
               </p>
             </div>
 
@@ -259,15 +291,19 @@ export default function NewOrganizationPage() {
               <Label htmlFor="domain" className="flex items-center gap-2">
                 <Globe className="h-4 w-4" />
                 Domain
-                <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
+                <span className="text-xs text-muted-foreground font-normal">
+                  (Optional)
+                </span>
               </Label>
               <Input
                 id="domain"
                 placeholder="company.com"
                 value={domain}
-                onChange={(e) => setDomain(e.target.value)}
+                onChange={e => setDomain(e.target.value)}
                 onBlur={() => handleBlur('domain')}
-                className={errors.domain && touched.domain ? 'border-destructive' : ''}
+                className={
+                  errors.domain && touched.domain ? 'border-destructive' : ''
+                }
               />
               {errors.domain && touched.domain && (
                 <p className="text-sm text-destructive">{errors.domain}</p>
@@ -283,7 +319,9 @@ export default function NewOrganizationPage() {
               <ul className="text-sm text-muted-foreground space-y-1.5 list-disc list-inside">
                 <li>You&apos;ll be added as the organization owner</li>
                 <li>You can invite team members to join</li>
-                <li>All tickets and data will be isolated to this organization</li>
+                <li>
+                  All tickets and data will be isolated to this organization
+                </li>
                 <li>You can switch between organizations anytime</li>
               </ul>
             </div>
@@ -324,20 +362,35 @@ export default function NewOrganizationPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <div className="flex gap-3">
-              <div className="font-medium text-foreground min-w-[100px]">Choose wisely:</div>
-              <div>The slug becomes part of your organization&apos;s URL and can&apos;t be changed easily later.</div>
+              <div className="font-medium text-foreground min-w-[100px]">
+                Choose wisely:
+              </div>
+              <div>
+                The slug becomes part of your organization&apos;s URL and
+                can&apos;t be changed easily later.
+              </div>
             </div>
             <div className="flex gap-3">
-              <div className="font-medium text-foreground min-w-[100px]">Keep it short:</div>
-              <div>Use abbreviations or acronyms to keep your slug memorable and easy to type.</div>
+              <div className="font-medium text-foreground min-w-[100px]">
+                Keep it short:
+              </div>
+              <div>
+                Use abbreviations or acronyms to keep your slug memorable and
+                easy to type.
+              </div>
             </div>
             <div className="flex gap-3">
-              <div className="font-medium text-foreground min-w-[100px]">Team access:</div>
-              <div>After creation, you can invite team members from the organization settings.</div>
+              <div className="font-medium text-foreground min-w-[100px]">
+                Team access:
+              </div>
+              <div>
+                After creation, you can invite team members from the
+                organization settings.
+              </div>
             </div>
           </CardContent>
         </Card>
       </motion.div>
     </div>
-  )
+  );
 }

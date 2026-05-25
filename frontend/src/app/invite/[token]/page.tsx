@@ -1,4 +1,4 @@
-'use client'
+'use client';
 
 /**
  * Invite Accept Page  —  /invite/[token]
@@ -15,93 +15,107 @@
  *  5. Accepted – success, redirect to dashboard
  */
 
-import { useState, useEffect, use } from 'react'
-import { useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
-import { Building2, CheckCircle2, Loader2, LogIn, Sparkles, UserPlus, XCircle } from 'lucide-react'
-import { supabase } from '@/lib/supabaseClient'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { useState, useEffect, use } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import {
+  Building2,
+  CheckCircle2,
+  Loader2,
+  LogIn,
+  Sparkles,
+  UserPlus,
+  XCircle,
+} from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 const API_BASE = (
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE ||
   'http://127.0.0.1:8000'
-).replace(/\/$/, '')
+).replace(/\/$/, '');
 
 interface InviteInfo {
-  organization_id: string
-  organization_name: string
-  email: string
-  role: string
-  expires_at: string
-  status: string
+  organization_id: string;
+  organization_name: string;
+  email: string;
+  role: string;
+  expires_at: string;
+  status: string;
 }
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
   admin: 'Manage clients, knowledge base, and organization settings',
   rep: 'Handle and reply to support tickets',
   member: 'Submit and track support tickets as a client',
-}
+};
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
   rep: 'Support Rep',
   member: 'Client',
-}
+};
 
 export default function InviteAcceptPage({
   params,
 }: {
-  params: Promise<{ token: string }>
+  params: Promise<{ token: string }>;
 }) {
-  const { token } = use(params)
-  const router = useRouter()
+  const { token } = use(params);
+  const router = useRouter();
 
-  const [invite, setInvite] = useState<InviteInfo | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [session, setSession] = useState<any>(null)
-  const [sessionLoading, setSessionLoading] = useState(true)
-  const [accepting, setAccepting] = useState(false)
-  const [accepted, setAccepted] = useState(false)
-  const [acceptError, setAcceptError] = useState<string | null>(null)
+  const [invite, setInvite] = useState<InviteInfo | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [session, setSession] = useState<any>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [accepting, setAccepting] = useState(false);
+  const [accepted, setAccepted] = useState(false);
+  const [acceptError, setAcceptError] = useState<string | null>(null);
 
   // ── 1. Load session ──────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-      setSessionLoading(false)
-    })
+      setSession(data.session);
+      setSessionLoading(false);
+    });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s)
-    })
-    return () => listener.subscription.unsubscribe()
-  }, [])
+      setSession(s);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   // ── 2. Fetch invite metadata (public — no auth needed) ───────────────────
   useEffect(() => {
-    if (!token) return
+    if (!token) return;
 
     fetch(`${API_BASE}/api/invites/${token}`)
       .then(async res => {
         if (!res.ok) {
-          const body = await res.json().catch(() => ({}))
-          throw new Error(body.detail || `Error ${res.status}`)
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || `Error ${res.status}`);
         }
-        return res.json()
+        return res.json();
       })
       .then(setInvite)
-      .catch(err => setLoadError(err.message))
-  }, [token])
+      .catch(err => setLoadError(err.message));
+  }, [token]);
 
   // ── 3. Accept invite ─────────────────────────────────────────────────────
   const handleAccept = async () => {
-    if (!session) return
+    if (!session) return;
 
-    setAccepting(true)
-    setAcceptError(null)
+    setAccepting(true);
+    setAcceptError(null);
 
     try {
       const res = await fetch(`${API_BASE}/api/invites/${token}/accept`, {
@@ -110,26 +124,26 @@ export default function InviteAcceptPage({
           Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
-      })
+      });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.detail || `Error ${res.status}`)
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Error ${res.status}`);
       }
 
-      setAccepted(true)
+      setAccepted(true);
 
       // Give user a moment to see the success state then redirect
-      setTimeout(() => router.replace('/dashboard'), 2000)
+      setTimeout(() => router.replace('/dashboard'), 2000);
     } catch (err: any) {
-      setAcceptError(err.message || 'Something went wrong. Please try again.')
+      setAcceptError(err.message || 'Something went wrong. Please try again.');
     } finally {
-      setAccepting(false)
+      setAccepting(false);
     }
-  }
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const isLoading = sessionLoading || (!invite && !loadError)
+  const isLoading = sessionLoading || (!invite && !loadError);
 
   if (isLoading) {
     return (
@@ -139,7 +153,7 @@ export default function InviteAcceptPage({
           <p className="text-muted-foreground">Loading invite…</p>
         </div>
       </PageShell>
-    )
+    );
   }
 
   if (loadError) {
@@ -151,12 +165,15 @@ export default function InviteAcceptPage({
           </div>
           <h2 className="text-xl font-semibold">Invite unavailable</h2>
           <p className="text-muted-foreground max-w-sm">{loadError}</p>
-          <Button variant="outline" onClick={() => router.replace('/dashboard')}>
+          <Button
+            variant="outline"
+            onClick={() => router.replace('/dashboard')}
+          >
             Go to Dashboard
           </Button>
         </div>
       </PageShell>
-    )
+    );
   }
 
   if (accepted) {
@@ -169,12 +186,13 @@ export default function InviteAcceptPage({
           <h2 className="text-xl font-semibold">Welcome aboard!</h2>
           <p className="text-muted-foreground">
             You have joined <strong>{invite!.organization_name}</strong> as{' '}
-            <strong>{ROLE_LABELS[invite!.role] ?? invite!.role}</strong>. Redirecting to your dashboard…
+            <strong>{ROLE_LABELS[invite!.role] ?? invite!.role}</strong>.
+            Redirecting to your dashboard…
           </p>
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       </PageShell>
-    )
+    );
   }
 
   return (
@@ -190,8 +208,12 @@ export default function InviteAcceptPage({
             <Building2 className="h-10 w-10 text-primary" />
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">You have been invited to join</p>
-            <h2 className="text-2xl font-bold mt-1">{invite!.organization_name}</h2>
+            <p className="text-sm text-muted-foreground">
+              You have been invited to join
+            </p>
+            <h2 className="text-2xl font-bold mt-1">
+              {invite!.organization_name}
+            </h2>
           </div>
           <Badge variant="secondary" className="text-sm px-3 py-1">
             {ROLE_LABELS[invite!.role] ?? invite!.role}
@@ -267,15 +289,18 @@ export default function InviteAcceptPage({
             </Button>
 
             <p className="text-center text-xs text-muted-foreground">
-              Invite expires {new Date(invite!.expires_at).toLocaleDateString('en-US', {
-                month: 'long', day: 'numeric', year: 'numeric'
+              Invite expires{' '}
+              {new Date(invite!.expires_at).toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
               })}
             </p>
           </div>
         )}
       </motion.div>
     </PageShell>
-  )
+  );
 }
 
 function PageShell({ children }: { children: React.ReactNode }) {
@@ -294,7 +319,9 @@ function PageShell({ children }: { children: React.ReactNode }) {
 
         <Card className="shadow-lg">
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg text-center">Team Invitation</CardTitle>
+            <CardTitle className="text-lg text-center">
+              Team Invitation
+            </CardTitle>
             <CardDescription className="text-center">
               You have been invited to join a team on TicketPilot
             </CardDescription>
@@ -303,5 +330,5 @@ function PageShell({ children }: { children: React.ReactNode }) {
         </Card>
       </div>
     </main>
-  )
+  );
 }

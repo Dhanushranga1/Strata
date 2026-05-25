@@ -1,18 +1,24 @@
-'use client'
+'use client';
 
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { supabase } from '@/lib/supabaseClient'
-import api from '@/lib/api-client'
-import { toast } from 'sonner'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
+import api from '@/lib/api-client';
+import { toast } from 'sonner';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   User,
   Settings,
@@ -23,91 +29,93 @@ import {
   UserCheck,
   ExternalLink,
   Phone,
-} from 'lucide-react'
+} from 'lucide-react';
 
 interface UserProfile {
-  id: string
-  email: string
-  role: string
-  created_at: string
-  last_login?: string
-  is_active: boolean
+  id: string;
+  email: string;
+  role: string;
+  created_at: string;
+  last_login?: string;
+  is_active: boolean;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000'
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000';
 
 export default function AccountPage() {
-  const router = useRouter()
-  const [user, setUser] = useState<UserProfile | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [displayName, setDisplayName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [profileSaving, setProfileSaving] = useState(false)
+  const router = useRouter();
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
 
   useEffect(() => {
-    loadUserProfile()
-    loadProfile()
-  }, [])
+    loadUserProfile();
+    loadProfile();
+  }, []);
 
   const loadProfile = async () => {
     try {
-      const data = await api.get('/api/me/profile')
-      setDisplayName(data.display_name || '')
-      setPhone(data.phone || '')
-    } catch { /* non-fatal */ }
-  }
+      const data = await api.get('/api/me/profile');
+      setDisplayName(data.display_name || '');
+      setPhone(data.phone || '');
+    } catch {
+      /* non-fatal */
+    }
+  };
 
   const saveProfile = async () => {
-    setProfileSaving(true)
+    setProfileSaving(true);
     try {
-      await api.patch('/api/me/profile', { display_name: displayName, phone })
-      toast.success('Profile saved')
+      await api.patch('/api/me/profile', { display_name: displayName, phone });
+      toast.success('Profile saved');
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to save profile')
+      toast.error(e?.message || 'Failed to save profile');
     } finally {
-      setProfileSaving(false)
+      setProfileSaving(false);
     }
-  }
+  };
 
   const loadUserProfile = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
 
       // Get Supabase session
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) {
-        router.push('/login')
-        return
+        router.push('/login');
+        return;
       }
 
-      const token = sessionData.session.access_token
+      const token = sessionData.session.access_token;
 
       const response = await fetch(`${API_BASE}/api/me`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
       if (!response.ok) {
         if (response.status === 401) {
-          router.push('/login')
-          return
+          router.push('/login');
+          return;
         }
-        throw new Error(`HTTP ${response.status}`)
+        throw new Error(`HTTP ${response.status}`);
       }
 
-      const userData = await response.json()
-      setUser(userData)
+      const userData = await response.json();
+      setUser(userData);
     } catch (error) {
-      console.error('Error loading user profile:', error)
-      setError('Failed to load user profile')
+      console.error('Error loading user profile:', error);
+      setError('Failed to load user profile');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -115,38 +123,49 @@ export default function AccountPage() {
       month: 'long',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
+      minute: '2-digit',
+    });
+  };
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
-      case 'admin': return 'destructive'
-      case 'rep': return 'secondary'
-      default: return 'outline'
+      case 'admin':
+        return 'destructive';
+      case 'rep':
+        return 'secondary';
+      default:
+        return 'outline';
     }
-  }
+  };
 
   const getRoleLabel = (role: string) => {
-    const labels: Record<string, string> = { admin: 'Admin', rep: 'Support Rep', customer: 'Client' }
-    return labels[role] ?? role
-  }
+    const labels: Record<string, string> = {
+      admin: 'Admin',
+      rep: 'Support Rep',
+      customer: 'Client',
+    };
+    return labels[role] ?? role;
+  };
 
   const getRoleDescription = (role: string) => {
     switch (role) {
-      case 'admin': return 'Full system access and user management'
-      case 'rep': return 'Customer support and ticket management'
-      case 'customer': return 'Submit and track support tickets'
-      default: return 'Basic access'
+      case 'admin':
+        return 'Full system access and user management';
+      case 'rep':
+        return 'Customer support and ticket management';
+      case 'customer':
+        return 'Submit and track support tickets';
+      default:
+        return 'Basic access';
     }
-  }
+  };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -157,7 +176,7 @@ export default function AccountPage() {
           <Button onClick={loadUserProfile}>Retry</Button>
         </div>
       </div>
-    )
+    );
   }
 
   if (!user) {
@@ -168,7 +187,7 @@ export default function AccountPage() {
           <Button onClick={() => router.push('/login')}>Go to Login</Button>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -176,7 +195,9 @@ export default function AccountPage() {
       <div className="flex items-center gap-3">
         <User className="h-8 w-8 text-primary" />
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Account Settings</h1>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Account Settings
+          </h1>
           <p className="text-muted-foreground">
             Manage your profile and account preferences
           </p>
@@ -197,15 +218,19 @@ export default function AccountPage() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <label className="text-sm font-medium text-muted-foreground">Email Address</label>
+              <label className="text-sm font-medium text-muted-foreground">
+                Email Address
+              </label>
               <div className="flex items-center gap-2 mt-1">
                 <Mail className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium">{user.email}</span>
               </div>
             </div>
-            
+
             <div>
-              <label className="text-sm font-medium text-muted-foreground">Account Role</label>
+              <label className="text-sm font-medium text-muted-foreground">
+                Account Role
+              </label>
               <div className="flex items-center gap-2 mt-1">
                 <Badge variant={getRoleBadgeVariant(user.role)}>
                   {getRoleLabel(user.role)}
@@ -217,7 +242,9 @@ export default function AccountPage() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-muted-foreground">Account Status</label>
+              <label className="text-sm font-medium text-muted-foreground">
+                Account Status
+              </label>
               <div className="flex items-center gap-2 mt-1">
                 <Badge variant={user.is_active ? 'default' : 'secondary'}>
                   {user.is_active ? 'Active' : 'Inactive'}
@@ -226,7 +253,9 @@ export default function AccountPage() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-muted-foreground">Member Since</label>
+              <label className="text-sm font-medium text-muted-foreground">
+                Member Since
+              </label>
               <div className="flex items-center gap-2 mt-1">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm">{formatDate(user.created_at)}</span>
@@ -236,7 +265,9 @@ export default function AccountPage() {
 
           {user.last_login && (
             <div>
-              <label className="text-sm font-medium text-muted-foreground">Last Login</label>
+              <label className="text-sm font-medium text-muted-foreground">
+                Last Login
+              </label>
               <div className="flex items-center gap-2 mt-1">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm">{formatDate(user.last_login)}</span>
@@ -326,10 +357,11 @@ export default function AccountPage() {
           <CardContent>
             <div className="space-y-3">
               <div className="text-sm text-muted-foreground">
-                Password management is handled through your authentication provider.
+                Password management is handled through your authentication
+                provider.
               </div>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => supabase.auth.signOut()}
                 className="w-full"
               >
@@ -376,7 +408,8 @@ export default function AccountPage() {
           <CardContent>
             <div className="space-y-3">
               <div className="text-sm text-muted-foreground">
-                Additional preferences and settings will be available in a future update.
+                Additional preferences and settings will be available in a
+                future update.
               </div>
               <Button variant="outline" disabled className="w-full">
                 Manage Preferences
@@ -386,5 +419,5 @@ export default function AccountPage() {
         </Card>
       </div>
     </div>
-  )
+  );
 }

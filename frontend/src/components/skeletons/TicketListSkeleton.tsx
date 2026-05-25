@@ -1,5 +1,5 @@
-import { Card, CardContent } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function TicketListSkeleton() {
   return (
@@ -26,9 +26,9 @@ export function TicketListSkeleton() {
               <Skeleton className="h-5 w-32" />
             </div>
           </div>
-          
+
           {/* Table Rows */}
-          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+          {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
             <div key={i} className="border-b p-4 last:border-b-0">
               <div className="flex gap-4 items-center">
                 <Skeleton className="h-5 w-5" />
@@ -54,5 +54,5 @@ export function TicketListSkeleton() {
         <Skeleton className="h-10 w-24" />
       </div>
     </div>
-  )
+  );
 }

@@ -1,9 +1,9 @@
-"use client";
+'use client';
 
-import { cn } from "@/lib/utils";
-import { Button } from "./button";
-import { Input } from "./input";
-import { Badge } from "./badge";
+import { cn } from '@/lib/utils';
+import { Button } from './button';
+import { Input } from './input';
+import { Badge } from './badge';
 import {
   Table,
   TableBody,
@@ -11,27 +11,27 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "./table";
+} from './table';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "./select";
-import { 
-  Search, 
-  Filter, 
-  Download, 
+} from './select';
+import {
+  Search,
+  Filter,
+  Download,
   MoreHorizontal,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
   Eye,
   Edit,
-  Trash2
-} from "lucide-react";
-import { forwardRef, useState, useMemo } from "react";
+  Trash2,
+} from 'lucide-react';
+import { forwardRef, useState, useMemo } from 'react';
 
 interface Column<T = any> {
   id: string;
@@ -41,12 +41,12 @@ interface Column<T = any> {
   sortable?: boolean;
   filterable?: boolean;
   width?: string;
-  align?: "left" | "center" | "right";
+  align?: 'left' | 'center' | 'right';
 }
 
 interface SortConfig {
   key: string;
-  direction: "asc" | "desc";
+  direction: 'asc' | 'desc';
 }
 
 interface FilterConfig {
@@ -57,7 +57,7 @@ interface ActionItem {
   id: string;
   label: string;
   icon?: React.ComponentType<{ className?: string }>;
-  variant?: "ghost" | "destructive";
+  variant?: 'ghost' | 'destructive';
   onClick: (row: any) => void;
 }
 
@@ -77,30 +77,33 @@ interface DataTableProps<T = any> {
   emptyMessage?: string;
   loading?: boolean;
   className?: string;
-  variant?: "default" | "compact" | "bordered";
+  variant?: 'default' | 'compact' | 'bordered';
 }
 
 const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
-  ({
-    data,
-    columns,
-    searchable = true,
-    searchPlaceholder = "Search...",
-    filterable = false,
-    sortable = true,
-    pagination = true,
-    pageSize = 10,
-    selectable = false,
-    onSelectionChange,
-    actions = [],
-    onRowClick,
-    emptyMessage = "No data available",
-    loading = false,
-    className,
-    variant = "default",
-    ...props
-  }, ref) => {
-    const [searchQuery, setSearchQuery] = useState("");
+  (
+    {
+      data,
+      columns,
+      searchable = true,
+      searchPlaceholder = 'Search...',
+      filterable = false,
+      sortable = true,
+      pagination = true,
+      pageSize = 10,
+      selectable = false,
+      onSelectionChange,
+      actions = [],
+      onRowClick,
+      emptyMessage = 'No data available',
+      loading = false,
+      className,
+      variant = 'default',
+      ...props
+    },
+    ref
+  ) => {
+    const [searchQuery, setSearchQuery] = useState('');
     const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
     const [filters, setFilters] = useState<FilterConfig>({});
     const [currentPage, setCurrentPage] = useState(1);
@@ -109,24 +112,24 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
     // Default actions
     const defaultActions: ActionItem[] = [
       {
-        id: "view",
-        label: "View",
+        id: 'view',
+        label: 'View',
         icon: Eye,
-        onClick: (row) => console.log("View:", row)
+        onClick: row => console.log('View:', row),
       },
       {
-        id: "edit",
-        label: "Edit",
+        id: 'edit',
+        label: 'Edit',
         icon: Edit,
-        onClick: (row) => console.log("Edit:", row)
+        onClick: row => console.log('Edit:', row),
       },
       {
-        id: "delete",
-        label: "Delete",
+        id: 'delete',
+        label: 'Delete',
         icon: Trash2,
-        variant: "destructive",
-        onClick: (row) => console.log("Delete:", row)
-      }
+        variant: 'destructive',
+        onClick: row => console.log('Delete:', row),
+      },
     ];
 
     const allActions = actions.length > 0 ? actions : defaultActions;
@@ -141,7 +144,9 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
           columns.some(column => {
             if (column.accessorKey) {
               const value = row[column.accessorKey];
-              return String(value).toLowerCase().includes(searchQuery.toLowerCase());
+              return String(value)
+                .toLowerCase()
+                .includes(searchQuery.toLowerCase());
             }
             return false;
           })
@@ -163,12 +168,12 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
         result.sort((a, b) => {
           const aValue = a[sortConfig.key as keyof typeof a];
           const bValue = b[sortConfig.key as keyof typeof b];
-          
+
           if (aValue < bValue) {
-            return sortConfig.direction === "asc" ? -1 : 1;
+            return sortConfig.direction === 'asc' ? -1 : 1;
           }
           if (aValue > bValue) {
-            return sortConfig.direction === "asc" ? 1 : -1;
+            return sortConfig.direction === 'asc' ? 1 : -1;
           }
           return 0;
         });
@@ -179,22 +184,25 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
 
     // Pagination
     const totalPages = Math.ceil(processedData.length / pageSize);
-    const paginatedData = pagination 
-      ? processedData.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+    const paginatedData = pagination
+      ? processedData.slice(
+          (currentPage - 1) * pageSize,
+          currentPage * pageSize
+        )
       : processedData;
 
     const handleSort = (columnId: string) => {
       if (!sortable) return;
-      
+
       setSortConfig(current => {
         if (current?.key === columnId) {
-          if (current.direction === "asc") {
-            return { key: columnId, direction: "desc" };
+          if (current.direction === 'asc') {
+            return { key: columnId, direction: 'desc' };
           } else {
             return null; // Remove sorting
           }
         }
-        return { key: columnId, direction: "asc" };
+        return { key: columnId, direction: 'asc' };
       });
     };
 
@@ -206,7 +214,7 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
         newSelection.delete(index);
       }
       setSelectedRows(newSelection);
-      
+
       const selectedData = Array.from(newSelection).map(i => processedData[i]);
       onSelectionChange?.(selectedData);
     };
@@ -226,19 +234,21 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
       if (!sortConfig || sortConfig.key !== columnId) {
         return <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />;
       }
-      return sortConfig.direction === "asc" 
-        ? <ChevronUp className="h-4 w-4" />
-        : <ChevronDown className="h-4 w-4" />;
+      return sortConfig.direction === 'asc' ? (
+        <ChevronUp className="h-4 w-4" />
+      ) : (
+        <ChevronDown className="h-4 w-4" />
+      );
     };
 
     const tableVariants = {
-      default: "",
-      compact: "text-sm",
-      bordered: "border"
+      default: '',
+      compact: 'text-sm',
+      bordered: 'border',
     };
 
     return (
-      <div ref={ref} className={cn("space-y-4", className)} {...props}>
+      <div ref={ref} className={cn('space-y-4', className)} {...props}>
         {/* Toolbar */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 flex-1">
@@ -248,7 +258,7 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
                 <Input
                   placeholder={searchPlaceholder}
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={e => setSearchQuery(e.target.value)}
                   className="pl-9"
                 />
               </div>
@@ -262,9 +272,7 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
             )}
 
             {selectedRows.size > 0 && (
-              <Badge variant="secondary">
-                {selectedRows.size} selected
-              </Badge>
+              <Badge variant="secondary">{selectedRows.size} selected</Badge>
             )}
           </div>
 
@@ -285,21 +293,24 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
                   <TableHead className="w-12">
                     <input
                       type="checkbox"
-                      checked={selectedRows.size === paginatedData.length && paginatedData.length > 0}
-                      onChange={(e) => handleSelectAll(e.target.checked)}
+                      checked={
+                        selectedRows.size === paginatedData.length &&
+                        paginatedData.length > 0
+                      }
+                      onChange={e => handleSelectAll(e.target.checked)}
                       className="rounded border-gray-300"
                       aria-label="Select all rows"
                     />
                   </TableHead>
                 )}
-                {columns.map((column) => (
+                {columns.map(column => (
                   <TableHead
                     key={column.id}
                     className={cn(
                       column.width && `w-[${column.width}]`,
-                      column.align === "center" && "text-center",
-                      column.align === "right" && "text-right",
-                      column.sortable && "cursor-pointer hover:bg-muted/50",
+                      column.align === 'center' && 'text-center',
+                      column.align === 'right' && 'text-right',
+                      column.sortable && 'cursor-pointer hover:bg-muted/50'
                     )}
                     onClick={() => column.sortable && handleSort(column.id)}
                   >
@@ -321,19 +332,31 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
                 // Loading skeleton
                 Array.from({ length: pageSize }).map((_, index) => (
                   <TableRow key={index}>
-                    {selectable && <TableCell><div className="h-4 bg-muted animate-pulse rounded" /></TableCell>}
-                    {columns.map((column) => (
+                    {selectable && (
+                      <TableCell>
+                        <div className="h-4 bg-muted animate-pulse rounded" />
+                      </TableCell>
+                    )}
+                    {columns.map(column => (
                       <TableCell key={column.id}>
                         <div className="h-4 bg-muted animate-pulse rounded" />
                       </TableCell>
                     ))}
-                    {allActions.length > 0 && <TableCell><div className="h-4 bg-muted animate-pulse rounded" /></TableCell>}
+                    {allActions.length > 0 && (
+                      <TableCell>
+                        <div className="h-4 bg-muted animate-pulse rounded" />
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               ) : paginatedData.length === 0 ? (
                 <TableRow>
-                  <TableCell 
-                    colSpan={columns.length + (selectable ? 1 : 0) + (allActions.length > 0 ? 1 : 0)}
+                  <TableCell
+                    colSpan={
+                      columns.length +
+                      (selectable ? 1 : 0) +
+                      (allActions.length > 0 ? 1 : 0)
+                    }
                     className="h-24 text-center text-muted-foreground"
                   >
                     {emptyMessage}
@@ -344,8 +367,8 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
                   <TableRow
                     key={index}
                     className={cn(
-                      onRowClick && "cursor-pointer hover:bg-muted/50",
-                      selectedRows.has(index) && "bg-muted/30"
+                      onRowClick && 'cursor-pointer hover:bg-muted/50',
+                      selectedRows.has(index) && 'bg-muted/30'
                     )}
                     onClick={() => onRowClick?.(row)}
                   >
@@ -354,7 +377,7 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
                         <input
                           type="checkbox"
                           checked={selectedRows.has(index)}
-                          onChange={(e) => {
+                          onChange={e => {
                             e.stopPropagation();
                             handleRowSelection(index, e.target.checked);
                           }}
@@ -363,44 +386,54 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
                         />
                       </TableCell>
                     )}
-                    {columns.map((column) => (
+                    {columns.map(column => (
                       <TableCell
                         key={column.id}
                         className={cn(
-                          column.align === "center" && "text-center",
-                          column.align === "right" && "text-right"
+                          column.align === 'center' && 'text-center',
+                          column.align === 'right' && 'text-right'
                         )}
                       >
-                        {column.cell 
-                          ? column.cell({ row: { original: row }, value: column.accessorKey ? row[column.accessorKey] : undefined })
-                          : column.accessorKey 
-                            ? String(row[column.accessorKey] || "")
-                            : ""
-                        }
+                        {column.cell
+                          ? column.cell({
+                              row: { original: row },
+                              value: column.accessorKey
+                                ? row[column.accessorKey]
+                                : undefined,
+                            })
+                          : column.accessorKey
+                            ? String(row[column.accessorKey] || '')
+                            : ''}
                       </TableCell>
                     ))}
                     {allActions.length > 0 && (
                       <TableCell>
                         <div className="flex items-center gap-1">
-                          {allActions.slice(0, 2).map((action) => {
+                          {allActions.slice(0, 2).map(action => {
                             const IconComponent = action.icon;
                             return (
                               <Button
                                 key={action.id}
-                                variant={action.variant || "ghost"}
+                                variant={action.variant || 'ghost'}
                                 size="sm"
-                                onClick={(e) => {
+                                onClick={e => {
                                   e.stopPropagation();
                                   action.onClick(row);
                                 }}
                                 className="h-8 w-8 p-0"
                               >
-                                {IconComponent && <IconComponent className="h-4 w-4" />}
+                                {IconComponent && (
+                                  <IconComponent className="h-4 w-4" />
+                                )}
                               </Button>
                             );
                           })}
                           {allActions.length > 2 && (
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                            >
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           )}
@@ -418,7 +451,9 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
         {pagination && totalPages > 1 && (
           <div className="flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
-              Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, processedData.length)} of {processedData.length} results
+              Showing {(currentPage - 1) * pageSize + 1} to{' '}
+              {Math.min(currentPage * pageSize, processedData.length)} of{' '}
+              {processedData.length} results
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -435,7 +470,7 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
                   return (
                     <Button
                       key={page}
-                      variant={currentPage === page ? "secondary" : "outline"}
+                      variant={currentPage === page ? 'secondary' : 'outline'}
                       size="sm"
                       onClick={() => setCurrentPage(page)}
                     >
@@ -447,7 +482,9 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                onClick={() =>
+                  setCurrentPage(prev => Math.min(totalPages, prev + 1))
+                }
                 disabled={currentPage === totalPages}
               >
                 Next
@@ -459,6 +496,6 @@ const DataTable = forwardRef<HTMLDivElement, DataTableProps>(
     );
   }
 );
-DataTable.displayName = "DataTable";
+DataTable.displayName = 'DataTable';
 
 export { DataTable, type Column, type ActionItem };

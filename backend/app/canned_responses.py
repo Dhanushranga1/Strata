@@ -1,12 +1,13 @@
 """Canned responses — pre-written reply snippets for reps."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
-import uuid as uuid_lib
 import logging
+import uuid as uuid_lib
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from .auth import User, get_current_user
 from .org_middleware import require_org_context, require_org_role
-from .schemas import CannedResponseCreate, CannedResponseUpdate, CannedResponseOut
+from .schemas import CannedResponseCreate, CannedResponseOut, CannedResponseUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/api/canned-responses", tags=["canned-responses"])
 
 async def _get_db():
     from .db import get_connection
+
     return await get_connection()
 
 
@@ -34,7 +36,8 @@ async def list_canned_responses(
                 "FROM app.canned_responses "
                 "WHERE organization_id = $1 AND title ILIKE $2 "
                 "ORDER BY created_at DESC",
-                uuid_lib.UUID(org_id), f"%{q}%",
+                uuid_lib.UUID(org_id),
+                f"%{q}%",
             )
         else:
             rows = await conn.fetch(
@@ -77,8 +80,11 @@ async def create_canned_response(
             VALUES ($1, $2, $3, $4, $5)
             RETURNING id, title, body, tags, created_by, created_at, updated_at
             """,
-            uuid_lib.UUID(org_id), payload.title, payload.body,
-            payload.tags or [], uuid_lib.UUID(user.id),
+            uuid_lib.UUID(org_id),
+            payload.title,
+            payload.body,
+            payload.tags or [],
+            uuid_lib.UUID(user.id),
         )
         return CannedResponseOut(
             id=str(row["id"]),
@@ -119,7 +125,10 @@ async def update_canned_response(
             updates.append(f"tags = ${len(params)}")
 
         if not updates:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No fields to update")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="No fields to update",
+            )
 
         updates.append("updated_at = NOW()")
         params.extend([uuid_lib.UUID(response_id), uuid_lib.UUID(org_id)])
@@ -159,7 +168,8 @@ async def delete_canned_response(
     try:
         result = await conn.execute(
             "DELETE FROM app.canned_responses WHERE id = $1 AND organization_id = $2",
-            uuid_lib.UUID(response_id), uuid_lib.UUID(org_id),
+            uuid_lib.UUID(response_id),
+            uuid_lib.UUID(org_id),
         )
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="Canned response not found")

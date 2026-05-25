@@ -1,15 +1,23 @@
 """Custom ticket fields — org-defined extra fields on tickets."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-import uuid as uuid_lib
 import json
 import logging
+import uuid as uuid_lib
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from .auth import User, get_current_user
-from .org_middleware import require_org_context, require_org_role, get_user_role_from_request
+from .org_middleware import (
+    get_user_role_from_request,
+    require_org_context,
+    require_org_role,
+)
 from .schemas import (
-    FieldDefCreate, FieldDefUpdate, FieldDefOut,
-    FieldValueUpsert, TicketFieldEntry,
+    FieldDefCreate,
+    FieldDefOut,
+    FieldDefUpdate,
+    FieldValueUpsert,
+    TicketFieldEntry,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,6 +29,7 @@ _VALID_TYPES = {"text", "number", "select", "date", "boolean"}
 
 async def _get_db():
     from .db import get_connection
+
     return await get_connection()
 
 
@@ -42,6 +51,7 @@ def _row_to_def(row) -> FieldDefOut:
 
 
 # ─── Field Definition endpoints ───────────────────────────────────────────────
+
 
 @router.get("/defs", response_model=list[FieldDefOut])
 async def list_field_defs(request: Request, user: User = Depends(get_current_user)):
@@ -72,7 +82,9 @@ async def create_field_def(
     require_org_role(request, {"owner", "admin"})
 
     if payload.field_type == "select" and not payload.options:
-        raise HTTPException(status_code=422, detail="Select fields require at least one option")
+        raise HTTPException(
+            status_code=422, detail="Select fields require at least one option"
+        )
 
     conn = await _get_db()
     try:
@@ -84,13 +96,21 @@ async def create_field_def(
             VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
             RETURNING id, name, label, field_type, options, is_required, is_active, sort_order, created_at
             """,
-            uuid_lib.UUID(org_id), payload.name, payload.label,
-            payload.field_type, options_json, payload.is_required, payload.sort_order,
+            uuid_lib.UUID(org_id),
+            payload.name,
+            payload.label,
+            payload.field_type,
+            options_json,
+            payload.is_required,
+            payload.sort_order,
         )
         return _row_to_def(row)
     except Exception as e:
         if "unique" in str(e).lower():
-            raise HTTPException(status_code=409, detail="A field with that name already exists in this organisation")
+            raise HTTPException(
+                status_code=409,
+                detail="A field with that name already exists in this organisation",
+            )
         raise
     finally:
         await conn.close()
@@ -162,7 +182,8 @@ async def delete_field_def(
         result = await conn.execute(
             "UPDATE app.ticket_field_defs SET is_active = FALSE, updated_at = NOW() "
             "WHERE id = $1 AND organization_id = $2",
-            uuid_lib.UUID(def_id), uuid_lib.UUID(org_id),
+            uuid_lib.UUID(def_id),
+            uuid_lib.UUID(org_id),
         )
         if result == "UPDATE 0":
             raise HTTPException(status_code=404, detail="Field definition not found")
@@ -171,6 +192,7 @@ async def delete_field_def(
 
 
 # ─── Field Value endpoints ────────────────────────────────────────────────────
+
 
 @router.get("/tickets/{ticket_id}", response_model=list[TicketFieldEntry])
 async def get_ticket_fields(
@@ -185,7 +207,8 @@ async def get_ticket_fields(
         # Verify ticket belongs to this org
         t = await conn.fetchrow(
             "SELECT created_by FROM app.tickets WHERE id = $1 AND organization_id = $2",
-            uuid_lib.UUID(ticket_id), uuid_lib.UUID(org_id),
+            uuid_lib.UUID(ticket_id),
+            uuid_lib.UUID(org_id),
         )
         if not t:
             raise HTTPException(status_code=404, detail="Ticket not found")
@@ -210,13 +233,19 @@ async def get_ticket_fields(
         result = []
         for d in defs:
             v = val_map.get(str(d["id"]))
-            result.append(TicketFieldEntry(
-                field_def=_row_to_def(d),
-                value_text=v["value_text"] if v else None,
-                value_number=float(v["value_number"]) if v and v["value_number"] is not None else None,
-                value_date=str(v["value_date"]) if v and v["value_date"] else None,
-                value_bool=v["value_bool"] if v else None,
-            ))
+            result.append(
+                TicketFieldEntry(
+                    field_def=_row_to_def(d),
+                    value_text=v["value_text"] if v else None,
+                    value_number=(
+                        float(v["value_number"])
+                        if v and v["value_number"] is not None
+                        else None
+                    ),
+                    value_date=str(v["value_date"]) if v and v["value_date"] else None,
+                    value_bool=v["value_bool"] if v else None,
+                )
+            )
         return result
     finally:
         await conn.close()
@@ -240,7 +269,8 @@ async def upsert_ticket_fields(
     try:
         t = await conn.fetchrow(
             "SELECT created_by FROM app.tickets WHERE id = $1 AND organization_id = $2",
-            uuid_lib.UUID(ticket_id), uuid_lib.UUID(org_id),
+            uuid_lib.UUID(ticket_id),
+            uuid_lib.UUID(org_id),
         )
         if not t:
             raise HTTPException(status_code=404, detail="Ticket not found")
@@ -252,21 +282,43 @@ async def upsert_ticket_fields(
             def_row = await conn.fetchrow(
                 "SELECT field_type FROM app.ticket_field_defs "
                 "WHERE id = $1 AND organization_id = $2 AND is_active = TRUE",
-                uuid_lib.UUID(v.field_def_id), uuid_lib.UUID(org_id),
+                uuid_lib.UUID(v.field_def_id),
+                uuid_lib.UUID(org_id),
             )
             if not def_row:
-                raise HTTPException(status_code=404, detail=f"Field {v.field_def_id} not found in this organisation")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Field {v.field_def_id} not found in this organisation",
+                )
 
             ft = def_row["field_type"]
 
-            # Type validation
-            if ft == "text" and v.value_text is None and v.value_number is None:
-                pass  # allow clearing
+            # Type validation — ensure at least one typed value matches the field type
+            if ft == "text" and v.value_text is None and v.value_number is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Field {v.field_def_id} expects text, got number",
+                )
+            if (
+                ft == "number"
+                and v.value_text is None
+                and v.value_number is None
+                and v.value_date is None
+                and v.value_bool is None
+            ):
+                raise HTTPException(
+                    status_code=422, detail=f"Field {v.field_def_id} expects a number"
+                )
             if ft == "number" and v.value_text is not None:
                 try:
-                    v = v.model_copy(update={"value_number": float(v.value_text), "value_text": None})
+                    v = v.model_copy(
+                        update={"value_number": float(v.value_text), "value_text": None}
+                    )
                 except ValueError:
-                    raise HTTPException(status_code=422, detail=f"Field {v.field_def_id} expects a number")
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Field {v.field_def_id} expects a number",
+                    )
 
             await conn.execute(
                 """
@@ -281,8 +333,12 @@ async def upsert_ticket_fields(
                     value_bool   = EXCLUDED.value_bool,
                     updated_at   = NOW()
                 """,
-                uuid_lib.UUID(ticket_id), uuid_lib.UUID(v.field_def_id),
-                v.value_text, v.value_number, v.value_date, v.value_bool,
+                uuid_lib.UUID(ticket_id),
+                uuid_lib.UUID(v.field_def_id),
+                v.value_text,
+                v.value_number,
+                v.value_date,
+                v.value_bool,
             )
     finally:
         await conn.close()

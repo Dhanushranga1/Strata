@@ -1,44 +1,51 @@
-"use client";
+'use client';
 
-import { motion, useReducedMotion } from "framer-motion";
-import { Activity, BarChart3, BrainCircuit, GitBranch, Route, Target } from "lucide-react";
+import { motion, useReducedMotion } from 'framer-motion';
+import {
+  Activity,
+  BarChart3,
+  BrainCircuit,
+  GitBranch,
+  Route,
+  Target,
+} from 'lucide-react';
 
 const features = [
   {
     icon: Target,
-    title: "Intent Classification",
-    body: "Classifies each query as factual, procedural, troubleshooting, or comparison using compiled regex patterns. Selects the purpose-built weight matrix for that type.",
-    iconClass: "text-indigo-400",
+    title: 'Intent Classification',
+    body: 'Classifies each query as factual, procedural, troubleshooting, or comparison using compiled regex patterns. Selects the purpose-built weight matrix for that type.',
+    iconClass: 'text-indigo-400',
   },
   {
     icon: BarChart3,
-    title: "6-Factor Confidence",
-    body: "Retrieval quality, citation coverage, semantic coherence, completeness, density, and diversity — blended with softmax-mixed intent weights, not a static formula.",
-    iconClass: "text-violet-400",
+    title: '6-Factor Confidence',
+    body: 'Retrieval quality, citation coverage, semantic coherence, completeness, density, and diversity — blended with softmax-mixed intent weights, not a static formula.',
+    iconClass: 'text-violet-400',
   },
   {
     icon: Route,
-    title: "Load-Balanced Routing",
-    body: "Complex/urgent tickets go to senior reps; standard tickets go to the lowest-load rep. Load is tracked in-process per request to stay balanced.",
-    iconClass: "text-emerald-400",
+    title: 'Load-Balanced Routing',
+    body: 'Complex/urgent tickets go to senior reps; standard tickets go to the lowest-load rep. Load is tracked in-process per request to stay balanced.',
+    iconClass: 'text-emerald-400',
   },
   {
     icon: Activity,
-    title: "KB-Density Calibration",
-    body: "Confidence is multiplied by a log-sigmoid function of KB size. A sparse 5-doc KB gets a trust discount; a 1,000-chunk KB scores at near-full confidence.",
-    iconClass: "text-orange-400",
+    title: 'KB-Density Calibration',
+    body: 'Confidence is multiplied by a log-sigmoid function of KB size. A sparse 5-doc KB gets a trust discount; a 1,000-chunk KB scores at near-full confidence.',
+    iconClass: 'text-orange-400',
   },
   {
     icon: GitBranch,
-    title: "Intent-Adaptive MMR",
-    body: "Retrieval diversity is tuned per intent. Troubleshooting uses λ=0.55 (wide diversity net); factual queries use λ=0.82 (precision-first, one authoritative source).",
-    iconClass: "text-cyan-400",
+    title: 'Intent-Adaptive MMR',
+    body: 'Retrieval diversity is tuned per intent. Troubleshooting uses λ=0.55 (wide diversity net); factual queries use λ=0.82 (precision-first, one authoritative source).',
+    iconClass: 'text-cyan-400',
   },
   {
     icon: BrainCircuit,
-    title: "Adaptive Escalation",
-    body: "Escalation thresholds are not fixed numbers. They adapt to intent, KB health, and query complexity — cutting false escalations on simple factual lookups.",
-    iconClass: "text-pink-400",
+    title: 'Adaptive Escalation',
+    body: 'Escalation thresholds are not fixed numbers. They adapt to intent, KB health, and query complexity — cutting false escalations on simple factual lookups.',
+    iconClass: 'text-pink-400',
   },
 ];
 
@@ -76,10 +83,12 @@ export default function CASPERSpotlight() {
           transition={{ duration: 0.5, delay: 0.2 }}
           className="text-zinc-400 max-w-2xl mx-auto"
         >
-          <strong className="text-zinc-200">Contextual Adaptive Scoring with Probabilistic Ensemble Ranking.</strong>{" "}
-          Unlike static RAG pipelines that apply the same weights to every query,
-          CASPER adapts its scoring model based on what kind of question is being asked
-          and how dense your knowledge base is.
+          <strong className="text-zinc-200">
+            Contextual Adaptive Scoring with Probabilistic Ensemble Ranking.
+          </strong>{' '}
+          Unlike static RAG pipelines that apply the same weights to every
+          query, CASPER adapts its scoring model based on what kind of question
+          is being asked and how dense your knowledge base is.
         </motion.p>
       </div>
 
@@ -99,7 +108,9 @@ export default function CASPERSpotlight() {
                 <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
                   <Icon className={`w-4 h-4 ${f.iconClass}`} />
                 </div>
-                <h3 className="font-semibold text-sm text-white font-geist">{f.title}</h3>
+                <h3 className="font-semibold text-sm text-white font-geist">
+                  {f.title}
+                </h3>
               </div>
               <p className="text-sm text-zinc-400 leading-relaxed">{f.body}</p>
             </motion.div>

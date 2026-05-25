@@ -1,27 +1,27 @@
-"use client";
+'use client';
 
-import { cn } from "@/lib/utils";
-import { Button } from "./button";
-import { Badge } from "./badge";
-import { Label } from "./label";
-import { 
+import { cn } from '@/lib/utils';
+import { Button } from './button';
+import { Badge } from './badge';
+import { Label } from './label';
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "./select";
-import { 
-  Shield, 
-  User, 
-  Crown, 
-  Settings, 
+} from './select';
+import {
+  Shield,
+  User,
+  Crown,
+  Settings,
   Eye,
   AlertTriangle,
   CheckCircle,
-  Info
-} from "lucide-react";
-import { forwardRef, useState } from "react";
+  Info,
+} from 'lucide-react';
+import { forwardRef, useState } from 'react';
 
 interface Role {
   id: string;
@@ -49,70 +49,79 @@ interface RoleSelectProps {
   placeholder?: string;
   required?: boolean;
   className?: string;
-  variant?: "default" | "compact" | "detailed";
+  variant?: 'default' | 'compact' | 'detailed';
 }
 
 const defaultRoles: Role[] = [
   {
-    id: "admin",
-    name: "Administrator",
-    description: "Full system access with user management privileges",
-    permissions: ["user.manage", "role.manage", "system.configure", "data.access", "ticket.manage"],
+    id: 'admin',
+    name: 'Administrator',
+    description: 'Full system access with user management privileges',
+    permissions: [
+      'user.manage',
+      'role.manage',
+      'system.configure',
+      'data.access',
+      'ticket.manage',
+    ],
     level: 100,
     icon: Crown,
-    color: "text-red-600",
-    bgColor: "bg-red-50 dark:bg-red-950/20",
-    restricted: true
+    color: 'text-red-600',
+    bgColor: 'bg-red-50 dark:bg-red-950/20',
+    restricted: true,
   },
   {
-    id: "manager",
-    name: "Manager",
-    description: "Team management and advanced ticket handling",
-    permissions: ["team.manage", "ticket.assign", "report.view", "data.access"],
+    id: 'manager',
+    name: 'Manager',
+    description: 'Team management and advanced ticket handling',
+    permissions: ['team.manage', 'ticket.assign', 'report.view', 'data.access'],
     level: 75,
     icon: Shield,
-    color: "text-purple-600",
-    bgColor: "bg-purple-50 dark:bg-purple-950/20"
+    color: 'text-purple-600',
+    bgColor: 'bg-purple-50 dark:bg-purple-950/20',
   },
   {
-    id: "rep",
-    name: "Representative",
-    description: "Handle tickets and customer interactions",
-    permissions: ["ticket.handle", "customer.contact", "kb.access"],
+    id: 'rep',
+    name: 'Representative',
+    description: 'Handle tickets and customer interactions',
+    permissions: ['ticket.handle', 'customer.contact', 'kb.access'],
     level: 50,
     icon: User,
-    color: "text-blue-600",
-    bgColor: "bg-blue-50 dark:bg-blue-950/20"
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-50 dark:bg-blue-950/20',
   },
   {
-    id: "viewer",
-    name: "Viewer",
-    description: "Read-only access to tickets and reports",
-    permissions: ["ticket.view", "report.view"],
+    id: 'viewer',
+    name: 'Viewer',
+    description: 'Read-only access to tickets and reports',
+    permissions: ['ticket.view', 'report.view'],
     level: 25,
     icon: Eye,
-    color: "text-green-600",
-    bgColor: "bg-green-50 dark:bg-green-950/20"
-  }
+    color: 'text-green-600',
+    bgColor: 'bg-green-50 dark:bg-green-950/20',
+  },
 ];
 
 const RoleSelect = forwardRef<HTMLDivElement, RoleSelectProps>(
-  ({
-    value,
-    onValueChange,
-    currentUserRole = "rep",
-    targetUserEmail,
-    availableRoles = defaultRoles,
-    disabled = false,
-    showPermissions = true,
-    showDescription = true,
-    label = "Role",
-    placeholder = "Select a role...",
-    required = false,
-    className,
-    variant = "default",
-    ...props
-  }, ref) => {
+  (
+    {
+      value,
+      onValueChange,
+      currentUserRole = 'rep',
+      targetUserEmail,
+      availableRoles = defaultRoles,
+      disabled = false,
+      showPermissions = true,
+      showDescription = true,
+      label = 'Role',
+      placeholder = 'Select a role...',
+      required = false,
+      className,
+      variant = 'default',
+      ...props
+    },
+    ref
+  ) => {
     const [selectedRole, setSelectedRole] = useState<Role | undefined>(
       value ? availableRoles.find(r => r.id === value) : undefined
     );
@@ -124,13 +133,13 @@ const RoleSelect = forwardRef<HTMLDivElement, RoleSelectProps>(
     const selectableRoles = availableRoles.filter(role => {
       // Admins can assign any role
       if (currentUserLevel >= 100) return true;
-      
+
       // Users can only assign roles lower than their own
       if (role.level >= currentUserLevel) return false;
-      
+
       // Check if role is restricted
       if (role.restricted && currentUserLevel < 100) return false;
-      
+
       return role.canAssign !== false;
     });
 
@@ -142,46 +151,50 @@ const RoleSelect = forwardRef<HTMLDivElement, RoleSelectProps>(
 
     const getStatusIcon = () => {
       if (!selectedRole) return null;
-      
+
       if (selectedRole.restricted && currentUserLevel < 100) {
         return <AlertTriangle className="h-4 w-4 text-amber-500" />;
       }
-      
+
       if (selectedRole.level > currentUserLevel) {
         return <AlertTriangle className="h-4 w-4 text-red-500" />;
       }
-      
+
       return <CheckCircle className="h-4 w-4 text-green-500" />;
     };
 
     const getStatusMessage = () => {
       if (!selectedRole) return null;
-      
+
       if (selectedRole.restricted && currentUserLevel < 100) {
-        return "This role has restricted permissions that require admin approval";
+        return 'This role has restricted permissions that require admin approval';
       }
-      
+
       if (selectedRole.level > currentUserLevel) {
-        return "You cannot assign a role higher than your own";
+        return 'You cannot assign a role higher than your own';
       }
-      
-      return "Role assignment is valid";
+
+      return 'Role assignment is valid';
     };
 
-    if (variant === "compact") {
+    if (variant === 'compact') {
       return (
-        <div ref={ref} className={cn("space-y-2", className)} {...props}>
-          <Select value={value} onValueChange={handleValueChange} disabled={disabled}>
+        <div ref={ref} className={cn('space-y-2', className)} {...props}>
+          <Select
+            value={value}
+            onValueChange={handleValueChange}
+            disabled={disabled}
+          >
             <SelectTrigger className="w-full">
               <SelectValue placeholder={placeholder} />
             </SelectTrigger>
             <SelectContent>
-              {selectableRoles.map((role) => {
+              {selectableRoles.map(role => {
                 const IconComponent = role.icon;
                 return (
                   <SelectItem key={role.id} value={role.id}>
                     <div className="flex items-center gap-2">
-                      <IconComponent className={cn("h-4 w-4", role.color)} />
+                      <IconComponent className={cn('h-4 w-4', role.color)} />
                       <span>{role.name}</span>
                     </div>
                   </SelectItem>
@@ -194,7 +207,7 @@ const RoleSelect = forwardRef<HTMLDivElement, RoleSelectProps>(
     }
 
     return (
-      <div ref={ref} className={cn("space-y-4", className)} {...props}>
+      <div ref={ref} className={cn('space-y-4', className)} {...props}>
         {/* Label and Status */}
         <div className="flex items-center justify-between">
           <Label htmlFor="role-select" className="text-sm font-medium">
@@ -205,7 +218,9 @@ const RoleSelect = forwardRef<HTMLDivElement, RoleSelectProps>(
             <div className="flex items-center gap-1">
               {getStatusIcon()}
               <span className="text-xs text-muted-foreground">
-                {selectedRole.level > currentUserLevel ? "Cannot assign" : "Can assign"}
+                {selectedRole.level > currentUserLevel
+                  ? 'Cannot assign'
+                  : 'Can assign'}
               </span>
             </div>
           )}
@@ -214,29 +229,31 @@ const RoleSelect = forwardRef<HTMLDivElement, RoleSelectProps>(
         {/* Target User Info */}
         {targetUserEmail && (
           <div className="text-sm text-muted-foreground">
-            Assigning role to: <span className="font-medium">{targetUserEmail}</span>
+            Assigning role to:{' '}
+            <span className="font-medium">{targetUserEmail}</span>
           </div>
         )}
 
         {/* Role Selection */}
-        <Select value={value} onValueChange={handleValueChange} disabled={disabled}>
+        <Select
+          value={value}
+          onValueChange={handleValueChange}
+          disabled={disabled}
+        >
           <SelectTrigger id="role-select" className="w-full">
             <SelectValue placeholder={placeholder} />
           </SelectTrigger>
           <SelectContent>
-            {selectableRoles.map((role) => {
+            {selectableRoles.map(role => {
               const IconComponent = role.icon;
-              const canAssign = role.level < currentUserLevel || currentUserLevel >= 100;
-              
+              const canAssign =
+                role.level < currentUserLevel || currentUserLevel >= 100;
+
               return (
-                <SelectItem 
-                  key={role.id} 
-                  value={role.id}
-                  disabled={!canAssign}
-                >
+                <SelectItem key={role.id} value={role.id} disabled={!canAssign}>
                   <div className="flex items-center gap-3 py-1">
-                    <div className={cn("p-2 rounded-md", role.bgColor)}>
-                      <IconComponent className={cn("h-4 w-4", role.color)} />
+                    <div className={cn('p-2 rounded-md', role.bgColor)}>
+                      <IconComponent className={cn('h-4 w-4', role.color)} />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
@@ -264,16 +281,20 @@ const RoleSelect = forwardRef<HTMLDivElement, RoleSelectProps>(
         </Select>
 
         {/* Selected Role Details */}
-        {selectedRole && variant === "detailed" && (
+        {selectedRole && variant === 'detailed' && (
           <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
             {/* Role Header */}
             <div className="flex items-center gap-3">
-              <div className={cn("p-2 rounded-md", selectedRole.bgColor)}>
-                <selectedRole.icon className={cn("h-5 w-5", selectedRole.color)} />
+              <div className={cn('p-2 rounded-md', selectedRole.bgColor)}>
+                <selectedRole.icon
+                  className={cn('h-5 w-5', selectedRole.color)}
+                />
               </div>
               <div>
                 <h4 className="font-medium">{selectedRole.name}</h4>
-                <p className="text-sm text-muted-foreground">{selectedRole.description}</p>
+                <p className="text-sm text-muted-foreground">
+                  {selectedRole.description}
+                </p>
               </div>
             </div>
 
@@ -282,8 +303,12 @@ const RoleSelect = forwardRef<HTMLDivElement, RoleSelectProps>(
               <div>
                 <h5 className="text-sm font-medium mb-2">Permissions</h5>
                 <div className="flex flex-wrap gap-1">
-                  {selectedRole.permissions.map((permission) => (
-                    <Badge key={permission} variant="outline" className="text-xs">
+                  {selectedRole.permissions.map(permission => (
+                    <Badge
+                      key={permission}
+                      variant="outline"
+                      className="text-xs"
+                    >
                       {permission}
                     </Badge>
                   ))}
@@ -306,6 +331,6 @@ const RoleSelect = forwardRef<HTMLDivElement, RoleSelectProps>(
     );
   }
 );
-RoleSelect.displayName = "RoleSelect";
+RoleSelect.displayName = 'RoleSelect';
 
 export { RoleSelect, type Role };

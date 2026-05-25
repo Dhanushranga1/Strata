@@ -1,13 +1,15 @@
-"use client";
+'use client';
 
-import AuthGate from "@/components/AuthGate";
+import AuthGate from '@/components/AuthGate';
 
-export default function WizardLayout({ children }: { children: React.ReactNode }) {
+export default function WizardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <AuthGate>
-      <div className="min-h-screen bg-zinc-950 text-zinc-100">
-        {children}
-      </div>
+      <div className="min-h-screen bg-zinc-950 text-zinc-100">{children}</div>
     </AuthGate>
   );
 }

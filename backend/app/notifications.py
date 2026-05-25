@@ -3,11 +3,13 @@ In-app notification system.
 Notifications are per-user (no org header required on read endpoints).
 Creation helpers are called from tickets.py / rep.py on key events.
 """
-from fastapi import APIRouter, Depends, Query
-from typing import Optional
-import logging
 
-from .auth import get_current_user, User
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
+
+from .auth import User, get_current_user
 from .db import get_connection
 
 logger = logging.getLogger(__name__)
@@ -15,6 +17,7 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
 # ── Sync helper (called from sync route handlers in threads) ──────────────────
+
 
 def notify_sync(
     user_id: str,
@@ -28,6 +31,7 @@ def notify_sync(
     """Insert a notification using the sync psycopg3 pool. Safe to call from threads."""
     try:
         from .db_sync import get_db_connection
+
         with get_db_connection() as conn:
             conn.cursor().execute(
                 """
@@ -42,6 +46,7 @@ def notify_sync(
 
 
 # ── Async helper (called from async route handlers) ───────────────────────────
+
 
 async def create_notification(
     user_id: str,
@@ -62,8 +67,13 @@ async def create_notification(
                   (user_id, org_id, type, title, body, ref_type, ref_id)
                 VALUES ($1, $2::uuid, $3, $4, $5, $6, $7)
                 """,
-                user_id, org_id or None,
-                notif_type, title, body, ref_type, ref_id,
+                user_id,
+                org_id or None,
+                notif_type,
+                title,
+                body,
+                ref_type,
+                ref_id,
             )
         finally:
             await conn.close()
@@ -72,6 +82,7 @@ async def create_notification(
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
+
 
 @router.get("")
 async def list_notifications(
@@ -94,7 +105,8 @@ async def list_notifications(
             ORDER BY created_at DESC
             LIMIT $2
             """,
-            user.id, limit,
+            user.id,
+            limit,
         )
         return {
             "unread": int(unread),
@@ -114,7 +126,8 @@ async def mark_read(notif_id: str, user: User = Depends(get_current_user)):
         await conn.execute(
             "UPDATE app.notifications SET read_at=NOW()"
             " WHERE id=$1 AND user_id=$2 AND read_at IS NULL",
-            notif_id, user.id,
+            notif_id,
+            user.id,
         )
         return {"ok": True}
     finally:
@@ -141,7 +154,8 @@ async def delete_notification(notif_id: str, user: User = Depends(get_current_us
     try:
         await conn.execute(
             "DELETE FROM app.notifications WHERE id=$1 AND user_id=$2",
-            notif_id, user.id,
+            notif_id,
+            user.id,
         )
         return {"ok": True}
     finally:

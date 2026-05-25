@@ -1,18 +1,21 @@
-"use client";
+'use client';
 
-import { Button, Chip } from "@heroui/react";
-import { motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, BookOpenCheck, BrainCircuit, Zap } from "lucide-react";
-import BrandWordmark from "./BrandWordmark";
-import { InteractiveCursor } from "@/ui/backgrounds/AnimatedBackgrounds";
-import { v } from "@/ui/motion/variants";
+import { Button, Chip } from '@heroui/react';
+import { motion, useReducedMotion } from 'framer-motion';
+import { ArrowRight, BookOpenCheck, BrainCircuit, Zap } from 'lucide-react';
+import BrandWordmark from './BrandWordmark';
+import { InteractiveCursor } from '@/ui/backgrounds/AnimatedBackgrounds';
+import { v } from '@/ui/motion/variants';
 
 interface HeroProps {
-  variant?: "a" | "b";
-  wordmarkVariant?: "aurora" | "neon" | "mono";
+  variant?: 'a' | 'b';
+  wordmarkVariant?: 'aurora' | 'neon' | 'mono';
 }
 
-export default function Hero({ variant = "a", wordmarkVariant = "aurora" }: HeroProps) {
+export default function Hero({
+  variant = 'a',
+  wordmarkVariant = 'aurora',
+}: HeroProps) {
   const prefersReduced = useReducedMotion();
 
   return (
@@ -47,7 +50,7 @@ export default function Hero({ variant = "a", wordmarkVariant = "aurora" }: Hero
           variants={v.item}
           className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.1] mb-6 text-white"
         >
-          Resolve tickets{" "}
+          Resolve tickets{' '}
           <span className="bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">
             2× faster
           </span>
@@ -59,9 +62,10 @@ export default function Hero({ variant = "a", wordmarkVariant = "aurora" }: Hero
           variants={v.item}
           className="text-lg sm:text-xl text-zinc-400 max-w-2xl mx-auto leading-relaxed mb-10"
         >
-          TicketPilot combines a full ticketing system with CASPER — an adaptive AI engine
-          that automatically routes tickets, drafts KB-grounded replies with citations,
-          and escalates based on real confidence, not guesswork.
+          TicketPilot combines a full ticketing system with CASPER — an adaptive
+          AI engine that automatically routes tickets, drafts KB-grounded
+          replies with citations, and escalates based on real confidence, not
+          guesswork.
         </motion.p>
 
         {/* CTAs */}
@@ -95,10 +99,10 @@ export default function Hero({ variant = "a", wordmarkVariant = "aurora" }: Hero
           className="flex flex-wrap items-center justify-center gap-2"
         >
           {[
-            { icon: BrainCircuit, text: "CASPER auto-routing" },
-            { icon: BookOpenCheck, text: "Cited KB answers" },
-            { icon: Zap, text: "P1–P7 priority scoring" },
-          ].map((f) => (
+            { icon: BrainCircuit, text: 'CASPER auto-routing' },
+            { icon: BookOpenCheck, text: 'Cited KB answers' },
+            { icon: Zap, text: 'P1–P7 priority scoring' },
+          ].map(f => (
             <Chip
               key={f.text}
               startContent={<f.icon className="size-3.5" />}

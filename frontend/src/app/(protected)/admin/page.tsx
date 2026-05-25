@@ -1,13 +1,19 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
-import { useOrganization } from "@/contexts/OrganizationContext";
-import api from "@/lib/api-client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import api from '@/lib/api-client';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import {
   Users,
   UserCheck,
@@ -20,7 +26,7 @@ import {
   Building2,
   Ticket,
   ScrollText,
-} from "lucide-react";
+} from 'lucide-react';
 import { PageShell } from '@/ui/motion/PageShell';
 import { SystemHealthDashboard } from '@/components/admin/SystemHealthDashboard';
 
@@ -56,17 +62,17 @@ interface RoleRequest {
 
 export default function AdminPage() {
   const router = useRouter();
-  
+
   // Organization context
   const { currentOrganization, isReady } = useOrganization();
   const orgId = currentOrganization?.id;
-  
+
   const [user, setUser] = useState<any>(null);
   const [stats, setStats] = useState<AdminStats>({
     totalUsers: 0,
     pendingRoleRequests: 0,
     totalTickets: 0,
-    activeReps: 0
+    activeReps: 0,
   });
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -81,20 +87,24 @@ export default function AdminPage() {
       const [analytics, users, roleRequests] = await Promise.all([
         api.get<AdminAnalytics>('/api/admin/analytics/summary', orgId),
         api.get<UserItem[]>('/api/admin/users', orgId),
-        api.get<RoleRequest[]>('/api/admin/role-requests', orgId)
+        api.get<RoleRequest[]>('/api/admin/role-requests', orgId),
       ]);
 
       const activeReps = users.filter((u: UserItem) => u.role === 'rep').length;
-      const pendingRequests = roleRequests.filter((r: RoleRequest) => r.status === 'pending').length;
+      const pendingRequests = roleRequests.filter(
+        (r: RoleRequest) => r.status === 'pending'
+      ).length;
 
       setStats({
         totalUsers: users.length,
         activeReps,
         pendingRoleRequests: pendingRequests,
-        totalTickets: analytics.total_tickets || 0
+        totalTickets: analytics.total_tickets || 0,
       });
     } catch (error) {
-      setError(`Failed to load statistics: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setError(
+        `Failed to load statistics: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     } finally {
       setStatsLoading(false);
     }
@@ -136,61 +146,61 @@ export default function AdminPage() {
 
   const adminSections = [
     {
-      title: "Organisations",
-      description: "Create orgs, assign reps, manage members",
+      title: 'Organisations',
+      description: 'Create orgs, assign reps, manage members',
       icon: Building2,
-      href: "/admin/organizations",
-      color: "bg-emerald-500",
-      stats: "Manage all orgs"
+      href: '/admin/organizations',
+      color: 'bg-emerald-500',
+      stats: 'Manage all orgs',
     },
     {
-      title: "Team Members",
-      description: "Manage members, roles, and invites",
+      title: 'Team Members',
+      description: 'Manage members, roles, and invites',
       icon: UserCheck,
-      href: "/admin/users",
-      color: "bg-indigo-500",
-      stats: `${stats.totalUsers} members`
+      href: '/admin/users',
+      color: 'bg-indigo-500',
+      stats: `${stats.totalUsers} members`,
     },
     {
-      title: "User Roles",
-      description: "Manage user roles and permissions",
+      title: 'User Roles',
+      description: 'Manage user roles and permissions',
       icon: Users,
-      href: "/admin/roles",
-      color: "bg-blue-500",
-      stats: `${stats.totalUsers} users`
+      href: '/admin/roles',
+      color: 'bg-blue-500',
+      stats: `${stats.totalUsers} users`,
     },
     {
-      title: "Analytics",
-      description: "System analytics and reports",
+      title: 'Analytics',
+      description: 'System analytics and reports',
       icon: BarChart3,
-      href: "/admin/analytics",
-      color: "bg-green-500",
-      stats: `${stats.totalTickets} tickets`
+      href: '/admin/analytics',
+      color: 'bg-green-500',
+      stats: `${stats.totalTickets} tickets`,
     },
     {
-      title: "All Tickets",
-      description: "Cross-org ticket view with filtering",
+      title: 'All Tickets',
+      description: 'Cross-org ticket view with filtering',
       icon: Ticket,
-      href: "/admin/tickets",
-      color: "bg-orange-500",
-      stats: `${stats.totalTickets} total`
+      href: '/admin/tickets',
+      color: 'bg-orange-500',
+      stats: `${stats.totalTickets} total`,
     },
     {
-      title: "Audit Log",
-      description: "Platform-wide action history",
+      title: 'Audit Log',
+      description: 'Platform-wide action history',
       icon: ScrollText,
-      href: "/admin/audit-log",
-      color: "bg-slate-500",
-      stats: "View log"
+      href: '/admin/audit-log',
+      color: 'bg-slate-500',
+      stats: 'View log',
     },
     {
-      title: "System Settings",
-      description: "Configure system-wide settings",
+      title: 'System Settings',
+      description: 'Configure system-wide settings',
       icon: Settings,
-      href: "/admin/settings",
-      color: "bg-purple-500",
-      stats: "Configure"
-    }
+      href: '/admin/settings',
+      color: 'bg-purple-500',
+      stats: 'Configure',
+    },
   ];
 
   if (loading) {
@@ -207,7 +217,9 @@ export default function AdminPage() {
         <div className="text-center">
           <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
-          <p className="text-muted-foreground">You don't have permission to access this page.</p>
+          <p className="text-muted-foreground">
+            You don't have permission to access this page.
+          </p>
           <Button className="mt-4" onClick={() => router.push('/dashboard')}>
             Go to Dashboard
           </Button>
@@ -237,9 +249,9 @@ export default function AdminPage() {
                 <AlertTriangle className="h-4 w-4" />
                 <span className="text-sm">{error}</span>
               </div>
-              <Button 
-                onClick={loadAdminStats} 
-                className="mt-2" 
+              <Button
+                onClick={loadAdminStats}
+                className="mt-2"
                 size="sm"
                 disabled={statsLoading}
               >
@@ -272,7 +284,9 @@ export default function AdminPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Requests</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Pending Requests
+              </CardTitle>
               <UserCheck className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -291,7 +305,9 @@ export default function AdminPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Tickets</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Total Tickets
+              </CardTitle>
               <Activity className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -302,9 +318,7 @@ export default function AdminPage() {
                   stats.totalTickets
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                All time tickets
-              </p>
+              <p className="text-xs text-muted-foreground">All time tickets</p>
             </CardContent>
           </Card>
 
@@ -327,8 +341,11 @@ export default function AdminPage() {
 
         {/* Admin Sections */}
         <div className="grid gap-6 md:grid-cols-2">
-          {adminSections.map((section) => (
-            <Card key={section.href} className="hover:shadow-lg transition-shadow">
+          {adminSections.map(section => (
+            <Card
+              key={section.href}
+              className="hover:shadow-lg transition-shadow"
+            >
               <CardHeader>
                 <div className="flex items-center gap-4">
                   <div className={`p-3 rounded-lg ${section.color}`}>
@@ -365,11 +382,14 @@ export default function AdminPage() {
                 <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
                   <UserCheck className="h-4 w-4" />
                   <span className="text-sm font-medium">
-                    {stats.pendingRoleRequests} pending role request{stats.pendingRoleRequests !== 1 ? 's' : ''} need review
+                    {stats.pendingRoleRequests} pending role request
+                    {stats.pendingRoleRequests !== 1 ? 's' : ''} need review
                   </span>
                 </div>
                 <Link href="/admin/roles">
-                  <Button variant="outline" size="sm">Review</Button>
+                  <Button variant="outline" size="sm">
+                    Review
+                  </Button>
                 </Link>
               </div>
             </CardContent>

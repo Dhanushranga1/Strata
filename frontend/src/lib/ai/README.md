@@ -5,6 +5,7 @@ This module provides AI-powered assistance for customer support representatives 
 ## Overview
 
 The AI feature helps support reps by:
+
 - Analyzing ticket context and recent messages
 - Providing suggested responses to customers
 - Recommending escalation when appropriate
@@ -14,26 +15,32 @@ The AI feature helps support reps by:
 ## Components
 
 ### `/lib/ai/prompt.ts`
+
 Central prompt management and context preparation.
 
 **Functions:**
+
 - `buildAISuggestionQuery(context)` - Creates contextual prompts for AI
 - `prepareTicketContext(ticket, messages)` - Formats ticket data for AI processing
 - `redactPII(text)` - Removes emails/phones from content
 
 ### `/components/rep/AIResponseModal.tsx`
+
 Modal component for displaying AI suggestions with actions.
 
 **Features:**
+
 - Displays AI confidence scores and model info
 - Shows knowledge base sources and citations
 - Provides action buttons (copy, insert, escalate)
 - Handles user feedback collection
 
 ### Enhanced Rep Console (`/app/(protected)/rep/page.tsx`)
+
 Integrated AI functionality in the ticket queue.
 
 **Features:**
+
 - AI Assist button with cooldown indicators
 - Rate limiting protection (8-second cooldowns)
 - Enhanced error handling for 401/404/429/5xx responses
@@ -69,6 +76,7 @@ Integrated AI functionality in the ticket queue.
 ### Audit Trail
 
 When reps take AI-suggested actions:
+
 - Insert/Copy: `[system] AI suggestion applied (confidence X%, model Y)`
 - Escalate: `[system] AI suggested escalation (confidence X%)`
 
@@ -77,12 +85,14 @@ When reps take AI-suggested actions:
 ### Environment Variables
 
 Ensure these are set in your backend:
+
 - `GOOGLE_API_KEY` - Google Gemini API key
 - `GENAI_MODEL` - Model name (default: gemini-1.5-pro)
 
 ### Backend Dependencies
 
 Required backend endpoints:
+
 - `GET /api/tickets/{id}` - Ticket details
 - `GET /api/tickets/{id}/messages` - Recent messages
 - `POST /api/tickets/{id}/chat` - AI chat endpoint
@@ -91,18 +101,21 @@ Required backend endpoints:
 ## Best Practices
 
 ### Context Management
+
 - Keep total context under 6-8k characters
 - Include last 5 messages maximum
 - Redact PII automatically
 - Include ticket metadata (title, priority, status)
 
 ### Error Handling
+
 - Always provide user-friendly error messages
 - Implement proper retry logic for network issues
 - Respect rate limits and show countdowns
 - Log errors for debugging but don't expose internals
 
 ### User Experience
+
 - Show confidence scores to help reps assess suggestions
 - Provide clear actions (copy vs insert vs escalate)
 - Display knowledge base sources for transparency
@@ -111,6 +124,7 @@ Required backend endpoints:
 ## Testing
 
 ### Unit Tests
+
 ```bash
 # Test prompt generation
 npm test -- --testPathPattern="ai/prompt"
@@ -123,6 +137,7 @@ npm test -- --testPathPattern="rep.*ai"
 ```
 
 ### Integration Tests
+
 ```bash
 # Test full AI flow
 npm run test:integration -- ai-flow
@@ -134,6 +149,7 @@ npm run test:integration -- ai-errors
 ## Limitations
 
 ### Current Constraints
+
 - 8-second cooldown between AI requests per ticket
 - Maximum 5 recent messages included in context
 - PII redaction is basic (emails/phones only)
@@ -141,6 +157,7 @@ npm run test:integration -- ai-errors
 - Feedback is logged locally only
 
 ### Future Enhancements
+
 - Conversation context retention
 - Enhanced PII detection
 - Feedback analytics dashboard
@@ -152,21 +169,25 @@ npm run test:integration -- ai-errors
 ### Common Issues
 
 **"AI button disabled"**
+
 - Check for active cooldown timer
 - Verify network connectivity
 - Check authentication status
 
 **"Rate limited" errors**
+
 - Wait for cooldown to expire (max 8 seconds)
 - Check backend rate limiting configuration
 - Verify API key quotas
 
 **"No AI response"**
+
 - Check backend logs for errors
 - Verify Google API key is valid
 - Confirm FAISS index is loaded
 
 **Poor suggestion quality**
+
 - Check if knowledge base is populated
 - Verify recent messages are being included
 - Review prompt template effectiveness
@@ -174,11 +195,13 @@ npm run test:integration -- ai-errors
 ### Debug Mode
 
 Enable debug logging:
+
 ```javascript
-localStorage.setItem('ai-debug', 'true')
+localStorage.setItem('ai-debug', 'true');
 ```
 
 This will log:
+
 - Full prompt content
 - API request/response details
 - Context preparation steps
@@ -187,12 +210,14 @@ This will log:
 ## Security
 
 ### Data Protection
+
 - PII is redacted before sending to AI
 - Audit trails are encrypted at rest
 - API calls use proper authentication
 - No AI data is cached client-side
 
 ### Privacy Considerations
+
 - Customer messages are processed by Google Gemini
 - Citations reference knowledge base only
 - Feedback is anonymized

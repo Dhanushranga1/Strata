@@ -1,8 +1,8 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
 import {
   Building2,
   Plus,
@@ -15,54 +15,83 @@ import {
   ArrowRight,
   UserPlus,
   Copy,
-  Mail
-} from 'lucide-react'
-import { toast } from 'sonner'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useOrganization } from '@/contexts/OrganizationContext'
-import api from '@/lib/api-client'
+  Mail,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import api from '@/lib/api-client';
 
 interface Organization {
-  id: string
-  name: string
-  slug: string
-  domain: string | null
-  role: 'owner' | 'admin' | 'rep' | 'member'
-  your_role?: 'owner' | 'admin' | 'rep' | 'member'
-  is_default: boolean
-  member_count?: number
-  created_at: string
-  updated_at: string
+  id: string;
+  name: string;
+  slug: string;
+  domain: string | null;
+  role: 'owner' | 'admin' | 'rep' | 'member';
+  your_role?: 'owner' | 'admin' | 'rep' | 'member';
+  is_default: boolean;
+  member_count?: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // Role badge component
 function RoleBadge({ role }: { role: string }) {
-  const variants: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline', icon: React.ElementType }> = {
+  const variants: Record<
+    string,
+    {
+      variant: 'default' | 'secondary' | 'destructive' | 'outline';
+      icon: React.ElementType;
+    }
+  > = {
     owner: { variant: 'default', icon: Crown },
     admin: { variant: 'secondary', icon: Settings },
     rep: { variant: 'outline', icon: Users },
-    member: { variant: 'outline', icon: Users }
-  }
+    member: { variant: 'outline', icon: Users },
+  };
 
-  const config = variants[role] || variants.member
-  const Icon = config.icon
+  const config = variants[role] || variants.member;
+  const Icon = config.icon;
 
   return (
     <Badge variant={config.variant} className="gap-1">
       <Icon className="h-3 w-3" />
       {role.charAt(0).toUpperCase() + role.slice(1)}
     </Badge>
-  )
+  );
 }
 
 // Empty state
-function EmptyOrganizationsState({ onCreateClick }: { onCreateClick: () => void }) {
+function EmptyOrganizationsState({
+  onCreateClick,
+}: {
+  onCreateClick: () => void;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -76,72 +105,76 @@ function EmptyOrganizationsState({ onCreateClick }: { onCreateClick: () => void 
         No Organizations Yet
       </h2>
       <p className="text-muted-foreground max-w-md mx-auto mb-8">
-        Organizations help you manage multiple teams, clients, or projects separately.
-        Create your first organization to get started.
+        Organizations help you manage multiple teams, clients, or projects
+        separately. Create your first organization to get started.
       </p>
       <Button size="lg" onClick={onCreateClick}>
         <Plus className="w-5 h-5 mr-2" />
         Create Your First Organization
       </Button>
     </motion.div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Invite Modal
 // ---------------------------------------------------------------------------
 interface InviteModalProps {
-  orgId: string
-  orgName: string
-  open: boolean
-  onClose: () => void
+  orgId: string;
+  orgName: string;
+  open: boolean;
+  onClose: () => void;
 }
 
 function InviteModal({ orgId, orgName, open, onClose }: InviteModalProps) {
-  const [email, setEmail] = useState('')
-  const [role, setRole] = useState<'rep' | 'admin' | 'member'>('rep')
-  const [loading, setLoading] = useState(false)
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
-  const [emailSent, setEmailSent] = useState(false)
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<'rep' | 'admin' | 'member'>('rep');
+  const [loading, setLoading] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [emailSent, setEmailSent] = useState(false);
 
   const reset = () => {
-    setEmail('')
-    setRole('rep')
-    setLoading(false)
-    setInviteUrl(null)
-    setEmailSent(false)
-  }
+    setEmail('');
+    setRole('rep');
+    setLoading(false);
+    setInviteUrl(null);
+    setEmailSent(false);
+  };
 
   const handleClose = () => {
-    reset()
-    onClose()
-  }
+    reset();
+    onClose();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email.trim()) return
+    e.preventDefault();
+    if (!email.trim()) return;
 
-    setLoading(true)
+    setLoading(true);
     try {
-      const data = await api.post(`/api/organizations/${orgId}/invites`, { email, role }, orgId)
-      setInviteUrl(data.invite_url)
-      setEmailSent(data.email_sent)
+      const data = await api.post(
+        `/api/organizations/${orgId}/invites`,
+        { email, role },
+        orgId
+      );
+      setInviteUrl(data.invite_url);
+      setEmailSent(data.email_sent);
       if (data.email_sent) {
-        toast.success(`Invite email sent to ${email}`)
+        toast.success(`Invite email sent to ${email}`);
       }
     } catch (err: any) {
-      toast.error(err.message || 'Failed to create invite')
-      setLoading(false)
+      toast.error(err.message || 'Failed to create invite');
+      setLoading(false);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const copyLink = () => {
-    if (!inviteUrl) return
-    navigator.clipboard.writeText(inviteUrl)
-    toast.success('Invite link copied to clipboard')
-  }
+    if (!inviteUrl) return;
+    navigator.clipboard.writeText(inviteUrl);
+    toast.success('Invite link copied to clipboard');
+  };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -152,8 +185,8 @@ function InviteModal({ orgId, orgName, open, onClose }: InviteModalProps) {
             Invite a team member
           </DialogTitle>
           <DialogDescription>
-            Invite someone to join <strong>{orgName}</strong>.{' '}
-            They will receive a link to create their account and join your team.
+            Invite someone to join <strong>{orgName}</strong>. They will receive
+            a link to create their account and join your team.
           </DialogDescription>
         </DialogHeader>
 
@@ -175,7 +208,11 @@ function InviteModal({ orgId, orgName, open, onClose }: InviteModalProps) {
 
             <div className="space-y-2">
               <Label htmlFor="invite-role">Role</Label>
-              <Select value={role} onValueChange={v => setRole(v as typeof role)} disabled={loading}>
+              <Select
+                value={role}
+                onValueChange={v => setRole(v as typeof role)}
+                disabled={loading}
+              >
                 <SelectTrigger id="invite-role">
                   <SelectValue />
                 </SelectTrigger>
@@ -183,19 +220,25 @@ function InviteModal({ orgId, orgName, open, onClose }: InviteModalProps) {
                   <SelectItem value="rep">
                     <div className="flex flex-col items-start">
                       <span className="font-medium">Rep</span>
-                      <span className="text-xs text-muted-foreground">Can handle and reply to tickets</span>
+                      <span className="text-xs text-muted-foreground">
+                        Can handle and reply to tickets
+                      </span>
                     </div>
                   </SelectItem>
                   <SelectItem value="admin">
                     <div className="flex flex-col items-start">
                       <span className="font-medium">Admin</span>
-                      <span className="text-xs text-muted-foreground">Can manage members, KB, and settings</span>
+                      <span className="text-xs text-muted-foreground">
+                        Can manage members, KB, and settings
+                      </span>
                     </div>
                   </SelectItem>
                   <SelectItem value="member">
                     <div className="flex flex-col items-start">
                       <span className="font-medium">Member</span>
-                      <span className="text-xs text-muted-foreground">Can submit tickets only</span>
+                      <span className="text-xs text-muted-foreground">
+                        Can submit tickets only
+                      </span>
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -203,7 +246,12 @@ function InviteModal({ orgId, orgName, open, onClose }: InviteModalProps) {
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={handleClose} disabled={loading}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleClose}
+                disabled={loading}
+              >
                 Cancel
               </Button>
               <Button type="submit" disabled={loading || !email.trim()}>
@@ -239,7 +287,8 @@ function InviteModal({ orgId, orgName, open, onClose }: InviteModalProps) {
                 <div className="text-sm text-amber-800 dark:text-amber-300">
                   <p className="font-medium">Copy and share this invite link</p>
                   <p className="mt-1 text-amber-700 dark:text-amber-400">
-                    Email sending is not configured. Copy the link below and share it with {email} directly.
+                    Email sending is not configured. Copy the link below and
+                    share it with {email} directly.
                   </p>
                 </div>
               </div>
@@ -253,15 +302,29 @@ function InviteModal({ orgId, orgName, open, onClose }: InviteModalProps) {
                   readOnly
                   className="text-xs font-mono bg-muted"
                 />
-                <Button variant="outline" size="icon" onClick={copyLink} title="Copy link">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={copyLink}
+                  title="Copy link"
+                >
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">This link expires in 7 days.</p>
+              <p className="text-xs text-muted-foreground">
+                This link expires in 7 days.
+              </p>
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => { setInviteUrl(null); setEmail(''); setRole('rep') }}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setInviteUrl(null);
+                  setEmail('');
+                  setRole('rep');
+                }}
+              >
                 Invite another
               </Button>
               <Button onClick={handleClose}>Done</Button>
@@ -270,38 +333,41 @@ function InviteModal({ orgId, orgName, open, onClose }: InviteModalProps) {
         )}
       </DialogContent>
     </Dialog>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 export default function OrganizationsPage() {
-  const router = useRouter()
+  const router = useRouter();
   const {
     organizations: contextOrgs,
     currentOrganization,
     switchOrganization,
-    isReady
-  } = useOrganization()
+    isReady,
+  } = useOrganization();
 
-  const [organizations, setOrganizations] = useState<Organization[]>([])
-  const [loading, setLoading] = useState(true)
-  const [switching, setSwitching] = useState<string | null>(null)
-  const [inviteTarget, setInviteTarget] = useState<{ id: string; name: string } | null>(null)
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [switching, setSwitching] = useState<string | null>(null);
+  const [inviteTarget, setInviteTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   // Load organizations from API for full details
   useEffect(() => {
     const loadOrganizations = async () => {
-      if (!isReady) return
+      if (!isReady) return;
 
       try {
-        const data = await api.get('/api/organizations')
+        const data = await api.get('/api/organizations');
         const items: Organization[] = (data as any[]).map((org: any) => ({
           ...org,
           role: org.your_role || org.role || 'member',
-        }))
-        setOrganizations(items)
+        }));
+        setOrganizations(items);
       } catch {
         // Fallback to context organizations with minimal data
         if (contextOrgs) {
@@ -315,38 +381,38 @@ export default function OrganizationsPage() {
               your_role: org.your_role as Organization['role'],
               is_default: (org as any).is_default ?? false,
               created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
+              updated_at: new Date().toISOString(),
             }))
-          )
+          );
         }
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    loadOrganizations()
-  }, [contextOrgs, isReady])
+    loadOrganizations();
+  }, [contextOrgs, isReady]);
 
   const handleSwitch = async (orgId: string) => {
     if (orgId === currentOrganization?.id) {
-      toast.info('Already viewing this organization')
-      return
+      toast.info('Already viewing this organization');
+      return;
     }
 
-    setSwitching(orgId)
+    setSwitching(orgId);
     try {
-      await switchOrganization(orgId)
-      toast.success('Switched organization successfully')
+      await switchOrganization(orgId);
+      toast.success('Switched organization successfully');
     } catch {
-      toast.error('Failed to switch organization')
+      toast.error('Failed to switch organization');
     } finally {
-      setSwitching(null)
+      setSwitching(null);
     }
-  }
+  };
 
   const handleCreateNew = () => {
-    router.push('/organizations/new')
-  }
+    router.push('/organizations/new');
+  };
 
   if (loading) {
     return (
@@ -355,7 +421,7 @@ export default function OrganizationsPage() {
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -391,9 +457,9 @@ export default function OrganizationsPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {organizations.map((org, index) => {
-            const isCurrent = org.id === currentOrganization?.id
-            const isSwitching = switching === org.id
-            const canManage = org.role === 'owner' || org.role === 'admin'
+            const isCurrent = org.id === currentOrganization?.id;
+            const isSwitching = switching === org.id;
+            const canManage = org.role === 'owner' || org.role === 'admin';
 
             return (
               <motion.div
@@ -437,7 +503,10 @@ export default function OrganizationsPage() {
                       {org.member_count !== undefined && (
                         <div className="flex items-center gap-1.5 text-muted-foreground">
                           <Users className="h-4 w-4" />
-                          <span>{org.member_count} {org.member_count === 1 ? 'member' : 'members'}</span>
+                          <span>
+                            {org.member_count}{' '}
+                            {org.member_count === 1 ? 'member' : 'members'}
+                          </span>
                         </div>
                       )}
                       {org.is_default && (
@@ -457,10 +526,11 @@ export default function OrganizationsPage() {
 
                     {/* Created Date */}
                     <div className="text-xs text-muted-foreground">
-                      Created {new Date(org.created_at).toLocaleDateString('en-US', {
+                      Created{' '}
+                      {new Date(org.created_at).toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
-                        year: 'numeric'
+                        year: 'numeric',
                       })}
                     </div>
 
@@ -502,7 +572,9 @@ export default function OrganizationsPage() {
                           variant="outline"
                           size="sm"
                           title="Invite a team member"
-                          onClick={() => setInviteTarget({ id: org.id, name: org.name })}
+                          onClick={() =>
+                            setInviteTarget({ id: org.id, name: org.name })
+                          }
                         >
                           <UserPlus className="h-3 w-3" />
                         </Button>
@@ -511,7 +583,7 @@ export default function OrganizationsPage() {
                   </CardContent>
                 </Card>
               </motion.div>
-            )
+            );
           })}
         </div>
       )}
@@ -530,24 +602,40 @@ export default function OrganizationsPage() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               <div className="flex gap-3">
-                <div className="font-medium text-foreground min-w-[100px]">Isolation:</div>
-                <div>Each organization has its own tickets, knowledge base, and team members.</div>
-              </div>
-              <div className="flex gap-3">
-                <div className="font-medium text-foreground min-w-[100px]">Switching:</div>
-                <div>You can switch between organizations anytime from the top navigation.</div>
-              </div>
-              <div className="flex gap-3">
-                <div className="font-medium text-foreground min-w-[100px]">Inviting:</div>
+                <div className="font-medium text-foreground min-w-[100px]">
+                  Isolation:
+                </div>
                 <div>
-                  Click the <UserPlus className="inline h-3 w-3 mx-1" /> button on any organization card to invite team members by email.
+                  Each organization has its own tickets, knowledge base, and
+                  team members.
                 </div>
               </div>
               <div className="flex gap-3">
-                <div className="font-medium text-foreground min-w-[100px]">Roles:</div>
+                <div className="font-medium text-foreground min-w-[100px]">
+                  Switching:
+                </div>
+                <div>
+                  You can switch between organizations anytime from the top
+                  navigation.
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <div className="font-medium text-foreground min-w-[100px]">
+                  Inviting:
+                </div>
+                <div>
+                  Click the <UserPlus className="inline h-3 w-3 mx-1" /> button
+                  on any organization card to invite team members by email.
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <div className="font-medium text-foreground min-w-[100px]">
+                  Roles:
+                </div>
                 <div>
                   <strong>Owner</strong> has full control.
-                  <strong className="ml-2">Admin</strong> can manage settings and invite members.
+                  <strong className="ml-2">Admin</strong> can manage settings
+                  and invite members.
                   <strong className="ml-2">Rep</strong> can handle tickets.
                   <strong className="ml-2">Member</strong> can create tickets.
                 </div>
@@ -567,5 +655,5 @@ export default function OrganizationsPage() {
         />
       )}
     </div>
-  )
+  );
 }

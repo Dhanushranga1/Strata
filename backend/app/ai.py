@@ -1,30 +1,26 @@
 """
-AI module — Groq LLM integration for RAG response generation.
-Handles completion generation and prompt management via Groq's
-OpenAI-compatible API using httpx (no extra dependency needed).
+AI generation — provider-agnostic. Provider auto-detected from model name prefix.
+Settings resolved from DB (via ai_settings.py) first, env vars as fallback.
 """
 
-import os
-import re
-import json
-import time
 import hashlib
+import json
 import logging
+import time
+from typing import Any, Dict, Optional, Tuple
+
 import httpx
-from typing import Tuple, Dict, Any, Optional
 from pydantic import BaseModel, ValidationError
+
+from .ai_settings import gen_api_base, gen_api_key, gen_model, max_tokens, temperature
 
 logger = logging.getLogger(__name__)
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-TEMPERATURE = float(os.getenv("GENAI_TEMPERATURE", "0.2"))
-MAX_OUTPUT_TOKENS = int(os.getenv("GENAI_MAX_OUTPUT_TOKENS", "1024"))
 MAX_RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 2.0
 
 
-class GeminiCitation(BaseModel):
+class Citation(BaseModel):
     index: int
     confidence: float
     relevance_score: float
@@ -32,7 +28,7 @@ class GeminiCitation(BaseModel):
 
 class GeminiResponse(BaseModel):
     response: str
-    citations_used: list[GeminiCitation]
+    citations_used: list[Citation]
     confidence_indicators: Dict[str, float]
     escalation_signals: Dict[str, Any]
     retrieval_quality: Dict[str, float]
@@ -83,53 +79,110 @@ ANSWER GUIDELINES:
 - Set requires_human=true if answer requires human expertise"""
 
 
-def _get_api_key() -> str:
-    key = os.getenv("GROQ_API_KEY")
-    if not key:
-        raise RuntimeError("GROQ_API_KEY is required in environment")
-    return key
+# ── Provider detection ──────────────────────────────────────
 
 
-def _call_groq(prompt: str, json_mode: bool = True) -> str:
-    api_key = _get_api_key()
-    payload: Dict[str, Any] = {
-        "model": MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": TEMPERATURE,
-        "max_tokens": MAX_OUTPUT_TOKENS,
+def _detect_provider(model: str) -> str:
+    if model.startswith("gemini-"):
+        return "google"
+    if model.startswith("claude-"):
+        return "anthropic"
+    return "openai_compat"
+
+
+def _call_llm(prompt: str, json_mode: bool = True) -> str:
+    model = gen_model()
+    provider = _detect_provider(model)
+    temp = temperature()
+    max_tok = max_tokens()
+
+    if provider == "google":
+        key = gen_api_key()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+        payload = {
+            "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": temp, "maxOutputTokens": max_tok},
+        }
+        if json_mode:
+            payload["generationConfig"]["response_mime_type"] = "application/json"
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                url, headers={"Content-Type": "application/json"}, json=payload
+            )
+            resp.raise_for_status()
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+    if provider == "anthropic":
+        key = gen_api_key()
+        payload = {
+            "model": model,
+            "max_tokens": max_tok,
+            "system": SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+        return resp.json()["content"][0]["text"]
+
+    # OpenAI-compatible (Groq, Together, OpenAI, etc.)
+    key = gen_api_key()
+    base_url = (gen_api_base() or "https://api.groq.com/openai/v1").rstrip("/")
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": temp,
+        "max_tokens": max_tok,
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
-
     with httpx.Client(timeout=30.0) as client:
         resp = client.post(
-            GROQ_API_URL,
+            f"{base_url}/chat/completions",
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
             },
             json=payload,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+    return resp.json()["choices"][0]["message"]["content"]
 
 
-def validate_gemini_response(response_text: str) -> Optional[GeminiResponse]:
+# ── Response parsing ────────────────────────────────────────
+
+
+def validate_response(text: str) -> Optional[GeminiResponse]:
     try:
-        json_text = response_text.strip()
-        if json_text.startswith("```json"):
-            json_text = json_text[7:]
-        if json_text.endswith("```"):
-            json_text = json_text[:-3]
-        json_text = json_text.strip()
-        parsed = json.loads(json_text)
-        return GeminiResponse.model_validate(parsed)
+        cleaned = text.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        return GeminiResponse.model_validate(json.loads(cleaned.strip()))
     except (json.JSONDecodeError, ValidationError) as e:
-        logger.warning(f"Failed to validate response: {e}")
+        logger.warning(f"Response validation failed: {e}")
         return None
 
 
-def generate_structured_completion(context: str, question: str, sources: list[str]) -> Tuple[GeminiResponse, int]:
+# ── Generation ──────────────────────────────────────────────
+
+
+def generate_structured_completion(
+    context: str, question: str, sources: list[str]
+) -> Tuple[GeminiResponse, int]:
     prompt = f"""{SYSTEM_PROMPT}
 
 CONTEXT:
@@ -141,78 +194,94 @@ SOURCES:
 USER QUESTION: {question}
 
 RESPOND WITH VALID JSON ONLY:"""
-
-    start_time = time.time()
-
+    start = time.time()
     for attempt in range(MAX_RETRY_ATTEMPTS):
         try:
-            text = _call_groq(prompt, json_mode=True)
-            if not text:
-                raise ValueError("Empty response from Groq")
-            validated = validate_gemini_response(text)
+            text = _call_llm(prompt, json_mode=True)
+            validated = validate_response(text) if text else None
             if validated:
-                latency_ms = int((time.time() - start_time) * 1000)
-                return validated, latency_ms
-            logger.warning(f"Invalid JSON on attempt {attempt + 1}")
+                return validated, int((time.time() - start) * 1000)
+            logger.warning(f"Invalid response on attempt {attempt + 1}")
         except Exception as e:
+            is_429 = (
+                hasattr(e, "response") and getattr(e.response, "status_code", 0) == 429
+            )
             logger.error(f"Generation attempt {attempt + 1} failed: {e}")
             if attempt < MAX_RETRY_ATTEMPTS - 1:
-                time.sleep(RETRY_DELAY_SECONDS)
+                time.sleep(15.0 if is_429 else RETRY_DELAY_SECONDS)
+    logger.error("All structured attempts failed")
+    return generate_fallback_response(context, question, sources, start)
 
-    logger.error("All structured attempts failed, falling back to basic response")
-    return generate_fallback_response(context, question, sources, start_time)
 
-
-def generate_fallback_response(context: str, question: str, sources: list[str], start_time: float) -> Tuple[GeminiResponse, int]:
+def generate_fallback_response(
+    context: str, question: str, sources: list[str], start: float
+) -> Tuple[GeminiResponse, int]:
     try:
-        simple_prompt = f"""Answer this question using only the provided context:
-
-CONTEXT: {context}
-
-QUESTION: {question}
-
-Answer concisely with [N] citations:"""
-
-        text = _call_groq(simple_prompt, json_mode=False)
-
-        fallback = GeminiResponse(
-            response=text or "I apologize, but I'm unable to process your request right now.",
-            citations_used=[],
-            confidence_indicators={"source_quality": 0.5, "answer_completeness": 0.3, "semantic_coherence": 0.4, "citation_coverage": 0.2},
-            escalation_signals={"requires_human": True, "uncertainty_level": "high", "complexity_score": 0.9, "missing_info": ["structured_response_failed"]},
-            retrieval_quality={"context_relevance": 0.5, "source_diversity": 0.5, "information_density": 0.5},
-            reasoning_trace="Fallback response due to structured generation failure",
+        text = _call_llm(
+            f"Answer concisely with [N] citations using this context:\n\n{context}\n\nQuestion: {question}",
+            json_mode=False,
         )
-        latency_ms = int((time.time() - start_time) * 1000)
-        return fallback, latency_ms
-
+        fb = GeminiResponse(
+            response=text or "Unable to process your request.",
+            citations_used=[],
+            confidence_indicators={
+                "source_quality": 0.5,
+                "answer_completeness": 0.3,
+                "semantic_coherence": 0.4,
+                "citation_coverage": 0.2,
+            },
+            escalation_signals={
+                "requires_human": True,
+                "uncertainty_level": "high",
+                "complexity_score": 0.9,
+                "missing_info": ["structured_response_failed"],
+            },
+            retrieval_quality={
+                "context_relevance": 0.5,
+                "source_diversity": 0.5,
+                "information_density": 0.5,
+            },
+            reasoning_trace="Fallback due to structured generation failure",
+        )
+        return fb, int((time.time() - start) * 1000)
     except Exception as e:
-        logger.error(f"Fallback generation also failed: {e}")
-        error_response = GeminiResponse(
-            response="I'm experiencing technical difficulties. Please contact support for assistance.",
+        logger.error(f"Fallback failed: {e}")
+        fb = GeminiResponse(
+            response="Technical difficulties. Please contact support.",
             citations_used=[],
-            confidence_indicators={"source_quality": 0.0, "answer_completeness": 0.0, "semantic_coherence": 0.0, "citation_coverage": 0.0},
-            escalation_signals={"requires_human": True, "uncertainty_level": "critical", "complexity_score": 1.0, "missing_info": ["generation_system_failure"]},
-            retrieval_quality={"context_relevance": 0.0, "source_diversity": 0.0, "information_density": 0.0},
-            reasoning_trace="System failure - no generation possible",
+            confidence_indicators=dict.fromkeys(
+                (
+                    "source_quality",
+                    "answer_completeness",
+                    "semantic_coherence",
+                    "citation_coverage",
+                ),
+                0.0,
+            ),
+            escalation_signals={
+                "requires_human": True,
+                "uncertainty_level": "critical",
+                "complexity_score": 1.0,
+                "missing_info": ["generation_system_failure"],
+            },
+            retrieval_quality=dict.fromkeys(
+                ("context_relevance", "source_diversity", "information_density"), 0.0
+            ),
+            reasoning_trace="System failure",
         )
-        latency_ms = int((time.time() - start_time) * 1000)
-        return error_response, latency_ms
+        return fb, int((time.time() - start) * 1000)
 
 
-def select_model(context_size: int) -> str:
-    return MODEL
-
-
-def generate_completion(context: str, question: str, sources: list[str]) -> Tuple[str, int]:
+def generate_completion(
+    context: str, question: str, sources: list[str]
+) -> Tuple[str, int | None]:
     try:
-        structured_response, latency_ms = generate_structured_completion(context, question, sources)
-        return structured_response.response, latency_ms
+        structured, lat = generate_structured_completion(context, question, sources)
+        return structured.response, lat
     except Exception as e:
         logger.error(f"Generation failed: {e}")
-        return "I'm experiencing technical difficulties. Please contact support.", 0
+        return "Technical difficulties. Please contact support.", None
 
 
 def compute_prompt_hash(context: str, question: str) -> str:
-    combined = f"{context}\n---\n{question}"
-    return hashlib.sha256(combined.encode()).hexdigest()[:16]
+    return hashlib.sha256(f"{context}\n---\n{question}".encode()).hexdigest()[:16]

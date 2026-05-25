@@ -1,10 +1,10 @@
-"use client";
+'use client';
 
-import { cn } from "@/lib/utils";
-import { Card } from "./card";
-import { Badge } from "./badge";
-import { Separator } from "./separator";
-import { forwardRef } from "react";
+import { cn } from '@/lib/utils';
+import { Card } from './card';
+import { Badge } from './badge';
+import { Separator } from './separator';
+import { forwardRef } from 'react';
 
 interface BentoGridProps {
   children: React.ReactNode;
@@ -17,10 +17,10 @@ interface BentoGridItemProps {
   header?: React.ReactNode;
   icon?: React.ReactNode;
   badge?: string;
-  badgeVariant?: "default" | "secondary" | "outline" | "destructive";
+  badgeVariant?: 'default' | 'secondary' | 'outline' | 'destructive';
   className?: string;
   children?: React.ReactNode;
-  size?: "sm" | "md" | "lg" | "xl";
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   interactive?: boolean;
   onClick?: () => void;
 }
@@ -31,8 +31,8 @@ const BentoGrid = forwardRef<HTMLDivElement, BentoGridProps>(
       <div
         ref={ref}
         className={cn(
-          "grid auto-rows-[minmax(200px,auto)] grid-cols-1 gap-4",
-          "md:grid-cols-2 lg:grid-cols-3",
+          'grid auto-rows-[minmax(200px,auto)] grid-cols-1 gap-4',
+          'md:grid-cols-2 lg:grid-cols-3',
           className
         )}
         {...props}
@@ -42,40 +42,44 @@ const BentoGrid = forwardRef<HTMLDivElement, BentoGridProps>(
     );
   }
 );
-BentoGrid.displayName = "BentoGrid";
+BentoGrid.displayName = 'BentoGrid';
 
 const BentoGridItem = forwardRef<HTMLDivElement, BentoGridItemProps>(
-  ({
-    title,
-    description,
-    header,
-    icon,
-    badge,
-    badgeVariant = "default",
-    className,
-    children,
-    size = "md",
-    interactive = false,
-    onClick,
-    ...props
-  }, ref) => {
+  (
+    {
+      title,
+      description,
+      header,
+      icon,
+      badge,
+      badgeVariant = 'default',
+      className,
+      children,
+      size = 'md',
+      interactive = false,
+      onClick,
+      ...props
+    },
+    ref
+  ) => {
     const sizeClasses = {
-      sm: "md:col-span-1 md:row-span-1",
-      md: "md:col-span-1 md:row-span-2",
-      lg: "md:col-span-2 md:row-span-1",
-      xl: "md:col-span-2 md:row-span-2"
+      sm: 'md:col-span-1 md:row-span-1',
+      md: 'md:col-span-1 md:row-span-2',
+      lg: 'md:col-span-2 md:row-span-1',
+      xl: 'md:col-span-2 md:row-span-2',
     };
 
     return (
       <Card
         ref={ref}
         className={cn(
-          "group relative overflow-hidden border border-border/50",
-          "bg-card/50 backdrop-blur-sm",
-          "transition-all duration-300 ease-out",
-          "hover:border-border hover:bg-card/80",
-          "hover:shadow-lg hover:shadow-primary/5",
-          interactive && "cursor-pointer hover:scale-[1.02] active:scale-[0.98]",
+          'group relative overflow-hidden border border-border/50',
+          'bg-card/50 backdrop-blur-sm',
+          'transition-all duration-300 ease-out',
+          'hover:border-border hover:bg-card/80',
+          'hover:shadow-lg hover:shadow-primary/5',
+          interactive &&
+            'cursor-pointer hover:scale-[1.02] active:scale-[0.98]',
           sizeClasses[size],
           className
         )}
@@ -122,11 +126,7 @@ const BentoGridItem = forwardRef<HTMLDivElement, BentoGridItemProps>(
           )}
 
           {/* Additional Content */}
-          {children && (
-            <div className="flex-1">
-              {children}
-            </div>
-          )}
+          {children && <div className="flex-1">{children}</div>}
 
           {/* Interactive Indicator */}
           {interactive && (
@@ -139,6 +139,6 @@ const BentoGridItem = forwardRef<HTMLDivElement, BentoGridItemProps>(
     );
   }
 );
-BentoGridItem.displayName = "BentoGridItem";
+BentoGridItem.displayName = 'BentoGridItem';
 
 export { BentoGrid, BentoGridItem };

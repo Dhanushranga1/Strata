@@ -1,20 +1,30 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import { useOrganization } from "@/contexts/OrganizationContext";
-import api from "@/lib/api-client";
-import { FeatureGate } from "@/components/FeatureGate";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import api from '@/lib/api-client';
+import { FeatureGate } from '@/components/FeatureGate';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "");
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+const API_BASE = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  'http://127.0.0.1:8000'
+).replace(/\/$/, '');
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   BookOpen,
   Upload,
@@ -27,10 +37,10 @@ import {
   X,
   RefreshCw,
   Sparkles,
-} from "lucide-react";
-import { PageShell } from "@/ui/motion/PageShell";
-import { m } from "framer-motion";
-import { v } from "@/ui/motion/variants";
+} from 'lucide-react';
+import { PageShell } from '@/ui/motion/PageShell';
+import { m } from 'framer-motion';
+import { v } from '@/ui/motion/variants';
 
 interface KBStats {
   documents: number;
@@ -68,19 +78,22 @@ export default function KnowledgeBasePage() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<KBStats | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [uploadLoading, setUploadLoading] = useState(false);
-  const [uploadMessage, setUploadMessage] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [uploadMessage, setUploadMessage] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [rawText, setRawText] = useState("");
-  const [filename, setFilename] = useState("");
+  const [rawText, setRawText] = useState('');
+  const [filename, setFilename] = useState('');
   const [dragOver, setDragOver] = useState(false);
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
-  const [documentsFilter, setDocumentsFilter] = useState("");
+  const [documentsFilter, setDocumentsFilter] = useState('');
 
   useEffect(() => {
     if (!isReady || !orgId) {
@@ -92,14 +105,20 @@ export default function KnowledgeBasePage() {
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
-        if (!token) { router.push("/login"); return; }
-        const userInfo = await api.get("/api/me");
-        if (userInfo.role === "customer") { router.replace("/tickets"); return; }
+        if (!token) {
+          router.push('/login');
+          return;
+        }
+        const userInfo = await api.get('/api/me');
+        if (userInfo.role === 'customer') {
+          router.replace('/tickets');
+          return;
+        }
         setUser(userInfo);
         await loadStats();
       } catch {
         await supabase.auth.signOut();
-        router.push("/login");
+        router.push('/login');
       } finally {
         setLoading(false);
       }
@@ -111,16 +130,18 @@ export default function KnowledgeBasePage() {
   const loadStats = async () => {
     if (!orgId) return;
     try {
-      const statsData = await api.get<KBStats>("/api/kb/stats", orgId);
+      const statsData = await api.get<KBStats>('/api/kb/stats', orgId);
       setStats(statsData);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   };
 
   const loadDocuments = async () => {
     if (!orgId) return;
     setDocumentsLoading(true);
     try {
-      const docs = await api.get<DocumentItem[]>("/api/kb/documents", orgId);
+      const docs = await api.get<DocumentItem[]>('/api/kb/documents', orgId);
       setDocuments(docs);
     } catch {
       setDocuments([]);
@@ -154,11 +175,17 @@ export default function KnowledgeBasePage() {
 
   const handleFileUpload = async () => {
     if (!selectedFile && !rawText.trim()) {
-      setUploadMessage({ type: "error", message: "Please select a file or enter raw text" });
+      setUploadMessage({
+        type: 'error',
+        message: 'Please select a file or enter raw text',
+      });
       return;
     }
     if (!orgId) {
-      setUploadMessage({ type: "error", message: "Organization context not loaded. Please refresh." });
+      setUploadMessage({
+        type: 'error',
+        message: 'Organization context not loaded. Please refresh.',
+      });
       return;
     }
 
@@ -167,35 +194,39 @@ export default function KnowledgeBasePage() {
 
     try {
       const formData = new FormData();
-      if (selectedFile) formData.append("file", selectedFile);
-      if (rawText.trim()) formData.append("raw_text", rawText);
-      if (filename.trim()) formData.append("filename", filename);
+      if (selectedFile) formData.append('file', selectedFile);
+      if (rawText.trim()) formData.append('raw_text', rawText);
+      if (filename.trim()) formData.append('filename', filename);
 
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
 
       const response = await fetch(`${API_BASE}/api/kb/ingest`, {
-        method: "POST",
+        method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
-          "X-Organization-ID": orgId,
+          'X-Organization-ID': orgId,
         },
         body: formData,
       });
 
-      if (!response.ok) throw new Error(`Upload failed: ${await response.text()}`);
+      if (!response.ok)
+        throw new Error(`Upload failed: ${await response.text()}`);
 
       const result: IngestResponse = await response.json();
       setUploadMessage({
-        type: "success",
+        type: 'success',
         message: `Ingested successfully — ${result.chunks_ingested} chunks, ${result.vectors_added} vectors added.`,
       });
       setSelectedFile(null);
-      setRawText("");
-      setFilename("");
+      setRawText('');
+      setFilename('');
       await loadStats();
     } catch (error) {
-      setUploadMessage({ type: "error", message: error instanceof Error ? error.message : "Upload failed" });
+      setUploadMessage({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Upload failed',
+      });
     } finally {
       setUploadLoading(false);
     }
@@ -212,12 +243,11 @@ export default function KnowledgeBasePage() {
     );
   }
 
-  const hasRepAccess = user?.role === "rep" || user?.role === "admin";
+  const hasRepAccess = user?.role === 'rep' || user?.role === 'admin';
 
   return (
     <PageShell>
       <div className="max-w-5xl mx-auto space-y-6">
-
         {/* ── Header ── */}
         <m.div {...v.fadeUp} className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -225,8 +255,12 @@ export default function KnowledgeBasePage() {
               <BookOpen className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Knowledge Base</h1>
-              <p className="text-sm text-muted-foreground">AI-indexed documents your reps can search instantly</p>
+              <h1 className="text-2xl font-bold tracking-tight">
+                Knowledge Base
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                AI-indexed documents your reps can search instantly
+              </p>
             </div>
           </div>
           {stats && stats.documents > 0 && (
@@ -242,39 +276,50 @@ export default function KnowledgeBasePage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
               {
-                label: "Documents",
+                label: 'Documents',
                 value: stats.documents,
                 icon: FileText,
-                color: "text-primary",
-                bg: "bg-primary/10",
+                color: 'text-primary',
+                bg: 'bg-primary/10',
                 delay: 0,
               },
               {
-                label: "Knowledge Chunks",
+                label: 'Knowledge Chunks',
                 value: stats.chunks,
                 icon: Database,
-                color: "text-violet-500",
-                bg: "bg-violet-500/10",
+                color: 'text-violet-500',
+                bg: 'bg-violet-500/10',
                 delay: 0.05,
               },
               {
-                label: "Index Status",
-                value: stats.documents > 0 ? "Ready" : "Empty",
+                label: 'Index Status',
+                value: stats.documents > 0 ? 'Ready' : 'Empty',
                 icon: stats.documents > 0 ? CheckCircle : X,
-                color: stats.documents > 0 ? "text-success" : "text-muted-foreground",
-                bg: stats.documents > 0 ? "bg-success/10" : "bg-muted/40",
+                color:
+                  stats.documents > 0
+                    ? 'text-success'
+                    : 'text-muted-foreground',
+                bg: stats.documents > 0 ? 'bg-success/10' : 'bg-muted/40',
                 delay: 0.1,
               },
-            ].map((s) => (
-              <m.div key={s.label} {...v.scaleIn} transition={{ delay: s.delay }}>
+            ].map(s => (
+              <m.div
+                key={s.label}
+                {...v.scaleIn}
+                transition={{ delay: s.delay }}
+              >
                 <Card className="bg-surface border">
                   <CardContent className="p-4 flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-lg ${s.bg} flex items-center justify-center shrink-0`}>
+                    <div
+                      className={`w-9 h-9 rounded-lg ${s.bg} flex items-center justify-center shrink-0`}
+                    >
                       <s.icon className={`w-4.5 h-4.5 ${s.color}`} />
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">{s.label}</p>
-                      <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+                      <p className={`text-xl font-bold ${s.color}`}>
+                        {s.value}
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
@@ -287,20 +332,25 @@ export default function KnowledgeBasePage() {
         <Tabs
           defaultValue="search"
           className="space-y-4"
-          onValueChange={(value) => { if (value === "manage" && hasRepAccess) loadDocuments(); }}
+          onValueChange={value => {
+            if (value === 'manage' && hasRepAccess) loadDocuments();
+          }}
         >
           <TabsList className="h-9">
             <TabsTrigger value="search" className="gap-1.5">
-              <Search className="w-3.5 h-3.5" />Search
+              <Search className="w-3.5 h-3.5" />
+              Search
             </TabsTrigger>
             {hasRepAccess && (
               <TabsTrigger value="upload" className="gap-1.5">
-                <Upload className="w-3.5 h-3.5" />Upload
+                <Upload className="w-3.5 h-3.5" />
+                Upload
               </TabsTrigger>
             )}
             {hasRepAccess && (
               <TabsTrigger value="manage" className="gap-1.5">
-                <FileText className="w-3.5 h-3.5" />Manage
+                <FileText className="w-3.5 h-3.5" />
+                Manage
               </TabsTrigger>
             )}
           </TabsList>
@@ -311,21 +361,29 @@ export default function KnowledgeBasePage() {
               <Card className="bg-surface border">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Semantic Search</CardTitle>
-                  <CardDescription>Find relevant knowledge using natural language — not just keywords.</CardDescription>
+                  <CardDescription>
+                    Find relevant knowledge using natural language — not just
+                    keywords.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex gap-2">
                     <Input
                       placeholder="e.g. How do I reset a customer password?"
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleSearch()}
                       className="flex-1"
                     />
-                    <Button onClick={handleSearch} disabled={searchLoading || !searchQuery.trim()}>
-                      {searchLoading
-                        ? <Loader2 className="w-4 h-4 animate-spin" />
-                        : <Search className="w-4 h-4" />}
+                    <Button
+                      onClick={handleSearch}
+                      disabled={searchLoading || !searchQuery.trim()}
+                    >
+                      {searchLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Search className="w-4 h-4" />
+                      )}
                       <span className="ml-1.5 hidden sm:inline">Search</span>
                     </Button>
                   </div>
@@ -333,7 +391,8 @@ export default function KnowledgeBasePage() {
                   {searchResults.length > 0 && (
                     <div className="space-y-3">
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        {searchResults.length} result{searchResults.length !== 1 ? "s" : ""}
+                        {searchResults.length} result
+                        {searchResults.length !== 1 ? 's' : ''}
                       </p>
                       {searchResults.map((result, i) => {
                         const pct = Math.round(result.score * 100);
@@ -354,16 +413,21 @@ export default function KnowledgeBasePage() {
                                       aria-label={`${pct}% match`}
                                       className={`h-1.5 w-24 rounded-full [appearance:none] [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-border [&::-webkit-progress-value]:rounded-full [&::-moz-progress-bar]:rounded-full ${
                                         pct >= 80
-                                          ? "[&::-webkit-progress-value]:bg-success [&::-moz-progress-bar]:bg-success"
+                                          ? '[&::-webkit-progress-value]:bg-success [&::-moz-progress-bar]:bg-success'
                                           : pct >= 55
-                                          ? "[&::-webkit-progress-value]:bg-warning [&::-moz-progress-bar]:bg-warning"
-                                          : "[&::-webkit-progress-value]:bg-danger [&::-moz-progress-bar]:bg-danger"
+                                            ? '[&::-webkit-progress-value]:bg-warning [&::-moz-progress-bar]:bg-warning'
+                                            : '[&::-webkit-progress-value]:bg-danger [&::-moz-progress-bar]:bg-danger'
                                       }`}
                                     />
-                                    <span className="text-xs font-medium text-muted-foreground shrink-0">{pct}% match</span>
+                                    <span className="text-xs font-medium text-muted-foreground shrink-0">
+                                      {pct}% match
+                                    </span>
                                   </div>
                                   {result.document_id && (
-                                    <Badge variant="outline" className="text-[10px] shrink-0">
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] shrink-0"
+                                    >
                                       {result.document_id.slice(0, 8)}
                                     </Badge>
                                   )}
@@ -381,19 +445,24 @@ export default function KnowledgeBasePage() {
                     </div>
                   )}
 
-                  {searchQuery && searchResults.length === 0 && !searchLoading && (
-                    <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
-                      <AlertCircle className="h-4 w-4 text-warning shrink-0" />
-                      <p className="text-sm text-muted-foreground">
-                        No results for &ldquo;{searchQuery}&rdquo;. Try different phrasing or upload more documents.
-                      </p>
-                    </div>
-                  )}
+                  {searchQuery &&
+                    searchResults.length === 0 &&
+                    !searchLoading && (
+                      <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
+                        <AlertCircle className="h-4 w-4 text-warning shrink-0" />
+                        <p className="text-sm text-muted-foreground">
+                          No results for &ldquo;{searchQuery}&rdquo;. Try
+                          different phrasing or upload more documents.
+                        </p>
+                      </div>
+                    )}
 
                   {!searchQuery && searchResults.length === 0 && (
                     <div className="flex flex-col items-center py-10 text-muted-foreground gap-2">
                       <Search className="w-10 h-10 opacity-20" />
-                      <p className="text-sm">Type a question to search your knowledge base</p>
+                      <p className="text-sm">
+                        Type a question to search your knowledge base
+                      </p>
                     </div>
                   )}
                 </CardContent>
@@ -408,40 +477,50 @@ export default function KnowledgeBasePage() {
               <m.div {...v.scaleIn}>
                 <Card className="bg-surface border">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Upload Documents</CardTitle>
+                    <CardTitle className="text-base">
+                      Upload Documents
+                    </CardTitle>
                     <CardDescription>
-                      Add files or paste text — they&apos;ll be chunked and vector-indexed automatically.
+                      Add files or paste text — they&apos;ll be chunked and
+                      vector-indexed automatically.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-5">
                     {uploadMessage && (
                       <div
                         className={`flex items-start gap-2.5 rounded-lg border p-3 text-sm ${
-                          uploadMessage.type === "error"
-                            ? "border-danger/30 bg-danger/5 text-danger"
-                            : "border-success/30 bg-success/5 text-success"
+                          uploadMessage.type === 'error'
+                            ? 'border-danger/30 bg-danger/5 text-danger'
+                            : 'border-success/30 bg-success/5 text-success'
                         }`}
                       >
-                        {uploadMessage.type === "error"
-                          ? <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                          : <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />}
+                        {uploadMessage.type === 'error' ? (
+                          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                        ) : (
+                          <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                        )}
                         <p>{uploadMessage.message}</p>
                       </div>
                     )}
 
                     {/* Drag-and-drop zone */}
                     <div
-                      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                      onDragOver={e => {
+                        e.preventDefault();
+                        setDragOver(true);
+                      }}
                       onDragLeave={() => setDragOver(false)}
                       onDrop={handleDrop}
                       className={`relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors cursor-pointer ${
                         dragOver
-                          ? "border-primary bg-primary/5"
+                          ? 'border-primary bg-primary/5'
                           : selectedFile
-                          ? "border-success/50 bg-success/5"
-                          : "border-border hover:border-primary/50 hover:bg-accent/40"
+                            ? 'border-success/50 bg-success/5'
+                            : 'border-border hover:border-primary/50 hover:bg-accent/40'
                       }`}
-                      onClick={() => document.getElementById("kb-file-input")?.click()}
+                      onClick={() =>
+                        document.getElementById('kb-file-input')?.click()
+                      }
                     >
                       <input
                         id="kb-file-input"
@@ -449,24 +528,35 @@ export default function KnowledgeBasePage() {
                         accept=".txt,.pdf,.doc,.docx,.md"
                         aria-label="Upload knowledge base file"
                         className="sr-only"
-                        onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                        onChange={e =>
+                          setSelectedFile(e.target.files?.[0] || null)
+                        }
                       />
-                      <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${
-                        selectedFile ? "bg-success/10" : "bg-primary/10"
-                      }`}>
-                        {selectedFile
-                          ? <CheckCircle className="w-5 h-5 text-success" />
-                          : <Upload className="w-5 h-5 text-primary" />}
+                      <div
+                        className={`w-11 h-11 rounded-xl flex items-center justify-center ${
+                          selectedFile ? 'bg-success/10' : 'bg-primary/10'
+                        }`}
+                      >
+                        {selectedFile ? (
+                          <CheckCircle className="w-5 h-5 text-success" />
+                        ) : (
+                          <Upload className="w-5 h-5 text-primary" />
+                        )}
                       </div>
                       {selectedFile ? (
                         <div>
-                          <p className="text-sm font-medium text-foreground">{selectedFile.name}</p>
+                          <p className="text-sm font-medium text-foreground">
+                            {selectedFile.name}
+                          </p>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {(selectedFile.size / 1024).toFixed(1)} KB
                           </p>
                           <button
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); setSelectedFile(null); }}
+                            onClick={e => {
+                              e.stopPropagation();
+                              setSelectedFile(null);
+                            }}
                             className="mt-2 text-xs text-danger hover:underline"
                           >
                             Remove
@@ -474,8 +564,12 @@ export default function KnowledgeBasePage() {
                         </div>
                       ) : (
                         <div>
-                          <p className="text-sm font-medium">Drop a file here or click to browse</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">TXT, PDF, DOCX, MD supported</p>
+                          <p className="text-sm font-medium">
+                            Drop a file here or click to browse
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            TXT, PDF, DOCX, MD supported
+                          </p>
                         </div>
                       )}
                     </div>
@@ -490,17 +584,19 @@ export default function KnowledgeBasePage() {
                       <Textarea
                         placeholder="Paste your text content here…"
                         value={rawText}
-                        onChange={(e) => setRawText(e.target.value)}
+                        onChange={e => setRawText(e.target.value)}
                         rows={5}
                       />
                       {rawText && (
                         <div>
-                          <Label htmlFor="kb-filename" className="text-xs">Filename for this text</Label>
+                          <Label htmlFor="kb-filename" className="text-xs">
+                            Filename for this text
+                          </Label>
                           <Input
                             id="kb-filename"
                             placeholder="e.g. refund-policy.txt"
                             value={filename}
-                            onChange={(e) => setFilename(e.target.value)}
+                            onChange={e => setFilename(e.target.value)}
                             className="mt-1"
                           />
                         </div>
@@ -509,13 +605,21 @@ export default function KnowledgeBasePage() {
 
                     <Button
                       onClick={handleFileUpload}
-                      disabled={uploadLoading || (!selectedFile && !rawText.trim())}
+                      disabled={
+                        uploadLoading || (!selectedFile && !rawText.trim())
+                      }
                       className="w-full"
                     >
                       {uploadLoading ? (
-                        <><Loader2 className="w-4 h-4 animate-spin mr-2" />Ingesting…</>
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Ingesting…
+                        </>
                       ) : (
-                        <><Upload className="w-4 h-4 mr-2" />Ingest into Knowledge Base</>
+                        <>
+                          <Upload className="w-4 h-4 mr-2" />
+                          Ingest into Knowledge Base
+                        </>
                       )}
                     </Button>
                   </CardContent>
@@ -538,7 +642,9 @@ export default function KnowledgeBasePage() {
                         All Documents
                       </CardTitle>
                       <CardDescription>
-                        {documents.length} document{documents.length !== 1 ? "s" : ""} in your knowledge base
+                        {documents.length} document
+                        {documents.length !== 1 ? 's' : ''} in your knowledge
+                        base
                       </CardDescription>
                     </div>
                     <Button
@@ -547,9 +653,11 @@ export default function KnowledgeBasePage() {
                       onClick={loadDocuments}
                       disabled={documentsLoading}
                     >
-                      {documentsLoading
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <RefreshCw className="h-3.5 w-3.5" />}
+                      {documentsLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
                       <span className="ml-1.5">Refresh</span>
                     </Button>
                   </CardHeader>
@@ -557,7 +665,7 @@ export default function KnowledgeBasePage() {
                     <Input
                       placeholder="Filter by title…"
                       value={documentsFilter}
-                      onChange={(e) => setDocumentsFilter(e.target.value)}
+                      onChange={e => setDocumentsFilter(e.target.value)}
                     />
 
                     {documentsLoading ? (
@@ -569,7 +677,8 @@ export default function KnowledgeBasePage() {
                         <FileText className="h-10 w-10 opacity-20" />
                         <p className="text-sm font-medium">No documents yet</p>
                         <p className="text-xs text-center max-w-xs">
-                          Upload your first document in the Upload tab and it will appear here.
+                          Upload your first document in the Upload tab and it
+                          will appear here.
                         </p>
                       </div>
                     ) : (
@@ -577,23 +686,34 @@ export default function KnowledgeBasePage() {
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="bg-muted/40 border-b">
-                              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Title</th>
-                              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Type</th>
-                              <th className="text-center px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Chunks</th>
-                              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">Added</th>
+                              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                Title
+                              </th>
+                              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">
+                                Type
+                              </th>
+                              <th className="text-center px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                Chunks
+                              </th>
+                              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">
+                                Added
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
                             {documents
-                              .filter((doc) =>
-                                documentsFilter === "" ||
-                                doc.title.toLowerCase().includes(documentsFilter.toLowerCase())
+                              .filter(
+                                doc =>
+                                  documentsFilter === '' ||
+                                  doc.title
+                                    .toLowerCase()
+                                    .includes(documentsFilter.toLowerCase())
                               )
                               .map((doc, i) => (
                                 <tr
                                   key={doc.id}
                                   className={`border-b last:border-0 hover:bg-accent/40 transition-colors ${
-                                    i % 2 === 0 ? "" : "bg-muted/20"
+                                    i % 2 === 0 ? '' : 'bg-muted/20'
                                   }`}
                                 >
                                   <td className="px-4 py-3">
@@ -602,13 +722,22 @@ export default function KnowledgeBasePage() {
                                         <FileText className="w-3.5 h-3.5 text-primary" />
                                       </div>
                                       <div>
-                                        <p className="font-medium truncate max-w-[180px]">{doc.title}</p>
-                                        <p className="text-[10px] text-muted-foreground font-mono">{doc.id.slice(0, 8)}</p>
+                                        <p className="font-medium truncate max-w-[180px]">
+                                          {doc.title}
+                                        </p>
+                                        <p className="text-[10px] text-muted-foreground font-mono">
+                                          {doc.id.slice(0, 8)}
+                                        </p>
                                       </div>
                                     </div>
                                   </td>
                                   <td className="px-4 py-3 hidden sm:table-cell">
-                                    <Badge variant="outline" className="text-xs">{doc.source_type}</Badge>
+                                    <Badge
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      {doc.source_type}
+                                    </Badge>
                                   </td>
                                   <td className="px-4 py-3 text-center">
                                     <span className="inline-flex items-center justify-center w-8 h-6 rounded-md bg-primary/10 text-primary text-xs font-semibold">
@@ -616,10 +745,12 @@ export default function KnowledgeBasePage() {
                                     </span>
                                   </td>
                                   <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
-                                    {new Date(doc.created_at).toLocaleDateString(undefined, {
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric",
+                                    {new Date(
+                                      doc.created_at
+                                    ).toLocaleDateString(undefined, {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      year: 'numeric',
                                     })}
                                   </td>
                                 </tr>

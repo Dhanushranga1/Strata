@@ -1,18 +1,28 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import { useOrganization } from "@/contexts/OrganizationContext";
-import api from "@/lib/api-client";
-import { toast } from "sonner";
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import api from '@/lib/api-client';
+import { toast } from 'sonner';
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000').replace(/\/$/, '');
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+const API_BASE = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  'http://127.0.0.1:8000'
+).replace(/\/$/, '');
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   Settings,
   Save,
@@ -26,7 +36,8 @@ import {
   AlertCircle,
   UserCheck,
   Zap,
-} from "lucide-react";
+  Brain,
+} from 'lucide-react';
 
 export default function AdminSettingsPage() {
   const router = useRouter();
@@ -37,44 +48,54 @@ export default function AdminSettingsPage() {
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [diagnosticsData, setDiagnosticsData] = useState<any>(null);
   const [settings, setSettings] = useState({
-    siteTitle: "TicketPilot",
-    siteDomain: "localhost:3000",
+    siteTitle: 'TicketPilot',
+    siteDomain: 'localhost:3000',
     emailNotifications: true,
     autoAssignTickets: true,
     requireApproval: true,
-    maxFileSize: "10",
-    sessionTimeout: "24",
+    maxFileSize: '10',
+    sessionTimeout: '24',
     backupEnabled: true,
     maintenanceMode: false,
-    debugMode: false
+    debugMode: false,
   });
 
   const PRIORITY_LABELS: Record<number, string> = {
-    1: "P1 — Lowest (default 168 hrs / 1 week)",
-    2: "P2 — Very Low (default 72 hrs / 3 days)",
-    3: "P3 — Low (default 48 hrs / 2 days)",
-    4: "P4 — Normal (default 24 hrs / 1 day)",
-    5: "P5 — High (default 12 hrs)",
-    6: "P6 — Very High (default 6 hrs)",
-    7: "P7 — Critical (default 7 hrs)",
+    1: 'P1 — Lowest (default 168 hrs / 1 week)',
+    2: 'P2 — Very Low (default 72 hrs / 3 days)',
+    3: 'P3 — Low (default 48 hrs / 2 days)',
+    4: 'P4 — Normal (default 24 hrs / 1 day)',
+    5: 'P5 — High (default 12 hrs)',
+    6: 'P6 — Very High (default 6 hrs)',
+    7: 'P7 — Critical (default 7 hrs)',
   };
-  const PRIORITY_DEFAULTS: Record<number, number> = { 1:168, 2:72, 3:48, 4:24, 5:12, 6:6, 7:7 };
+  const PRIORITY_DEFAULTS: Record<number, number> = {
+    1: 168,
+    2: 72,
+    3: 48,
+    4: 24,
+    5: 12,
+    6: 6,
+    7: 7,
+  };
 
   // Attention thresholds — how long before a ticket at each priority level gets flagged
   const [thresholds, setThresholds] = useState<Record<number, string>>(
-    Object.fromEntries(Object.entries(PRIORITY_DEFAULTS).map(([k, v]) => [Number(k), String(v)]))
+    Object.fromEntries(
+      Object.entries(PRIORITY_DEFAULTS).map(([k, v]) => [Number(k), String(v)])
+    )
   );
   const [thresholdsSaving, setThresholdsSaving] = useState(false);
 
   // Overdue / notification settings — persisted in org settings JSONB
   const [overdueSettings, setOverdueSettings] = useState({
-    overdue_threshold_hours: "48",
-    overdue_reminder_hours: "24",
+    overdue_threshold_hours: '48',
+    overdue_reminder_hours: '24',
   });
   const [overdueSaving, setOverdueSaving] = useState(false);
 
   // Default ETR (Expected Time to Resolution) — applied to every new ticket
-  const [defaultEtrHours, setDefaultEtrHours] = useState("");
+  const [defaultEtrHours, setDefaultEtrHours] = useState('');
   const [etrSaving, setEtrSaving] = useState(false);
 
   // Auto-assign on create — persisted in org settings
@@ -82,46 +103,61 @@ export default function AdminSettingsPage() {
   const [autoAssignSaving, setAutoAssignSaving] = useState(false);
 
   // Rep workload + bulk auto-assign
-  const [workload, setWorkload] = useState<{ user_id: string; email: string; open_tickets: number }[]>([]);
+  const [workload, setWorkload] = useState<
+    { user_id: string; email: string; open_tickets: number }[]
+  >([]);
   const [totalUnassigned, setTotalUnassigned] = useState(0);
   const [bulkAssigning, setBulkAssigning] = useState(false);
 
   // Load all org settings once auth + org are ready
   useEffect(() => {
     if (!orgId || !user) return;
-    api.get(`/api/organizations/${orgId}`, orgId)
+    api
+      .get(`/api/organizations/${orgId}`, orgId)
       .then((data: any) => {
         const s = data.settings || {};
         setOverdueSettings({
           overdue_threshold_hours: String(s.overdue_threshold_hours ?? 48),
           overdue_reminder_hours: String(s.overdue_reminder_hours ?? 24),
         });
-        if (s.default_etr_hours != null) setDefaultEtrHours(String(s.default_etr_hours));
+        if (s.default_etr_hours != null)
+          setDefaultEtrHours(String(s.default_etr_hours));
         setAutoAssignOnCreate(!!s.auto_assign_on_create);
         const at = s.attention_thresholds || {};
         setThresholds(
           Object.fromEntries(
-            [1,2,3,4,5,6,7].map(lvl => [lvl, String(at[lvl] ?? PRIORITY_DEFAULTS[lvl])])
+            [1, 2, 3, 4, 5, 6, 7].map(lvl => [
+              lvl,
+              String(at[lvl] ?? PRIORITY_DEFAULTS[lvl]),
+            ])
           )
         );
       })
       .catch(() => {});
 
     // Load rep workload
-    api.get<{ reps: { user_id: string; email: string; open_tickets: number }[]; total_unassigned: number }>(
-      '/api/rep/workload', orgId
-    ).then(d => {
-      setWorkload(d.reps);
-      setTotalUnassigned(d.total_unassigned);
-    }).catch(() => {});
+    api
+      .get<{
+        reps: { user_id: string; email: string; open_tickets: number }[];
+        total_unassigned: number;
+      }>('/api/rep/workload', orgId)
+      .then(d => {
+        setWorkload(d.reps);
+        setTotalUnassigned(d.total_unassigned);
+      })
+      .catch(() => {});
   }, [orgId, user]);
 
   // Merge-safe patch helper — fetches current settings before saving
   const patchOrgSettings = async (patch: Record<string, unknown>) => {
     const current: any = await api.get(`/api/organizations/${orgId}`, orgId);
-    await api.patch(`/api/organizations/${orgId}`, {
-      settings: { ...(current.settings || {}), ...patch },
-    }, orgId);
+    await api.patch(
+      `/api/organizations/${orgId}`,
+      {
+        settings: { ...(current.settings || {}), ...patch },
+      },
+      orgId
+    );
   };
 
   const saveOverdueSettings = async () => {
@@ -129,12 +165,14 @@ export default function AdminSettingsPage() {
     try {
       setOverdueSaving(true);
       await patchOrgSettings({
-        overdue_threshold_hours: Number(overdueSettings.overdue_threshold_hours) || 48,
-        overdue_reminder_hours: Number(overdueSettings.overdue_reminder_hours) || 24,
+        overdue_threshold_hours:
+          Number(overdueSettings.overdue_threshold_hours) || 48,
+        overdue_reminder_hours:
+          Number(overdueSettings.overdue_reminder_hours) || 24,
       });
-      toast.success("Overdue settings saved");
+      toast.success('Overdue settings saved');
     } catch {
-      toast.error("Failed to save settings");
+      toast.error('Failed to save settings');
     } finally {
       setOverdueSaving(false);
     }
@@ -146,12 +184,15 @@ export default function AdminSettingsPage() {
       setThresholdsSaving(true);
       await patchOrgSettings({
         attention_thresholds: Object.fromEntries(
-          [1,2,3,4,5,6,7].map(lvl => [lvl, Number(thresholds[lvl]) || PRIORITY_DEFAULTS[lvl]])
+          [1, 2, 3, 4, 5, 6, 7].map(lvl => [
+            lvl,
+            Number(thresholds[lvl]) || PRIORITY_DEFAULTS[lvl],
+          ])
         ),
       });
-      toast.success("Attention thresholds saved");
+      toast.success('Attention thresholds saved');
     } catch {
-      toast.error("Failed to save settings");
+      toast.error('Failed to save settings');
     } finally {
       setThresholdsSaving(false);
     }
@@ -163,9 +204,9 @@ export default function AdminSettingsPage() {
       setAutoAssignSaving(true);
       setAutoAssignOnCreate(value);
       await patchOrgSettings({ auto_assign_on_create: value });
-      toast.success(value ? "Auto-assign enabled" : "Auto-assign disabled");
+      toast.success(value ? 'Auto-assign enabled' : 'Auto-assign disabled');
     } catch {
-      toast.error("Failed to save setting");
+      toast.error('Failed to save setting');
       setAutoAssignOnCreate(!value); // revert
     } finally {
       setAutoAssignSaving(false);
@@ -176,20 +217,30 @@ export default function AdminSettingsPage() {
     if (!orgId) return;
     try {
       setBulkAssigning(true);
-      const result = await api.post<{ assigned: number; details: { assigned_to: string }[] }>(
-        '/api/admin/auto-assign', {}, orgId
-      );
+      const result = await api.post<{
+        assigned: number;
+        details: { assigned_to: string }[];
+      }>('/api/admin/auto-assign', {}, orgId);
       if (result.assigned === 0) {
-        toast.info("No unassigned tickets to assign");
+        toast.info('No unassigned tickets to assign');
       } else {
-        toast.success(`Assigned ${result.assigned} ticket${result.assigned !== 1 ? 's' : ''} across your team`);
+        toast.success(
+          `Assigned ${result.assigned} ticket${result.assigned !== 1 ? 's' : ''} across your team`
+        );
       }
       // Refresh workload
-      api.get<{ reps: { user_id: string; email: string; open_tickets: number }[]; total_unassigned: number }>(
-        '/api/rep/workload', orgId
-      ).then(d => { setWorkload(d.reps); setTotalUnassigned(d.total_unassigned); }).catch(() => {});
+      api
+        .get<{
+          reps: { user_id: string; email: string; open_tickets: number }[];
+          total_unassigned: number;
+        }>('/api/rep/workload', orgId)
+        .then(d => {
+          setWorkload(d.reps);
+          setTotalUnassigned(d.total_unassigned);
+        })
+        .catch(() => {});
     } catch {
-      toast.error("Auto-assign failed");
+      toast.error('Auto-assign failed');
     } finally {
       setBulkAssigning(false);
     }
@@ -202,9 +253,9 @@ export default function AdminSettingsPage() {
       await patchOrgSettings({
         default_etr_hours: defaultEtrHours ? Number(defaultEtrHours) : null,
       });
-      toast.success("Default resolution time saved");
+      toast.success('Default resolution time saved');
     } catch {
-      toast.error("Failed to save settings");
+      toast.error('Failed to save settings');
     } finally {
       setEtrSaving(false);
     }
@@ -222,7 +273,7 @@ export default function AdminSettingsPage() {
         }
 
         const response = await fetch(`${API_BASE}/api/me`, {
-          headers: { 'Authorization': `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${token}` },
         });
 
         if (response.ok) {
@@ -261,9 +312,9 @@ export default function AdminSettingsPage() {
         max_file_size_mb: Number(settings.maxFileSize) || 10,
         email_notifications: settings.emailNotifications,
       });
-      toast.success("Settings saved");
+      toast.success('Settings saved');
     } catch {
-      toast.error("Failed to save settings");
+      toast.error('Failed to save settings');
     } finally {
       setGeneralSaving(false);
     }
@@ -272,18 +323,18 @@ export default function AdminSettingsPage() {
   const testEmail = async () => {
     try {
       await api.post('/api/admin/test-email', {}, orgId);
-      toast.success("Test email sent — check your inbox");
+      toast.success('Test email sent — check your inbox');
     } catch {
-      toast.info("Email test skipped (no SMTP key configured)");
+      toast.info('Email test skipped (no SMTP key configured)');
     }
   };
 
   const clearCache = async () => {
     try {
       await api.get('/api/wake');
-      toast.success("Server cache cleared and connections re-warmed");
+      toast.success('Server cache cleared and connections re-warmed');
     } catch {
-      toast.error("Cache clear failed");
+      toast.error('Cache clear failed');
     }
   };
 
@@ -294,7 +345,7 @@ export default function AdminSettingsPage() {
       const token = sessionData?.session?.access_token;
 
       const response = await fetch(`${API_BASE}/api/admin/diagnostics/db`, {
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (response.ok) {
@@ -321,7 +372,9 @@ export default function AdminSettingsPage() {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
-          <p className="text-muted-foreground">You don't have permission to access this page.</p>
+          <p className="text-muted-foreground">
+            You don't have permission to access this page.
+          </p>
         </div>
       </div>
     );
@@ -333,16 +386,27 @@ export default function AdminSettingsPage() {
         <div className="flex items-center gap-3">
           <Settings className="h-8 w-8 text-primary" />
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">System Settings</h1>
+            <h1 className="text-3xl font-bold tracking-tight">
+              System Settings
+            </h1>
             <p className="text-muted-foreground">
               Configure system-wide settings and preferences
             </p>
           </div>
         </div>
-        <Button onClick={handleSaveSettings} disabled={generalSaving}>
-          <Save className="h-4 w-4 mr-2" />
-          {generalSaving ? "Saving…" : "Save Changes"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => router.push('/admin/settings/ai')}
+          >
+            <Brain className="h-4 w-4 mr-2" />
+            AI Settings
+          </Button>
+          <Button onClick={handleSaveSettings} disabled={generalSaving}>
+            <Save className="h-4 w-4 mr-2" />
+            {generalSaving ? 'Saving…' : 'Save Changes'}
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -361,7 +425,9 @@ export default function AdminSettingsPage() {
               <Input
                 id="siteTitle"
                 value={settings.siteTitle}
-                onChange={(e) => setSettings({...settings, siteTitle: e.target.value})}
+                onChange={e =>
+                  setSettings({ ...settings, siteTitle: e.target.value })
+                }
               />
             </div>
             <div className="space-y-2">
@@ -369,7 +435,9 @@ export default function AdminSettingsPage() {
               <Input
                 id="siteDomain"
                 value={settings.siteDomain}
-                onChange={(e) => setSettings({...settings, siteDomain: e.target.value})}
+                onChange={e =>
+                  setSettings({ ...settings, siteDomain: e.target.value })
+                }
               />
             </div>
             <div className="space-y-2">
@@ -378,7 +446,9 @@ export default function AdminSettingsPage() {
                 id="sessionTimeout"
                 type="number"
                 value={settings.sessionTimeout}
-                onChange={(e) => setSettings({...settings, sessionTimeout: e.target.value})}
+                onChange={e =>
+                  setSettings({ ...settings, sessionTimeout: e.target.value })
+                }
               />
             </div>
           </CardContent>
@@ -391,23 +461,31 @@ export default function AdminSettingsPage() {
               <Bell className="h-5 w-5" />
               Notifications
             </CardTitle>
-            <CardDescription>Email and notification preferences</CardDescription>
+            <CardDescription>
+              Email and notification preferences
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Email Notifications</Label>
-                <p className="text-sm text-muted-foreground">Send email notifications for new tickets</p>
+                <p className="text-sm text-muted-foreground">
+                  Send email notifications for new tickets
+                </p>
               </div>
               <Switch
                 checked={settings.emailNotifications}
-                onCheckedChange={(checked: boolean) => setSettings({...settings, emailNotifications: checked})}
+                onCheckedChange={(checked: boolean) =>
+                  setSettings({ ...settings, emailNotifications: checked })
+                }
               />
             </div>
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Auto-assign Tickets</Label>
-                <p className="text-sm text-muted-foreground">Automatically assign tickets to available reps</p>
+                <p className="text-sm text-muted-foreground">
+                  Automatically assign tickets to available reps
+                </p>
               </div>
               <Switch
                 checked={autoAssignOnCreate}
@@ -425,17 +503,23 @@ export default function AdminSettingsPage() {
               <Shield className="h-5 w-5" />
               Security
             </CardTitle>
-            <CardDescription>Security and access control settings</CardDescription>
+            <CardDescription>
+              Security and access control settings
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Require Role Approval</Label>
-                <p className="text-sm text-muted-foreground">Admin approval required for role changes</p>
+                <p className="text-sm text-muted-foreground">
+                  Admin approval required for role changes
+                </p>
               </div>
               <Switch
                 checked={settings.requireApproval}
-                onCheckedChange={(checked: boolean) => setSettings({...settings, requireApproval: checked})}
+                onCheckedChange={(checked: boolean) =>
+                  setSettings({ ...settings, requireApproval: checked })
+                }
               />
             </div>
             <div className="space-y-2">
@@ -444,7 +528,9 @@ export default function AdminSettingsPage() {
                 id="maxFileSize"
                 type="number"
                 value={settings.maxFileSize}
-                onChange={(e) => setSettings({...settings, maxFileSize: e.target.value})}
+                onChange={e =>
+                  setSettings({ ...settings, maxFileSize: e.target.value })
+                }
               />
             </div>
           </CardContent>
@@ -463,31 +549,43 @@ export default function AdminSettingsPage() {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Backup Enabled</Label>
-                <p className="text-sm text-muted-foreground">Automatic daily backups</p>
+                <p className="text-sm text-muted-foreground">
+                  Automatic daily backups
+                </p>
               </div>
               <Switch
                 checked={settings.backupEnabled}
-                onCheckedChange={(checked: boolean) => setSettings({...settings, backupEnabled: checked})}
+                onCheckedChange={(checked: boolean) =>
+                  setSettings({ ...settings, backupEnabled: checked })
+                }
               />
             </div>
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Maintenance Mode</Label>
-                <p className="text-sm text-muted-foreground">Block user access for maintenance</p>
+                <p className="text-sm text-muted-foreground">
+                  Block user access for maintenance
+                </p>
               </div>
               <Switch
                 checked={settings.maintenanceMode}
-                onCheckedChange={(checked: boolean) => setSettings({...settings, maintenanceMode: checked})}
+                onCheckedChange={(checked: boolean) =>
+                  setSettings({ ...settings, maintenanceMode: checked })
+                }
               />
             </div>
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Debug Mode</Label>
-                <p className="text-sm text-muted-foreground">Enable detailed error logging</p>
+                <p className="text-sm text-muted-foreground">
+                  Enable detailed error logging
+                </p>
               </div>
               <Switch
                 checked={settings.debugMode}
-                onCheckedChange={(checked: boolean) => setSettings({...settings, debugMode: checked})}
+                onCheckedChange={(checked: boolean) =>
+                  setSettings({ ...settings, debugMode: checked })
+                }
               />
             </div>
           </CardContent>
@@ -502,15 +600,19 @@ export default function AdminSettingsPage() {
             Attention Thresholds (Priority Levels)
           </CardTitle>
           <CardDescription>
-            How long a ticket at each priority level can sit open before it is auto-flagged as
-            "Needs Attention". Priority 1 is lowest urgency, 7 is most critical.
+            How long a ticket at each priority level can sit open before it is
+            auto-flagged as "Needs Attention". Priority 1 is lowest urgency, 7
+            is most critical.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {([1,2,3,4,5,6,7] as const).map((lvl) => (
+            {([1, 2, 3, 4, 5, 6, 7] as const).map(lvl => (
               <div key={lvl} className="space-y-1.5">
-                <Label htmlFor={`threshold-p${lvl}`} className="text-xs font-medium">
+                <Label
+                  htmlFor={`threshold-p${lvl}`}
+                  className="text-xs font-medium"
+                >
                   {PRIORITY_LABELS[lvl]}
                 </Label>
                 <div className="flex items-center gap-1.5">
@@ -519,19 +621,28 @@ export default function AdminSettingsPage() {
                     type="number"
                     min={1}
                     value={thresholds[lvl]}
-                    onChange={(e) =>
-                      setThresholds((prev) => ({ ...prev, [lvl]: e.target.value }))
+                    onChange={e =>
+                      setThresholds(prev => ({
+                        ...prev,
+                        [lvl]: e.target.value,
+                      }))
                     }
                     className="h-8 text-sm"
                   />
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">hrs</span>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    hrs
+                  </span>
                 </div>
               </div>
             ))}
           </div>
-          <Button onClick={saveThresholds} disabled={thresholdsSaving} size="sm">
+          <Button
+            onClick={saveThresholds}
+            disabled={thresholdsSaving}
+            size="sm"
+          >
             <Save className="h-4 w-4 mr-2" />
-            {thresholdsSaving ? "Saving…" : "Save Thresholds"}
+            {thresholdsSaving ? 'Saving…' : 'Save Thresholds'}
           </Button>
         </CardContent>
       </Card>
@@ -544,8 +655,9 @@ export default function AdminSettingsPage() {
             Overdue &amp; Notification Settings
           </CardTitle>
           <CardDescription>
-            Configure when tickets are marked overdue and how often reminder emails are sent.
-            Changes are saved to your organisation and picked up by the next background scan (runs every 15 min).
+            Configure when tickets are marked overdue and how often reminder
+            emails are sent. Changes are saved to your organisation and picked
+            up by the next background scan (runs every 15 min).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -559,13 +671,16 @@ export default function AdminSettingsPage() {
                 type="number"
                 min={1}
                 value={overdueSettings.overdue_threshold_hours}
-                onChange={(e) =>
-                  setOverdueSettings((prev) => ({ ...prev, overdue_threshold_hours: e.target.value }))
+                onChange={e =>
+                  setOverdueSettings(prev => ({
+                    ...prev,
+                    overdue_threshold_hours: e.target.value,
+                  }))
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Tickets open longer than this are flagged overdue and an email is sent to the assigned rep.
-                Default: 48 hrs.
+                Tickets open longer than this are flagged overdue and an email
+                is sent to the assigned rep. Default: 48 hrs.
               </p>
             </div>
             <div className="space-y-2">
@@ -577,13 +692,16 @@ export default function AdminSettingsPage() {
                 type="number"
                 min={1}
                 value={overdueSettings.overdue_reminder_hours}
-                onChange={(e) =>
-                  setOverdueSettings((prev) => ({ ...prev, overdue_reminder_hours: e.target.value }))
+                onChange={e =>
+                  setOverdueSettings(prev => ({
+                    ...prev,
+                    overdue_reminder_hours: e.target.value,
+                  }))
                 }
               />
               <p className="text-xs text-muted-foreground">
-                How often to re-send the overdue reminder until the ticket is resolved.
-                Default: 24 hrs.
+                How often to re-send the overdue reminder until the ticket is
+                resolved. Default: 24 hrs.
               </p>
             </div>
           </div>
@@ -591,14 +709,21 @@ export default function AdminSettingsPage() {
           <div className="flex items-center gap-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>
-              Make sure <code className="font-mono bg-amber-100 px-1 rounded">RESEND_API_KEY</code> is set in the backend
-              <code className="font-mono bg-amber-100 px-1 rounded mx-1">.env</code> for emails to send.
+              Make sure{' '}
+              <code className="font-mono bg-amber-100 px-1 rounded">
+                RESEND_API_KEY
+              </code>{' '}
+              is set in the backend
+              <code className="font-mono bg-amber-100 px-1 rounded mx-1">
+                .env
+              </code>{' '}
+              for emails to send.
             </span>
           </div>
 
           <Button onClick={saveOverdueSettings} disabled={overdueSaving}>
             <Save className="h-4 w-4 mr-2" />
-            {overdueSaving ? "Saving…" : "Save Notification Settings"}
+            {overdueSaving ? 'Saving…' : 'Save Notification Settings'}
           </Button>
         </CardContent>
       </Card>
@@ -611,9 +736,9 @@ export default function AdminSettingsPage() {
             Default Resolution Time
           </CardTitle>
           <CardDescription>
-            Automatically set an expected resolution deadline on every new ticket.
-            When the deadline passes without resolution, the assigned rep receives an email notification.
-            Leave blank to disable.
+            Automatically set an expected resolution deadline on every new
+            ticket. When the deadline passes without resolution, the assigned
+            rep receives an email notification. Leave blank to disable.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -626,17 +751,17 @@ export default function AdminSettingsPage() {
                 min={1}
                 placeholder="e.g. 24"
                 value={defaultEtrHours}
-                onChange={(e) => setDefaultEtrHours(e.target.value)}
+                onChange={e => setDefaultEtrHours(e.target.value)}
               />
             </div>
             <Button onClick={saveEtrSettings} disabled={etrSaving}>
               <Save className="h-4 w-4 mr-2" />
-              {etrSaving ? "Saving…" : "Save"}
+              {etrSaving ? 'Saving…' : 'Save'}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Example: <strong>24</strong> = tickets must be resolved within 24 hours of creation.
-            Reps see the deadline in the Rep Console queue.
+            Example: <strong>24</strong> = tickets must be resolved within 24
+            hours of creation. Reps see the deadline in the Rep Console queue.
           </p>
         </CardContent>
       </Card>
@@ -649,8 +774,8 @@ export default function AdminSettingsPage() {
             Ticket Assignment
           </CardTitle>
           <CardDescription>
-            Control how tickets are routed to reps. Auto-assign distributes work to whoever
-            has the lowest open ticket count.
+            Control how tickets are routed to reps. Auto-assign distributes work
+            to whoever has the lowest open ticket count.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -684,11 +809,18 @@ export default function AdminSettingsPage() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {workload.map(r => (
-                      <tr key={r.user_id} className="hover:bg-[rgb(var(--surface2))] transition-colors">
+                      <tr
+                        key={r.user_id}
+                        className="hover:bg-[rgb(var(--surface2))] transition-colors"
+                      >
                         <td className="px-3 py-2 font-medium">{r.email}</td>
-                        <td className="px-3 py-2 text-muted-foreground capitalize">{(r as any).role}</td>
+                        <td className="px-3 py-2 text-muted-foreground capitalize">
+                          {(r as any).role}
+                        </td>
                         <td className="px-3 py-2 text-right">
-                          <span className={`font-semibold ${r.open_tickets > 10 ? 'text-red-400' : r.open_tickets > 5 ? 'text-amber-400' : 'text-green-400'}`}>
+                          <span
+                            className={`font-semibold ${r.open_tickets > 10 ? 'text-red-400' : r.open_tickets > 5 ? 'text-amber-400' : 'text-green-400'}`}
+                          >
                             {r.open_tickets}
                           </span>
                         </td>
@@ -698,7 +830,8 @@ export default function AdminSettingsPage() {
                 </table>
               </div>
               <p className="text-xs text-muted-foreground">
-                {totalUnassigned} unassigned open ticket{totalUnassigned !== 1 ? 's' : ''}
+                {totalUnassigned} unassigned open ticket
+                {totalUnassigned !== 1 ? 's' : ''}
               </p>
             </div>
           )}
@@ -711,10 +844,14 @@ export default function AdminSettingsPage() {
               onClick={runBulkAutoAssign}
             >
               <Zap className="h-4 w-4 mr-2" />
-              {bulkAssigning ? "Assigning…" : `Auto-assign ${totalUnassigned > 0 ? `${totalUnassigned} ` : ''}unassigned tickets`}
+              {bulkAssigning
+                ? 'Assigning…'
+                : `Auto-assign ${totalUnassigned > 0 ? `${totalUnassigned} ` : ''}unassigned tickets`}
             </Button>
             {totalUnassigned === 0 && (
-              <span className="text-xs text-muted-foreground">All tickets are assigned</span>
+              <span className="text-xs text-muted-foreground">
+                All tickets are assigned
+              </span>
             )}
           </div>
         </CardContent>
@@ -727,11 +864,13 @@ export default function AdminSettingsPage() {
             <Database className="h-5 w-5" />
             Database Diagnostics
           </CardTitle>
-          <CardDescription>System health and database information</CardDescription>
+          <CardDescription>
+            System health and database information
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-4 mb-4">
-            <Button 
+            <Button
               onClick={loadDiagnostics}
               disabled={diagnosticsLoading}
               variant="outline"
@@ -744,13 +883,17 @@ export default function AdminSettingsPage() {
               {diagnosticsLoading ? 'Loading...' : 'Run Diagnostics'}
             </Button>
           </div>
-          
+
           {diagnosticsData && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">Database Version</Label>
-                  <p className="text-sm text-muted-foreground">{diagnosticsData.database_version}</p>
+                  <Label className="text-sm font-medium">
+                    Database Version
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {diagnosticsData.database_version}
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Last Check</Label>
@@ -759,24 +902,34 @@ export default function AdminSettingsPage() {
                   </p>
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Table Counts</Label>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                  {Object.entries(diagnosticsData.table_counts || {}).map(([table, count]) => (
-                    <div key={table} className="flex justify-between p-2 bg-muted rounded">
-                      <span className="font-mono">{table}</span>
-                      <span className="font-semibold">{String(count)}</span>
-                    </div>
-                  ))}
+                  {Object.entries(diagnosticsData.table_counts || {}).map(
+                    ([table, count]) => (
+                      <div
+                        key={table}
+                        className="flex justify-between p-2 bg-muted rounded"
+                      >
+                        <span className="font-mono">{table}</span>
+                        <span className="font-semibold">{String(count)}</span>
+                      </div>
+                    )
+                  )}
                 </div>
               </div>
-              
+
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Installed Extensions</Label>
+                <Label className="text-sm font-medium">
+                  Installed Extensions
+                </Label>
                 <div className="flex flex-wrap gap-1">
                   {diagnosticsData.extensions?.map((ext: string) => (
-                    <span key={ext} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                    <span
+                      key={ext}
+                      className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
+                    >
                       {ext}
                     </span>
                   ))}
@@ -799,7 +952,14 @@ export default function AdminSettingsPage() {
               <RefreshCw className="h-4 w-4 mr-2" />
               Clear Cache
             </Button>
-            <Button variant="outline" onClick={() => toast.info("Database backups are managed automatically by Supabase. Check your Supabase dashboard → Backups.")}>
+            <Button
+              variant="outline"
+              onClick={() =>
+                toast.info(
+                  'Database backups are managed automatically by Supabase. Check your Supabase dashboard → Backups.'
+                )
+              }
+            >
               <Database className="h-4 w-4 mr-2" />
               Backup Info
             </Button>

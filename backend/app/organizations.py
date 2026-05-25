@@ -3,57 +3,62 @@ Organizations API Router - Phase 2, Task 2.2
 Provides REST API for organization management in multi-tenant architecture.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
-from datetime import datetime
-from .db_sync import get_db_connection  # noqa: F401 — re-exported for invites.py
-import logging
 import json
+import logging
 import re
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 
 from .auth import User, get_current_user
+from .db_sync import get_db_connection  # noqa: F401 — re-exported for invites.py
 
 logger = logging.getLogger(__name__)
 
 
 # Simple validation functions (inline to avoid dependency on bleach)
-SLUG_REGEX = re.compile(r'^[a-z0-9]+(?:-[a-z0-9]+)*$')
+SLUG_REGEX = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
 
 def validate_slug(value: str) -> str:
     """Validate organization slug format."""
     if not value:
         raise HTTPException(400, "Slug is required")
-    
+
     value = value.strip().lower()
-    
+
     if len(value) < 3 or len(value) > 50:
         raise HTTPException(400, "Slug must be 3-50 characters")
-    
+
     if not SLUG_REGEX.match(value):
-        raise HTTPException(400, "Slug can only contain lowercase letters, numbers, and hyphens")
-    
+        raise HTTPException(
+            400, "Slug can only contain lowercase letters, numbers, and hyphens"
+        )
+
     reserved = {"api", "admin", "auth", "login", "signup", "docs", "health"}
     if value in reserved:
         raise HTTPException(400, f"'{value}' is a reserved slug")
-    
+
     return value
 
 
 def generate_slug_from_name(name: str) -> str:
     """Generate URL-safe slug from name."""
     slug = name.strip().lower()
-    slug = re.sub(r'[^a-z0-9]+', '-', slug)
-    slug = slug.strip('-')
-    slug = re.sub(r'-+', '-', slug)
-    
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = slug.strip("-")
+    slug = re.sub(r"-+", "-", slug)
+
     if len(slug) < 3:
         slug = slug + "-org"
-    
+
     if len(slug) > 50:
-        slug = slug[:50].rstrip('-')
-    
+        slug = slug[:50].rstrip("-")
+
     return slug
+
 
 router = APIRouter(prefix="/api/organizations", tags=["organizations"])
 
@@ -160,9 +165,7 @@ def check_slug_available(slug: str, exclude_org_id: Optional[str] = None) -> boo
                 (slug, exclude_org_id),
             )
         else:
-            cursor.execute(
-                "SELECT 1 FROM app.organizations WHERE slug = %s", (slug,)
-            )
+            cursor.execute("SELECT 1 FROM app.organizations WHERE slug = %s", (slug,))
 
         return cursor.fetchone() is None
 
@@ -224,7 +227,9 @@ def create_organization(
             name=org["name"],
             slug=org["slug"],
             domain=org.get("domain"),
-            settings=org.get("settings", {}) if isinstance(org.get("settings"), dict) else {},
+            settings=(
+                org.get("settings", {}) if isinstance(org.get("settings"), dict) else {}
+            ),
             is_active=org["is_active"],
             created_at=org["created_at"],
             updated_at=org["updated_at"],
@@ -263,7 +268,11 @@ def list_user_organizations(user: User = Depends(get_current_user)):
                 name=org["name"],
                 slug=org["slug"],
                 domain=org.get("domain"),
-                settings=org.get("settings", {}) if isinstance(org.get("settings"), dict) else {},
+                settings=(
+                    org.get("settings", {})
+                    if isinstance(org.get("settings"), dict)
+                    else {}
+                ),
                 is_active=org["is_active"],
                 created_at=org["created_at"],
                 updated_at=org["updated_at"],
@@ -308,7 +317,9 @@ def get_organization(org_id: str, user: User = Depends(get_current_user)):
             name=org["name"],
             slug=org["slug"],
             domain=org.get("domain"),
-            settings=org.get("settings", {}) if isinstance(org.get("settings"), dict) else {},
+            settings=(
+                org.get("settings", {}) if isinstance(org.get("settings"), dict) else {}
+            ),
             is_active=org["is_active"],
             created_at=org["created_at"],
             updated_at=org["updated_at"],
@@ -384,7 +395,9 @@ def update_organization(
             name=org["name"],
             slug=org["slug"],
             domain=org.get("domain"),
-            settings=org.get("settings", {}) if isinstance(org.get("settings"), dict) else {},
+            settings=(
+                org.get("settings", {}) if isinstance(org.get("settings"), dict) else {}
+            ),
             is_active=org["is_active"],
             created_at=org["created_at"],
             updated_at=org["updated_at"],
@@ -440,7 +453,9 @@ def list_organization_members(
                 user_id=str(member["user_id"]),
                 role=member["role"],
                 joined_at=member["joined_at"],
-                invited_by=str(member.get("invited_by")) if member.get("invited_by") else None,
+                invited_by=(
+                    str(member.get("invited_by")) if member.get("invited_by") else None
+                ),
                 user_email=member.get("user_email"),
                 last_sign_in_at=member.get("last_sign_in_at"),
             )
@@ -501,7 +516,9 @@ def add_organization_member(
             user_id=str(member["user_id"]),
             role=member["role"],
             joined_at=member["joined_at"],
-            invited_by=str(member.get("invited_by")) if member.get("invited_by") else None,
+            invited_by=(
+                str(member.get("invited_by")) if member.get("invited_by") else None
+            ),
             user_email=email_result["email"] if email_result else None,
         )
 
@@ -566,7 +583,9 @@ def update_member_role(
             user_id=str(member["user_id"]),
             role=member["role"],
             joined_at=member["joined_at"],
-            invited_by=str(member.get("invited_by")) if member.get("invited_by") else None,
+            invited_by=(
+                str(member.get("invited_by")) if member.get("invited_by") else None
+            ),
             user_email=email_result["email"] if email_result else None,
         )
 

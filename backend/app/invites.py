@@ -18,20 +18,43 @@ Deployed   : invite_url is emailed via Supabase admin magic-link if the service
              role key is present in the environment.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
-import os
-import psycopg
-from psycopg.rows import dict_row
 import logging
+import os
+from typing import Optional
+
+import psycopg
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from psycopg.rows import dict_row
+from pydantic import BaseModel, EmailStr, Field
 
 from .auth import User, get_current_user
-from .organizations import get_db_connection, get_user_role_in_org, verify_org_permission
+from .organizations import (
+    get_db_connection,
+    get_user_role_in_org,
+    verify_org_permission,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["invites"])
+
+# Per-org invite rate limit: max 10 per rolling hour (simple in-memory)
+_invite_buckets: dict[str, list[float]] = {}
+_INVITE_MAX_PER_HOUR = 10
+
+
+def _check_invite_rate_limit(org_id: str):
+    import time
+
+    now = time.monotonic()
+    bucket = _invite_buckets.get(org_id, [])
+    # Prune timestamps older than 1 hour
+    bucket = [t for t in bucket if now - t < 3600]
+    if len(bucket) >= _INVITE_MAX_PER_HOUR:
+        raise HTTPException(429, "Too many invites for this organisation (max 10/hour)")
+    bucket.append(now)
+    _invite_buckets[org_id] = bucket
+
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -63,6 +86,7 @@ class InviteResponse(BaseModel):
 
 class InviteInfo(BaseModel):
     """Public metadata returned to the accept page before the user clicks Accept."""
+
     organization_id: str
     organization_name: str
     email: str
@@ -84,12 +108,18 @@ class AcceptResponse(BaseModel):
 
 def _send_invite_email(email: str, invite_url: str, org_name: str, role: str) -> bool:
     """Send an invite email via the shared email module (SendGrid HTTP API)."""
-    from .email import _send, _enabled
+    from .email import _enabled, _send
+
     if not _enabled():
-        logger.info("Email not configured — skipping invite email for %s. Share invite_url manually.", email)
+        logger.info(
+            "Email not configured — skipping invite email for %s. Share invite_url manually.",
+            email,
+        )
         return False
 
-    role_label = {"admin": "Admin", "rep": "Support Rep", "member": "Client"}.get(role, role.capitalize())
+    role_label = {"admin": "Admin", "rep": "Support Rep", "member": "Client"}.get(
+        role, role.capitalize()
+    )
     role_desc = {
         "admin": "manage clients, knowledge base, and organisation settings",
         "rep": "handle and reply to support tickets",
@@ -155,14 +185,13 @@ def create_invite(
     Only owners and admins of the organization may invite.
     """
     verify_org_permission(user.id, org_id, ["owner", "admin"])
+    _check_invite_rate_limit(org_id)
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
         # --- Fetch org name for display ---------------------------------
-        cursor.execute(
-            "SELECT name FROM app.organizations WHERE id = %s", (org_id,)
-        )
+        cursor.execute("SELECT name FROM app.organizations WHERE id = %s", (org_id,))
         org_row = cursor.fetchone()
         if not org_row:
             raise HTTPException(404, "Organization not found")
@@ -206,6 +235,18 @@ def create_invite(
     email_sent = _send_invite_email(
         invite_data.email, invite_url, org_name, invite_data.role
     )
+
+    # Audit log
+    try:
+        from .admin import log_audit_sync
+        log_audit_sync(
+            "invite.sent", user,
+            resource_type="invite", resource_id=str(invite["id"]),
+            org_id=org_id,
+            metadata={"email": invite_data.email, "role": invite_data.role},
+        )
+    except Exception:
+        pass
 
     return InviteResponse(
         id=str(invite["id"]),
@@ -257,6 +298,7 @@ def get_invite_info(token: str):
 
     # Check wall-clock expiry even if status is still 'pending'
     from datetime import datetime, timezone
+
     if row["expires_at"] < datetime.now(timezone.utc):
         raise HTTPException(410, "This invite has expired")
 
@@ -311,6 +353,7 @@ def accept_invite(token: str, user: User = Depends(get_current_user)):
             )
 
         from datetime import datetime, timezone
+
         if invite["expires_at"] < datetime.now(timezone.utc):
             cursor.execute(
                 "UPDATE app.invites SET status = 'expired' WHERE id = %s",
@@ -380,9 +423,19 @@ def accept_invite(token: str, user: User = Depends(get_current_user)):
 
         conn.commit()
 
-    logger.info(
-        "User %s accepted invite to org %s as %s", user.id, org_id, role
-    )
+    logger.info("User %s accepted invite to org %s as %s", user.id, org_id, role)
+
+    # Audit log
+    try:
+        from .admin import log_audit_sync
+        log_audit_sync(
+            "invite.accepted", user,
+            resource_type="invite", resource_id=str(invite["id"]),
+            org_id=org_id,
+            metadata={"org_name": invite.get("organization_name", ""), "role": role},
+        )
+    except Exception:
+        pass
 
     return AcceptResponse(
         message=f"Welcome to {invite['organization_name']}! You have joined as {role}.",

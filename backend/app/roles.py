@@ -1,10 +1,13 @@
 """
 Role management helpers with optional caching for Phase 5A
 """
-import asyncpg
-from typing import Optional
-from datetime import datetime, timedelta
+
 import logging
+from datetime import datetime, timedelta
+from typing import Optional
+
+import asyncpg
+
 from .db import get_connection
 
 logger = logging.getLogger(__name__)
@@ -14,11 +17,13 @@ _role_cache = {}
 _cache_ttl = {}
 CACHE_DURATION = 60  # seconds
 
+
 def _is_cache_valid(user_id: str) -> bool:
     """Check if cached role is still valid"""
     if user_id not in _cache_ttl:
         return False
     return datetime.utcnow() < _cache_ttl[user_id]
+
 
 def invalidate_cache(user_id: str):
     """Invalidate cached role for a user"""
@@ -26,6 +31,7 @@ def invalidate_cache(user_id: str):
         del _role_cache[user_id]
     if user_id in _cache_ttl:
         del _cache_ttl[user_id]
+
 
 async def get_user_role(user_id: str) -> str:
     """
@@ -43,7 +49,7 @@ async def get_user_role(user_id: str) -> str:
         try:
             role = await conn.fetchval(
                 "SELECT coalesce(role, 'customer') FROM app.user_roles WHERE user_id = $1",
-                user_id
+                user_id,
             )
             if role is None:
                 role = "customer"
@@ -64,10 +70,15 @@ async def get_user_role(user_id: str) -> str:
             stale = _role_cache[user_id]
             # Extend TTL so we don't hammer the DB on every request while it's down.
             _cache_ttl[user_id] = datetime.utcnow() + timedelta(seconds=CACHE_DURATION)
-            logger.warning(f"Serving stale cached role '{stale}' for {user_id} due to DB error")
+            logger.warning(
+                f"Serving stale cached role '{stale}' for {user_id} due to DB error"
+            )
             return stale
-        logger.warning(f"No cached role for {user_id} — defaulting to customer due to DB error")
+        logger.warning(
+            f"No cached role for {user_id} — defaulting to customer due to DB error"
+        )
         return "customer"
+
 
 async def set_user_role(user_id: str, role: str):
     """
@@ -77,7 +88,7 @@ async def set_user_role(user_id: str, role: str):
     role = role.lower().strip()
     if role not in ["customer", "rep", "admin"]:
         raise ValueError(f"Invalid role: {role}")
-    
+
     try:
         conn = await get_connection()
         try:
@@ -90,12 +101,13 @@ async def set_user_role(user_id: str, role: str):
                     ON CONFLICT (user_id) 
                     DO UPDATE SET role = EXCLUDED.role, updated_at = now()
                     """,
-                    user_id, role
+                    user_id,
+                    role,
                 )
-            
+
             # Invalidate cache
             invalidate_cache(user_id)
-            
+
             logger.info(f"Set role for user {user_id} to {role}")
         finally:
             await conn.close()
@@ -103,9 +115,11 @@ async def set_user_role(user_id: str, role: str):
         logger.error(f"Failed to set user role for {user_id} to {role}: {e}")
         raise
 
+
 async def get_database_connection():
     """Get a database connection for admin operations."""
     return await get_connection()
+
 
 def normalize_role(role: str) -> str:
     """Normalize role string to lowercase and validate"""

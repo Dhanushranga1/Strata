@@ -1,17 +1,24 @@
-"use client";
+'use client';
 
-import { cn } from "@/lib/utils";
-import { Badge } from "./badge";
-import { Card } from "./card";
-import { Separator } from "./separator";
-import { Button } from "./button";
-import { Bot, Copy, ThumbsUp, ThumbsDown, RefreshCw, Sparkles } from "lucide-react";
-import { forwardRef, useState } from "react";
+import { cn } from '@/lib/utils';
+import { Badge } from './badge';
+import { Card } from './card';
+import { Separator } from './separator';
+import { Button } from './button';
+import {
+  Bot,
+  Copy,
+  ThumbsUp,
+  ThumbsDown,
+  RefreshCw,
+  Sparkles,
+} from 'lucide-react';
+import { forwardRef, useState } from 'react';
 
 interface AIMessageProps {
   content: string;
   timestamp?: Date;
-  type?: "suggestion" | "analysis" | "response" | "error";
+  type?: 'suggestion' | 'analysis' | 'response' | 'error';
   confidence?: number;
   sources?: string[];
   className?: string;
@@ -23,52 +30,55 @@ interface AIMessageProps {
 }
 
 const AIMessage = forwardRef<HTMLDivElement, AIMessageProps>(
-  ({
-    content,
-    timestamp,
-    type = "response",
-    confidence,
-    sources = [],
-    className,
-    onCopy,
-    onFeedback,
-    onRegenerate,
-    isLoading = false,
-    showActions = true,
-    ...props
-  }, ref) => {
+  (
+    {
+      content,
+      timestamp,
+      type = 'response',
+      confidence,
+      sources = [],
+      className,
+      onCopy,
+      onFeedback,
+      onRegenerate,
+      isLoading = false,
+      showActions = true,
+      ...props
+    },
+    ref
+  ) => {
     const [copied, setCopied] = useState(false);
     const [feedback, setFeedback] = useState<boolean | null>(null);
 
     const typeConfig = {
       suggestion: {
         icon: Sparkles,
-        color: "text-amber-500",
-        bg: "bg-amber-50 dark:bg-amber-950/20",
-        border: "border-amber-200 dark:border-amber-800/30",
-        badge: "Suggestion"
+        color: 'text-amber-500',
+        bg: 'bg-amber-50 dark:bg-amber-950/20',
+        border: 'border-amber-200 dark:border-amber-800/30',
+        badge: 'Suggestion',
       },
       analysis: {
         icon: Bot,
-        color: "text-blue-500",
-        bg: "bg-blue-50 dark:bg-blue-950/20", 
-        border: "border-blue-200 dark:border-blue-800/30",
-        badge: "Analysis"
+        color: 'text-blue-500',
+        bg: 'bg-blue-50 dark:bg-blue-950/20',
+        border: 'border-blue-200 dark:border-blue-800/30',
+        badge: 'Analysis',
       },
       response: {
         icon: Bot,
-        color: "text-primary",
-        bg: "bg-primary/5",
-        border: "border-primary/20",
-        badge: "AI Response"
+        color: 'text-primary',
+        bg: 'bg-primary/5',
+        border: 'border-primary/20',
+        badge: 'AI Response',
       },
       error: {
         icon: Bot,
-        color: "text-destructive",
-        bg: "bg-destructive/5",
-        border: "border-destructive/20",
-        badge: "Error"
-      }
+        color: 'text-destructive',
+        bg: 'bg-destructive/5',
+        border: 'border-destructive/20',
+        badge: 'Error',
+      },
     };
 
     const config = typeConfig[type];
@@ -93,12 +103,12 @@ const AIMessage = forwardRef<HTMLDivElement, AIMessageProps>(
       <Card
         ref={ref}
         className={cn(
-          "relative p-0 overflow-hidden",
-          "border-l-4",
+          'relative p-0 overflow-hidden',
+          'border-l-4',
           config.border,
           config.bg,
-          "transition-all duration-200",
-          isLoading && "animate-pulse",
+          'transition-all duration-200',
+          isLoading && 'animate-pulse',
           className
         )}
         {...props}
@@ -106,15 +116,23 @@ const AIMessage = forwardRef<HTMLDivElement, AIMessageProps>(
         {/* Header */}
         <div className="flex items-center justify-between p-4 pb-2">
           <div className="flex items-center gap-2">
-            <div className={cn("p-1.5 rounded-md bg-background/50", config.color)}>
+            <div
+              className={cn('p-1.5 rounded-md bg-background/50', config.color)}
+            >
               <IconComponent className="h-4 w-4" />
             </div>
             <Badge variant="outline" className="text-xs">
               {config.badge}
             </Badge>
             {confidence && (
-              <Badge 
-                variant={confidence > 0.8 ? "secondary" : confidence > 0.6 ? "secondary" : "outline"}
+              <Badge
+                variant={
+                  confidence > 0.8
+                    ? 'secondary'
+                    : confidence > 0.6
+                      ? 'secondary'
+                      : 'outline'
+                }
                 className="text-xs"
               >
                 {Math.round(confidence * 100)}% confidence
@@ -175,13 +193,13 @@ const AIMessage = forwardRef<HTMLDivElement, AIMessageProps>(
                   className="h-8 px-2 text-xs"
                 >
                   <Copy className="h-3 w-3 mr-1" />
-                  {copied ? "Copied!" : "Copy"}
+                  {copied ? 'Copied!' : 'Copy'}
                 </Button>
 
                 {onFeedback && (
                   <>
                     <Button
-                      variant={feedback === true ? "primary" : "ghost"}
+                      variant={feedback === true ? 'primary' : 'ghost'}
                       size="sm"
                       onClick={() => handleFeedback(true)}
                       className="h-8 px-2 text-xs"
@@ -190,7 +208,7 @@ const AIMessage = forwardRef<HTMLDivElement, AIMessageProps>(
                       Helpful
                     </Button>
                     <Button
-                      variant={feedback === false ? "destructive" : "ghost"}
+                      variant={feedback === false ? 'destructive' : 'ghost'}
                       size="sm"
                       onClick={() => handleFeedback(false)}
                       className="h-8 px-2 text-xs"
@@ -220,6 +238,6 @@ const AIMessage = forwardRef<HTMLDivElement, AIMessageProps>(
     );
   }
 );
-AIMessage.displayName = "AIMessage";
+AIMessage.displayName = 'AIMessage';
 
 export { AIMessage };

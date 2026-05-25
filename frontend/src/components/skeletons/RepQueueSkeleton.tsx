@@ -1,5 +1,5 @@
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function RepQueueSkeleton() {
   return (
@@ -12,7 +12,7 @@ export function RepQueueSkeleton() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b">
-        {[1, 2, 3, 4].map((i) => (
+        {[1, 2, 3, 4].map(i => (
           <Skeleton key={i} className="h-10 w-32" />
         ))}
       </div>
@@ -25,7 +25,7 @@ export function RepQueueSkeleton() {
 
       {/* Ticket Cards */}
       <div className="space-y-4">
-        {[1, 2, 3, 4, 5].map((i) => (
+        {[1, 2, 3, 4, 5].map(i => (
           <Card key={i} className="hover:shadow-lg transition-shadow">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-4">
@@ -70,5 +70,5 @@ export function RepQueueSkeleton() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

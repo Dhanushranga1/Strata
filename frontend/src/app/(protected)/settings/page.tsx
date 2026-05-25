@@ -1,28 +1,45 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useOrganization } from "@/contexts/OrganizationContext";
-import api from "@/lib/api-client";
-import { toast } from "sonner";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Save, Clock, AlertCircle, Zap, List, LayoutList } from "lucide-react";
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import api from '@/lib/api-client';
+import { toast } from 'sonner';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Settings,
+  Save,
+  Clock,
+  AlertCircle,
+  Zap,
+  List,
+  LayoutList,
+} from 'lucide-react';
 
 // ─── Priority metadata ────────────────────────────────────────────────────────
 const PRIORITY_LABELS: Record<number, string> = {
-  1: "P1 — Lowest",
-  2: "P2 — Very Low",
-  3: "P3 — Low",
-  4: "P4 — Normal",
-  5: "P5 — High",
-  6: "P6 — Very High",
-  7: "P7 — Critical",
+  1: 'P1 — Lowest',
+  2: 'P2 — Very Low',
+  3: 'P3 — Low',
+  4: 'P4 — Normal',
+  5: 'P5 — High',
+  6: 'P6 — Very High',
+  7: 'P7 — Critical',
 };
-const PRIORITY_DEFAULTS: Record<number, { first_response: number; resolution: number }> = {
+const PRIORITY_DEFAULTS: Record<
+  number,
+  { first_response: number; resolution: number }
+> = {
   1: { first_response: 48, resolution: 168 },
   2: { first_response: 24, resolution: 72 },
   3: { first_response: 8, resolution: 48 },
@@ -40,28 +57,28 @@ export default function OrgSettingsPage() {
 
   // ─── Access guard ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (currentOrganization && orgRole !== "owner" && orgRole !== "admin") {
-      router.replace("/dashboard");
+    if (currentOrganization && orgRole !== 'owner' && orgRole !== 'admin') {
+      router.replace('/dashboard');
     }
   }, [currentOrganization, orgRole, router]);
 
   // ─── General settings state ───────────────────────────────────────────────
-  const [orgName, setOrgName] = useState("");
-  const [orgDomain, setOrgDomain] = useState("");
+  const [orgName, setOrgName] = useState('');
+  const [orgDomain, setOrgDomain] = useState('');
   const [generalSaving, setGeneralSaving] = useState(false);
 
-  const [overdueHours, setOverdueHours] = useState("48");
-  const [reminderHours, setReminderHours] = useState("24");
+  const [overdueHours, setOverdueHours] = useState('48');
+  const [reminderHours, setReminderHours] = useState('24');
   const [overdueSaving, setOverdueSaving] = useState(false);
 
-  const [defaultEtrHours, setDefaultEtrHours] = useState("");
+  const [defaultEtrHours, setDefaultEtrHours] = useState('');
   const [etrSaving, setEtrSaving] = useState(false);
 
   // ─── SLA policies state ───────────────────────────────────────────────────
   type SLARow = { first_response_hours: string; resolution_hours: string };
   const [slaPolicies, setSlaPolicies] = useState<Record<number, SLARow>>(
     Object.fromEntries(
-      [1, 2, 3, 4, 5, 6, 7].map((lvl) => [
+      [1, 2, 3, 4, 5, 6, 7].map(lvl => [
         lvl,
         {
           first_response_hours: String(PRIORITY_DEFAULTS[lvl].first_response),
@@ -74,11 +91,16 @@ export default function OrgSettingsPage() {
   const [slaLoaded, setSlaLoaded] = useState(false);
 
   // ─── Canned responses state ───────────────────────────────────────────────
-  type CannedResponse = { id: string; title: string; body: string; tags: string[] };
+  type CannedResponse = {
+    id: string;
+    title: string;
+    body: string;
+    tags: string[];
+  };
   const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>([]);
   const [cannedLoading, setCannedLoading] = useState(false);
-  const [cannedTitle, setCannedTitle] = useState("");
-  const [cannedBody, setCannedBody] = useState("");
+  const [cannedTitle, setCannedTitle] = useState('');
+  const [cannedBody, setCannedBody] = useState('');
   const [cannedEditId, setCannedEditId] = useState<string | null>(null);
   const [cannedFormOpen, setCannedFormOpen] = useState(false);
   const [cannedSaving, setCannedSaving] = useState(false);
@@ -97,51 +119,63 @@ export default function OrgSettingsPage() {
   const [fieldDefs, setFieldDefs] = useState<FieldDef[]>([]);
   const [fieldsLoading, setFieldsLoading] = useState(false);
   const [fieldFormOpen, setFieldFormOpen] = useState(false);
-  const [fieldName, setFieldName] = useState("");
-  const [fieldLabel, setFieldLabel] = useState("");
-  const [fieldType, setFieldType] = useState("text");
-  const [fieldOptions, setFieldOptions] = useState("");
+  const [fieldName, setFieldName] = useState('');
+  const [fieldLabel, setFieldLabel] = useState('');
+  const [fieldType, setFieldType] = useState('text');
+  const [fieldOptions, setFieldOptions] = useState('');
   const [fieldRequired, setFieldRequired] = useState(false);
   const [fieldSaving, setFieldSaving] = useState(false);
 
   // ─── Load org data on mount ───────────────────────────────────────────────
   useEffect(() => {
-    if (!orgId || !orgRole || (orgRole !== "owner" && orgRole !== "admin")) return;
+    if (!orgId || !orgRole || (orgRole !== 'owner' && orgRole !== 'admin'))
+      return;
 
-    api.get<any>(`/api/organizations/${orgId}`, orgId).then((data) => {
-      setOrgName(data.name ?? "");
-      setOrgDomain(data.domain ?? "");
-      const s = data.settings || {};
-      setOverdueHours(String(s.overdue_threshold_hours ?? 48));
-      setReminderHours(String(s.overdue_reminder_hours ?? 24));
-      if (s.default_etr_hours != null) setDefaultEtrHours(String(s.default_etr_hours));
-    }).catch(() => {});
+    api
+      .get<any>(`/api/organizations/${orgId}`, orgId)
+      .then(data => {
+        setOrgName(data.name ?? '');
+        setOrgDomain(data.domain ?? '');
+        const s = data.settings || {};
+        setOverdueHours(String(s.overdue_threshold_hours ?? 48));
+        setReminderHours(String(s.overdue_reminder_hours ?? 24));
+        if (s.default_etr_hours != null)
+          setDefaultEtrHours(String(s.default_etr_hours));
+      })
+      .catch(() => {});
   }, [orgId, orgRole]);
 
   // ─── Load SLA policies ────────────────────────────────────────────────────
   const loadSlaPolicies = () => {
     if (!orgId) return;
-    api.get<{ policies: { priority_level: number; first_response_hours: number; resolution_hours: number }[] }>(
-      "/api/sla",
-      orgId
-    ).then((data) => {
-      const map: Record<number, SLARow> = { ...slaPolicies };
-      for (const p of data.policies) {
-        map[p.priority_level] = {
-          first_response_hours: String(p.first_response_hours),
-          resolution_hours: String(p.resolution_hours),
-        };
-      }
-      setSlaPolicies(map);
-      setSlaLoaded(true);
-    }).catch(() => setSlaLoaded(true));
+    api
+      .get<{
+        policies: {
+          priority_level: number;
+          first_response_hours: number;
+          resolution_hours: number;
+        }[];
+      }>('/api/sla', orgId)
+      .then(data => {
+        const map: Record<number, SLARow> = { ...slaPolicies };
+        for (const p of data.policies) {
+          map[p.priority_level] = {
+            first_response_hours: String(p.first_response_hours),
+            resolution_hours: String(p.resolution_hours),
+          };
+        }
+        setSlaPolicies(map);
+        setSlaLoaded(true);
+      })
+      .catch(() => setSlaLoaded(true));
   };
 
   // ─── Load canned responses ────────────────────────────────────────────────
   const loadCannedResponses = () => {
     if (!orgId) return;
     setCannedLoading(true);
-    api.get<CannedResponse[]>("/api/canned-responses", orgId)
+    api
+      .get<CannedResponse[]>('/api/canned-responses', orgId)
       .then(setCannedResponses)
       .catch(() => {})
       .finally(() => setCannedLoading(false));
@@ -151,7 +185,8 @@ export default function OrgSettingsPage() {
   const loadFieldDefs = () => {
     if (!orgId) return;
     setFieldsLoading(true);
-    api.get<FieldDef[]>("/api/custom-fields/defs", orgId)
+    api
+      .get<FieldDef[]>('/api/custom-fields/defs', orgId)
       .then(setFieldDefs)
       .catch(() => {})
       .finally(() => setFieldsLoading(false));
@@ -160,9 +195,13 @@ export default function OrgSettingsPage() {
   // ─── Merge-safe PATCH helper ──────────────────────────────────────────────
   const patchOrgSettings = async (patch: Record<string, unknown>) => {
     const current = await api.get<any>(`/api/organizations/${orgId}`, orgId);
-    await api.patch(`/api/organizations/${orgId}`, {
-      settings: { ...(current.settings || {}), ...patch },
-    }, orgId);
+    await api.patch(
+      `/api/organizations/${orgId}`,
+      {
+        settings: { ...(current.settings || {}), ...patch },
+      },
+      orgId
+    );
   };
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
@@ -170,10 +209,14 @@ export default function OrgSettingsPage() {
     if (!orgId) return;
     try {
       setGeneralSaving(true);
-      await api.patch(`/api/organizations/${orgId}`, { name: orgName, domain: orgDomain || null }, orgId);
-      toast.success("Organisation profile saved");
+      await api.patch(
+        `/api/organizations/${orgId}`,
+        { name: orgName, domain: orgDomain || null },
+        orgId
+      );
+      toast.success('Organisation profile saved');
     } catch {
-      toast.error("Failed to save profile");
+      toast.error('Failed to save profile');
     } finally {
       setGeneralSaving(false);
     }
@@ -187,9 +230,9 @@ export default function OrgSettingsPage() {
         overdue_threshold_hours: Number(overdueHours) || 48,
         overdue_reminder_hours: Number(reminderHours) || 24,
       });
-      toast.success("Overdue settings saved");
+      toast.success('Overdue settings saved');
     } catch {
-      toast.error("Failed to save settings");
+      toast.error('Failed to save settings');
     } finally {
       setOverdueSaving(false);
     }
@@ -202,9 +245,9 @@ export default function OrgSettingsPage() {
       await patchOrgSettings({
         default_etr_hours: defaultEtrHours ? Number(defaultEtrHours) : null,
       });
-      toast.success("Default ETR saved");
+      toast.success('Default ETR saved');
     } catch {
-      toast.error("Failed to save ETR");
+      toast.error('Failed to save ETR');
     } finally {
       setEtrSaving(false);
     }
@@ -214,15 +257,19 @@ export default function OrgSettingsPage() {
     if (!orgId) return;
     try {
       setSlaSaving(true);
-      const policies = [1, 2, 3, 4, 5, 6, 7].map((lvl) => ({
+      const policies = [1, 2, 3, 4, 5, 6, 7].map(lvl => ({
         priority_level: lvl,
-        first_response_hours: Number(slaPolicies[lvl].first_response_hours) || PRIORITY_DEFAULTS[lvl].first_response,
-        resolution_hours: Number(slaPolicies[lvl].resolution_hours) || PRIORITY_DEFAULTS[lvl].resolution,
+        first_response_hours:
+          Number(slaPolicies[lvl].first_response_hours) ||
+          PRIORITY_DEFAULTS[lvl].first_response,
+        resolution_hours:
+          Number(slaPolicies[lvl].resolution_hours) ||
+          PRIORITY_DEFAULTS[lvl].resolution,
       }));
-      await api.put("/api/sla", { policies }, orgId);
-      toast.success("SLA policies saved");
+      await api.put('/api/sla', { policies }, orgId);
+      toast.success('SLA policies saved');
     } catch {
-      toast.error("Failed to save SLA policies");
+      toast.error('Failed to save SLA policies');
     } finally {
       setSlaSaving(false);
     }
@@ -233,19 +280,27 @@ export default function OrgSettingsPage() {
     try {
       setCannedSaving(true);
       if (cannedEditId) {
-        await api.patch(`/api/canned-responses/${cannedEditId}`, { title: cannedTitle, body: cannedBody }, orgId);
-        toast.success("Response updated");
+        await api.patch(
+          `/api/canned-responses/${cannedEditId}`,
+          { title: cannedTitle, body: cannedBody },
+          orgId
+        );
+        toast.success('Response updated');
       } else {
-        await api.post("/api/canned-responses", { title: cannedTitle, body: cannedBody, tags: [] }, orgId);
-        toast.success("Response created");
+        await api.post(
+          '/api/canned-responses',
+          { title: cannedTitle, body: cannedBody, tags: [] },
+          orgId
+        );
+        toast.success('Response created');
       }
-      setCannedTitle("");
-      setCannedBody("");
+      setCannedTitle('');
+      setCannedBody('');
       setCannedEditId(null);
       setCannedFormOpen(false);
       loadCannedResponses();
     } catch {
-      toast.error("Failed to save response");
+      toast.error('Failed to save response');
     } finally {
       setCannedSaving(false);
     }
@@ -255,10 +310,10 @@ export default function OrgSettingsPage() {
     if (!orgId) return;
     try {
       await api.delete(`/api/canned-responses/${id}`, orgId);
-      setCannedResponses((prev) => prev.filter((r) => r.id !== id));
-      toast.success("Response deleted");
+      setCannedResponses(prev => prev.filter(r => r.id !== id));
+      toast.success('Response deleted');
     } catch {
-      toast.error("Failed to delete response");
+      toast.error('Failed to delete response');
     }
   };
 
@@ -266,27 +321,35 @@ export default function OrgSettingsPage() {
     if (!orgId || !fieldName.trim() || !fieldLabel.trim()) return;
     try {
       setFieldSaving(true);
-      const options = fieldType === "select"
-        ? fieldOptions.split(",").map((o) => o.trim()).filter(Boolean)
-        : null;
-      await api.post("/api/custom-fields/defs", {
-        name: fieldName.trim().toLowerCase().replace(/\s+/g, "_"),
-        label: fieldLabel.trim(),
-        field_type: fieldType,
-        options,
-        is_required: fieldRequired,
-        sort_order: fieldDefs.length,
-      }, orgId);
-      toast.success("Field created");
-      setFieldName("");
-      setFieldLabel("");
-      setFieldType("text");
-      setFieldOptions("");
+      const options =
+        fieldType === 'select'
+          ? fieldOptions
+              .split(',')
+              .map(o => o.trim())
+              .filter(Boolean)
+          : null;
+      await api.post(
+        '/api/custom-fields/defs',
+        {
+          name: fieldName.trim().toLowerCase().replace(/\s+/g, '_'),
+          label: fieldLabel.trim(),
+          field_type: fieldType,
+          options,
+          is_required: fieldRequired,
+          sort_order: fieldDefs.length,
+        },
+        orgId
+      );
+      toast.success('Field created');
+      setFieldName('');
+      setFieldLabel('');
+      setFieldType('text');
+      setFieldOptions('');
       setFieldRequired(false);
       setFieldFormOpen(false);
       loadFieldDefs();
     } catch {
-      toast.error("Failed to create field");
+      toast.error('Failed to create field');
     } finally {
       setFieldSaving(false);
     }
@@ -295,15 +358,22 @@ export default function OrgSettingsPage() {
   const toggleFieldActive = async (def: FieldDef) => {
     if (!orgId) return;
     try {
-      await api.patch(`/api/custom-fields/defs/${def.id}`, { is_active: !def.is_active }, orgId);
-      setFieldDefs((prev) => prev.map((f) => f.id === def.id ? { ...f, is_active: !f.is_active } : f));
-      toast.success(def.is_active ? "Field deactivated" : "Field activated");
+      await api.patch(
+        `/api/custom-fields/defs/${def.id}`,
+        { is_active: !def.is_active },
+        orgId
+      );
+      setFieldDefs(prev =>
+        prev.map(f => (f.id === def.id ? { ...f, is_active: !f.is_active } : f))
+      );
+      toast.success(def.is_active ? 'Field deactivated' : 'Field activated');
     } catch {
-      toast.error("Failed to update field");
+      toast.error('Failed to update field');
     }
   };
 
-  if (!currentOrganization || (orgRole !== "owner" && orgRole !== "admin")) return null;
+  if (!currentOrganization || (orgRole !== 'owner' && orgRole !== 'admin'))
+    return null;
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -314,15 +384,20 @@ export default function OrgSettingsPage() {
         </div>
         <div>
           <h1 className="text-xl font-bold">Organisation Settings</h1>
-          <p className="text-sm text-muted-foreground">{currentOrganization.name}</p>
+          <p className="text-sm text-muted-foreground">
+            {currentOrganization.name}
+          </p>
         </div>
       </div>
 
-      <Tabs defaultValue="general" onValueChange={(tab) => {
-        if (tab === "sla" && !slaLoaded) loadSlaPolicies();
-        if (tab === "canned") loadCannedResponses();
-        if (tab === "fields") loadFieldDefs();
-      }}>
+      <Tabs
+        defaultValue="general"
+        onValueChange={tab => {
+          if (tab === 'sla' && !slaLoaded) loadSlaPolicies();
+          if (tab === 'canned') loadCannedResponses();
+          if (tab === 'fields') loadFieldDefs();
+        }}
+      >
         <TabsList className="mb-4">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="sla">SLA Policies</TabsTrigger>
@@ -338,22 +413,37 @@ export default function OrgSettingsPage() {
               <CardTitle className="text-base flex items-center gap-2">
                 <Settings className="w-4 h-4" /> Organisation Profile
               </CardTitle>
-              <CardDescription>Display name and domain for your organisation.</CardDescription>
+              <CardDescription>
+                Display name and domain for your organisation.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label>Organisation Name</Label>
-                  <Input value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Acme Inc." />
+                  <Input
+                    value={orgName}
+                    onChange={e => setOrgName(e.target.value)}
+                    placeholder="Acme Inc."
+                  />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Domain <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                  <Input value={orgDomain} onChange={(e) => setOrgDomain(e.target.value)} placeholder="acme.com" />
+                  <Label>
+                    Domain{' '}
+                    <span className="text-muted-foreground text-xs">
+                      (optional)
+                    </span>
+                  </Label>
+                  <Input
+                    value={orgDomain}
+                    onChange={e => setOrgDomain(e.target.value)}
+                    placeholder="acme.com"
+                  />
                 </div>
               </div>
               <Button onClick={saveGeneral} disabled={generalSaving} size="sm">
                 <Save className="w-4 h-4 mr-1.5" />
-                {generalSaving ? "Saving…" : "Save Profile"}
+                {generalSaving ? 'Saving…' : 'Save Profile'}
               </Button>
             </CardContent>
           </Card>
@@ -362,10 +452,12 @@ export default function OrgSettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <AlertCircle className="w-4 h-4" /> Overdue &amp; Notification Settings
+                <AlertCircle className="w-4 h-4" /> Overdue &amp; Notification
+                Settings
               </CardTitle>
               <CardDescription>
-                Control when tickets are marked overdue and how often reminder emails are sent.
+                Control when tickets are marked overdue and how often reminder
+                emails are sent.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -376,10 +468,12 @@ export default function OrgSettingsPage() {
                     type="number"
                     min={1}
                     value={overdueHours}
-                    onChange={(e) => setOverdueHours(e.target.value)}
+                    onChange={e => setOverdueHours(e.target.value)}
                     placeholder="48"
                   />
-                  <p className="text-xs text-muted-foreground">Applied when no SLA policy or ETR is set.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Applied when no SLA policy or ETR is set.
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Repeat reminder every (hours)</Label>
@@ -387,14 +481,14 @@ export default function OrgSettingsPage() {
                     type="number"
                     min={1}
                     value={reminderHours}
-                    onChange={(e) => setReminderHours(e.target.value)}
+                    onChange={e => setReminderHours(e.target.value)}
                     placeholder="24"
                   />
                 </div>
               </div>
               <Button onClick={saveOverdue} disabled={overdueSaving} size="sm">
                 <Save className="w-4 h-4 mr-1.5" />
-                {overdueSaving ? "Saving…" : "Save Overdue Settings"}
+                {overdueSaving ? 'Saving…' : 'Save Overdue Settings'}
               </Button>
             </CardContent>
           </Card>
@@ -406,23 +500,29 @@ export default function OrgSettingsPage() {
                 <Clock className="w-4 h-4" /> Default Resolution Time (ETR)
               </CardTitle>
               <CardDescription>
-                Auto-set an expected resolution time on every new ticket. Overridden by per-priority SLA policies.
+                Auto-set an expected resolution time on every new ticket.
+                Overridden by per-priority SLA policies.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5 max-w-xs">
-                <Label>Default ETR (hours) <span className="text-muted-foreground text-xs">— leave blank to disable</span></Label>
+                <Label>
+                  Default ETR (hours){' '}
+                  <span className="text-muted-foreground text-xs">
+                    — leave blank to disable
+                  </span>
+                </Label>
                 <Input
                   type="number"
                   min={1}
                   value={defaultEtrHours}
-                  onChange={(e) => setDefaultEtrHours(e.target.value)}
+                  onChange={e => setDefaultEtrHours(e.target.value)}
                   placeholder="e.g. 48"
                 />
               </div>
               <Button onClick={saveDefaultEtr} disabled={etrSaving} size="sm">
                 <Save className="w-4 h-4 mr-1.5" />
-                {etrSaving ? "Saving…" : "Save ETR"}
+                {etrSaving ? 'Saving…' : 'Save ETR'}
               </Button>
             </CardContent>
           </Card>
@@ -436,7 +536,8 @@ export default function OrgSettingsPage() {
                 <Zap className="w-4 h-4" /> Priority-Based SLA Policies
               </CardTitle>
               <CardDescription>
-                Set first-response and resolution targets for each priority level. These auto-set the ETR when a ticket is created.
+                Set first-response and resolution targets for each priority
+                level. These auto-set the ETR when a ticket is created.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -444,27 +545,40 @@ export default function OrgSettingsPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-muted-foreground">
-                      <th className="text-left py-2 pr-4 font-medium">Priority</th>
-                      <th className="text-left py-2 pr-4 font-medium">First Response (hrs)</th>
-                      <th className="text-left py-2 font-medium">Resolution (hrs)</th>
+                      <th className="text-left py-2 pr-4 font-medium">
+                        Priority
+                      </th>
+                      <th className="text-left py-2 pr-4 font-medium">
+                        First Response (hrs)
+                      </th>
+                      <th className="text-left py-2 font-medium">
+                        Resolution (hrs)
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {[7, 6, 5, 4, 3, 2, 1].map((lvl) => (
+                    {[7, 6, 5, 4, 3, 2, 1].map(lvl => (
                       <tr key={lvl}>
-                        <td className="py-2.5 pr-4 font-medium whitespace-nowrap">{PRIORITY_LABELS[lvl]}</td>
+                        <td className="py-2.5 pr-4 font-medium whitespace-nowrap">
+                          {PRIORITY_LABELS[lvl]}
+                        </td>
                         <td className="py-2.5 pr-4">
                           <Input
                             type="number"
                             min={0}
                             step={0.5}
                             className="w-28 h-8 text-sm"
-                            value={slaPolicies[lvl]?.first_response_hours ?? ""}
-                            placeholder={String(PRIORITY_DEFAULTS[lvl].first_response)}
-                            onChange={(e) =>
-                              setSlaPolicies((prev) => ({
+                            value={slaPolicies[lvl]?.first_response_hours ?? ''}
+                            placeholder={String(
+                              PRIORITY_DEFAULTS[lvl].first_response
+                            )}
+                            onChange={e =>
+                              setSlaPolicies(prev => ({
                                 ...prev,
-                                [lvl]: { ...prev[lvl], first_response_hours: e.target.value },
+                                [lvl]: {
+                                  ...prev[lvl],
+                                  first_response_hours: e.target.value,
+                                },
                               }))
                             }
                           />
@@ -475,12 +589,17 @@ export default function OrgSettingsPage() {
                             min={0}
                             step={0.5}
                             className="w-28 h-8 text-sm"
-                            value={slaPolicies[lvl]?.resolution_hours ?? ""}
-                            placeholder={String(PRIORITY_DEFAULTS[lvl].resolution)}
-                            onChange={(e) =>
-                              setSlaPolicies((prev) => ({
+                            value={slaPolicies[lvl]?.resolution_hours ?? ''}
+                            placeholder={String(
+                              PRIORITY_DEFAULTS[lvl].resolution
+                            )}
+                            onChange={e =>
+                              setSlaPolicies(prev => ({
                                 ...prev,
-                                [lvl]: { ...prev[lvl], resolution_hours: e.target.value },
+                                [lvl]: {
+                                  ...prev[lvl],
+                                  resolution_hours: e.target.value,
+                                },
                               }))
                             }
                           />
@@ -492,7 +611,7 @@ export default function OrgSettingsPage() {
               </div>
               <Button onClick={saveSlaPolicies} disabled={slaSaving} size="sm">
                 <Save className="w-4 h-4 mr-1.5" />
-                {slaSaving ? "Saving…" : "Save SLA Policies"}
+                {slaSaving ? 'Saving…' : 'Save SLA Policies'}
               </Button>
             </CardContent>
           </Card>
@@ -508,14 +627,15 @@ export default function OrgSettingsPage() {
                     <List className="w-4 h-4" /> Canned Responses
                   </CardTitle>
                   <CardDescription>
-                    Pre-written replies reps can insert into ticket messages with one click.
+                    Pre-written replies reps can insert into ticket messages
+                    with one click.
                   </CardDescription>
                 </div>
                 <Button
                   size="sm"
                   onClick={() => {
-                    setCannedTitle("");
-                    setCannedBody("");
+                    setCannedTitle('');
+                    setCannedBody('');
                     setCannedEditId(null);
                     setCannedFormOpen(true);
                   }}
@@ -532,7 +652,7 @@ export default function OrgSettingsPage() {
                     <Label>Title</Label>
                     <Input
                       value={cannedTitle}
-                      onChange={(e) => setCannedTitle(e.target.value)}
+                      onChange={e => setCannedTitle(e.target.value)}
                       placeholder="e.g. Thanks for reaching out"
                       maxLength={120}
                     />
@@ -542,18 +662,39 @@ export default function OrgSettingsPage() {
                     <textarea
                       className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       value={cannedBody}
-                      onChange={(e) => setCannedBody(e.target.value)}
+                      onChange={e => setCannedBody(e.target.value)}
                       placeholder="Type the response text here…"
                       maxLength={4000}
                     />
-                    <p className="text-xs text-muted-foreground text-right">{cannedBody.length}/4000</p>
+                    <p className="text-xs text-muted-foreground text-right">
+                      {cannedBody.length}/4000
+                    </p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={saveCannedResponse} disabled={cannedSaving || !cannedTitle.trim() || !cannedBody.trim()}>
+                    <Button
+                      size="sm"
+                      onClick={saveCannedResponse}
+                      disabled={
+                        cannedSaving ||
+                        !cannedTitle.trim() ||
+                        !cannedBody.trim()
+                      }
+                    >
                       <Save className="w-4 h-4 mr-1.5" />
-                      {cannedSaving ? "Saving…" : cannedEditId ? "Update" : "Create"}
+                      {cannedSaving
+                        ? 'Saving…'
+                        : cannedEditId
+                          ? 'Update'
+                          : 'Create'}
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => { setCannedFormOpen(false); setCannedEditId(null); }}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setCannedFormOpen(false);
+                        setCannedEditId(null);
+                      }}
+                    >
                       Cancel
                     </Button>
                   </div>
@@ -564,14 +705,23 @@ export default function OrgSettingsPage() {
               {cannedLoading ? (
                 <p className="text-sm text-muted-foreground">Loading…</p>
               ) : cannedResponses.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">No canned responses yet. Create one above.</p>
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No canned responses yet. Create one above.
+                </p>
               ) : (
                 <div className="space-y-2">
-                  {cannedResponses.map((r) => (
-                    <div key={r.id} className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent/30 transition-colors">
+                  {cannedResponses.map(r => (
+                    <div
+                      key={r.id}
+                      className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent/30 transition-colors"
+                    >
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{r.title}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{r.body}</p>
+                        <p className="text-sm font-medium truncate">
+                          {r.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                          {r.body}
+                        </p>
                       </div>
                       <div className="flex gap-1 shrink-0">
                         <Button
@@ -614,10 +764,13 @@ export default function OrgSettingsPage() {
                     <LayoutList className="w-4 h-4" /> Custom Ticket Fields
                   </CardTitle>
                   <CardDescription>
-                    Define extra fields that appear on every ticket in this organisation.
+                    Define extra fields that appear on every ticket in this
+                    organisation.
                   </CardDescription>
                 </div>
-                <Button size="sm" onClick={() => setFieldFormOpen(true)}>+ Add Field</Button>
+                <Button size="sm" onClick={() => setFieldFormOpen(true)}>
+                  + Add Field
+                </Button>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -626,10 +779,15 @@ export default function OrgSettingsPage() {
                 <div className="border border-border rounded-lg p-4 space-y-3 bg-muted/30">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label>Internal Name <span className="text-muted-foreground text-xs">(no spaces)</span></Label>
+                      <Label>
+                        Internal Name{' '}
+                        <span className="text-muted-foreground text-xs">
+                          (no spaces)
+                        </span>
+                      </Label>
                       <Input
                         value={fieldName}
-                        onChange={(e) => setFieldName(e.target.value)}
+                        onChange={e => setFieldName(e.target.value)}
                         placeholder="order_id"
                         maxLength={60}
                       />
@@ -638,7 +796,7 @@ export default function OrgSettingsPage() {
                       <Label>Display Label</Label>
                       <Input
                         value={fieldLabel}
-                        onChange={(e) => setFieldLabel(e.target.value)}
+                        onChange={e => setFieldLabel(e.target.value)}
                         placeholder="Order ID"
                         maxLength={80}
                       />
@@ -650,7 +808,7 @@ export default function OrgSettingsPage() {
                       <select
                         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         value={fieldType}
-                        onChange={(e) => setFieldType(e.target.value)}
+                        onChange={e => setFieldType(e.target.value)}
                       >
                         <option value="text">Text</option>
                         <option value="number">Number</option>
@@ -659,12 +817,17 @@ export default function OrgSettingsPage() {
                         <option value="boolean">Yes/No</option>
                       </select>
                     </div>
-                    {fieldType === "select" && (
+                    {fieldType === 'select' && (
                       <div className="space-y-1.5">
-                        <Label>Options <span className="text-muted-foreground text-xs">(comma-separated)</span></Label>
+                        <Label>
+                          Options{' '}
+                          <span className="text-muted-foreground text-xs">
+                            (comma-separated)
+                          </span>
+                        </Label>
                         <Input
                           value={fieldOptions}
-                          onChange={(e) => setFieldOptions(e.target.value)}
+                          onChange={e => setFieldOptions(e.target.value)}
                           placeholder="Option A, Option B, Option C"
                         />
                       </div>
@@ -674,17 +837,29 @@ export default function OrgSettingsPage() {
                     <input
                       type="checkbox"
                       checked={fieldRequired}
-                      onChange={(e) => setFieldRequired(e.target.checked)}
+                      onChange={e => setFieldRequired(e.target.checked)}
                       className="rounded"
                     />
                     Required field
                   </label>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={saveFieldDef} disabled={fieldSaving || !fieldName.trim() || !fieldLabel.trim()}>
+                    <Button
+                      size="sm"
+                      onClick={saveFieldDef}
+                      disabled={
+                        fieldSaving || !fieldName.trim() || !fieldLabel.trim()
+                      }
+                    >
                       <Save className="w-4 h-4 mr-1.5" />
-                      {fieldSaving ? "Saving…" : "Create Field"}
+                      {fieldSaving ? 'Saving…' : 'Create Field'}
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => setFieldFormOpen(false)}>Cancel</Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setFieldFormOpen(false)}
+                    >
+                      Cancel
+                    </Button>
                   </div>
                 </div>
               )}
@@ -693,37 +868,56 @@ export default function OrgSettingsPage() {
               {fieldsLoading ? (
                 <p className="text-sm text-muted-foreground">Loading…</p>
               ) : fieldDefs.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">No custom fields defined yet.</p>
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No custom fields defined yet.
+                </p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b text-muted-foreground">
-                        <th className="text-left py-2 pr-4 font-medium">Label</th>
-                        <th className="text-left py-2 pr-4 font-medium">Name</th>
-                        <th className="text-left py-2 pr-4 font-medium">Type</th>
-                        <th className="text-left py-2 pr-4 font-medium">Required</th>
+                        <th className="text-left py-2 pr-4 font-medium">
+                          Label
+                        </th>
+                        <th className="text-left py-2 pr-4 font-medium">
+                          Name
+                        </th>
+                        <th className="text-left py-2 pr-4 font-medium">
+                          Type
+                        </th>
+                        <th className="text-left py-2 pr-4 font-medium">
+                          Required
+                        </th>
                         <th className="text-left py-2 font-medium">Active</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {fieldDefs.map((f) => (
-                        <tr key={f.id} className={!f.is_active ? "opacity-50" : ""}>
+                      {fieldDefs.map(f => (
+                        <tr
+                          key={f.id}
+                          className={!f.is_active ? 'opacity-50' : ''}
+                        >
                           <td className="py-2.5 pr-4 font-medium">{f.label}</td>
-                          <td className="py-2.5 pr-4 text-muted-foreground font-mono text-xs">{f.name}</td>
-                          <td className="py-2.5 pr-4 capitalize">{f.field_type}</td>
-                          <td className="py-2.5 pr-4">{f.is_required ? "Yes" : "No"}</td>
+                          <td className="py-2.5 pr-4 text-muted-foreground font-mono text-xs">
+                            {f.name}
+                          </td>
+                          <td className="py-2.5 pr-4 capitalize">
+                            {f.field_type}
+                          </td>
+                          <td className="py-2.5 pr-4">
+                            {f.is_required ? 'Yes' : 'No'}
+                          </td>
                           <td className="py-2.5">
                             <button
                               type="button"
                               onClick={() => toggleFieldActive(f)}
                               className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                                 f.is_active
-                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                  : "bg-muted text-muted-foreground"
+                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                  : 'bg-muted text-muted-foreground'
                               }`}
                             >
-                              {f.is_active ? "Active" : "Inactive"}
+                              {f.is_active ? 'Active' : 'Inactive'}
                             </button>
                           </td>
                         </tr>

@@ -1,11 +1,11 @@
-'use client'
-import { m } from 'framer-motion'
-import { usePathname } from 'next/navigation'
-import { v, durations, easings } from './variants'
+'use client';
+import { m } from 'framer-motion';
+import { usePathname } from 'next/navigation';
+import { v, durations, easings } from './variants';
 
 export function PageShell({ children }: { children: React.ReactNode }) {
-  const key = usePathname()
-  
+  const key = usePathname();
+
   return (
     <m.div
       key={key}
@@ -15,11 +15,11 @@ export function PageShell({ children }: { children: React.ReactNode }) {
       exit="exit"
       transition={{
         duration: durations.base,
-        ease: easings.standard
+        ease: easings.standard,
       }}
       className="w-full"
     >
       {children}
     </m.div>
-  )
+  );
 }

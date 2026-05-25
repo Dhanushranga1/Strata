@@ -1,50 +1,63 @@
-"use client";
+'use client';
 
-import { motion, useReducedMotion } from "framer-motion";
-import { BookOpenCheck, BrainCircuit, CircuitBoard, GitBranch, Shield, SlidersHorizontal } from "lucide-react";
+import { motion, useReducedMotion } from 'framer-motion';
+import {
+  BookOpenCheck,
+  BrainCircuit,
+  CircuitBoard,
+  GitBranch,
+  Shield,
+  SlidersHorizontal,
+} from 'lucide-react';
 
 const valueProps = [
   {
     icon: BrainCircuit,
-    title: "CASPER Auto-Routing",
-    description: "Every ticket is profiled at creation — intent, complexity, urgency — then routed to the right rep automatically. No manual assignment queues.",
-    iconClass: "text-indigo-400",
-    tag: "Core AI",
+    title: 'CASPER Auto-Routing',
+    description:
+      'Every ticket is profiled at creation — intent, complexity, urgency — then routed to the right rep automatically. No manual assignment queues.',
+    iconClass: 'text-indigo-400',
+    tag: 'Core AI',
   },
   {
     icon: BookOpenCheck,
-    title: "Cited Answers",
-    description: "RAG over your knowledge base with inline [1][2][3] citations. Reps see exactly which doc line backed each sentence before they send.",
-    iconClass: "text-violet-400",
-    tag: "AI Quality",
+    title: 'Cited Answers',
+    description:
+      'RAG over your knowledge base with inline [1][2][3] citations. Reps see exactly which doc line backed each sentence before they send.',
+    iconClass: 'text-violet-400',
+    tag: 'AI Quality',
   },
   {
     icon: SlidersHorizontal,
-    title: "P1–P7 Priority Scoring",
-    description: "CASPER scores every ticket P1 (critical outage) to P7 (simple lookup) from urgency signals and query complexity. No manual triage.",
-    iconClass: "text-orange-400",
-    tag: "Intelligence",
+    title: 'P1–P7 Priority Scoring',
+    description:
+      'CASPER scores every ticket P1 (critical outage) to P7 (simple lookup) from urgency signals and query complexity. No manual triage.',
+    iconClass: 'text-orange-400',
+    tag: 'Intelligence',
   },
   {
     icon: GitBranch,
-    title: "Adaptive Escalation",
-    description: "Confidence-based escalation uses an intent-aware threshold — troubleshooting escalates earlier, factual lookups need less certainty.",
-    iconClass: "text-pink-400",
-    tag: "Reliability",
+    title: 'Adaptive Escalation',
+    description:
+      'Confidence-based escalation uses an intent-aware threshold — troubleshooting escalates earlier, factual lookups need less certainty.',
+    iconClass: 'text-pink-400',
+    tag: 'Reliability',
   },
   {
     icon: CircuitBoard,
-    title: "Frictionless KB Ingest",
-    description: "Drop in PDFs, DOCX, Markdown, or plain text. The system chunks, embeds, and deduplicates automatically. Role-gated access per org.",
-    iconClass: "text-emerald-400",
-    tag: "Knowledge",
+    title: 'Frictionless KB Ingest',
+    description:
+      'Drop in PDFs, DOCX, Markdown, or plain text. The system chunks, embeds, and deduplicates automatically. Role-gated access per org.',
+    iconClass: 'text-emerald-400',
+    tag: 'Knowledge',
   },
   {
     icon: Shield,
-    title: "Multi-Org & Roles",
-    description: "Customer, rep, and admin roles with full org isolation. Invite teammates by email, switch orgs, and audit every CASPER routing decision.",
-    iconClass: "text-amber-400",
-    tag: "Enterprise",
+    title: 'Multi-Org & Roles',
+    description:
+      'Customer, rep, and admin roles with full org isolation. Invite teammates by email, switch orgs, and audit every CASPER routing decision.',
+    iconClass: 'text-amber-400',
+    tag: 'Enterprise',
   },
 ];
 
@@ -79,8 +92,8 @@ export default function ValueProps() {
           transition={{ duration: 0.5, delay: 0.2 }}
           className="text-zinc-400 max-w-xl mx-auto"
         >
-          From intelligent routing to confidence-scored answers, every feature is designed
-          to make your reps faster and your customers happier.
+          From intelligent routing to confidence-scored answers, every feature
+          is designed to make your reps faster and your customers happier.
         </motion.p>
       </div>
 
@@ -101,13 +114,17 @@ export default function ValueProps() {
                   <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
                     <Icon className={`w-4 h-4 ${item.iconClass}`} />
                   </div>
-                  <h3 className="font-semibold text-sm text-white font-geist">{item.title}</h3>
+                  <h3 className="font-semibold text-sm text-white font-geist">
+                    {item.title}
+                  </h3>
                 </div>
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600 border border-zinc-700 rounded px-1.5 py-0.5 shrink-0">
                   {item.tag}
                 </span>
               </div>
-              <p className="text-sm text-zinc-400 leading-relaxed">{item.description}</p>
+              <p className="text-sm text-zinc-400 leading-relaxed">
+                {item.description}
+              </p>
             </motion.div>
           );
         })}

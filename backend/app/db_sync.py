@@ -3,14 +3,17 @@
 Single pool (max=2) shared across tickets, organizations, kb, observability,
 and invites — keeps us under Supabase free-tier connection limits.
 """
-import os
+
 import logging
+import os
+
 import psycopg
+from fastapi import HTTPException
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
-from fastapi import HTTPException
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 _logger = logging.getLogger(__name__)
 
 _pool: ConnectionPool | None = None
@@ -18,7 +21,9 @@ _pool: ConnectionPool | None = None
 
 def _on_reconnect_failed(pool: ConnectionPool) -> None:
     global _pool
-    _logger.warning("[db_sync] Pool gave up reconnecting — falling back to per-request connects")
+    _logger.warning(
+        "[db_sync] Pool gave up reconnecting — falling back to per-request connects"
+    )
     _pool = None
 
 
@@ -28,9 +33,9 @@ def _build_pool() -> ConnectionPool | None:
     try:
         pool = ConnectionPool(
             DATABASE_URL,
-            min_size=0,        # no background connections when idle
-            max_size=2,        # hard cap — Supabase free tier
-            max_waiting=10,    # queue requests rather than blow up
+            min_size=0,  # no background connections when idle
+            max_size=2,  # hard cap — Supabase free tier
+            max_waiting=10,  # queue requests rather than blow up
             max_idle=300,
             reconnect_timeout=60,
             reconnect_failed=_on_reconnect_failed,
@@ -38,6 +43,7 @@ def _build_pool() -> ConnectionPool | None:
                 "row_factory": dict_row,
                 "connect_timeout": 10,
                 "options": "-c statement_timeout=8000",
+                **({"password": DATABASE_PASSWORD} if DATABASE_PASSWORD else {}),
             },
             open=False,
         )
@@ -45,7 +51,9 @@ def _build_pool() -> ConnectionPool | None:
         _logger.info("[db_sync] psycopg3 pool initialising in background (max=2)")
         return pool
     except Exception as exc:
-        _logger.warning("[db_sync] Pool init failed, using per-request fallback: %s", exc)
+        _logger.warning(
+            "[db_sync] Pool init failed, using per-request fallback: %s", exc
+        )
         return None
 
 
@@ -63,6 +71,7 @@ def get_db_connection():
         raise HTTPException(500, "DATABASE_URL not configured")
     return psycopg.connect(
         DATABASE_URL,
+        password=DATABASE_PASSWORD,
         row_factory=dict_row,
         connect_timeout=10,
         options="-c statement_timeout=8000",

@@ -3,23 +3,23 @@
  * Wraps page content with fade-in and slide-up animations
  */
 
-import { motion, AnimatePresence } from "framer-motion"
-import { ReactNode } from "react"
+import { motion, AnimatePresence } from 'framer-motion';
+import { ReactNode } from 'react';
 
 export interface PageTransitionProps {
-  children: ReactNode
+  children: ReactNode;
   /**
    * Unique key for the page (usually pathname)
    */
-  pageKey?: string
+  pageKey?: string;
   /**
    * Animation variant
    */
-  variant?: "fade" | "slide" | "scale" | "none"
+  variant?: 'fade' | 'slide' | 'scale' | 'none';
   /**
    * Custom className
    */
-  className?: string
+  className?: string;
 }
 
 const variants = {
@@ -43,13 +43,13 @@ const variants = {
     animate: {},
     exit: {},
   },
-}
+};
 
 export function PageTransition({
   children,
   pageKey,
-  variant = "slide",
-  className = "",
+  variant = 'slide',
+  className = '',
 }: PageTransitionProps) {
   return (
     <AnimatePresence mode="wait">
@@ -60,14 +60,14 @@ export function PageTransition({
         exit={variants[variant].exit}
         transition={{
           duration: 0.2,
-          ease: "easeInOut",
+          ease: 'easeInOut',
         }}
         className={className}
       >
         {children}
       </motion.div>
     </AnimatePresence>
-  )
+  );
 }
 
 /**
@@ -75,21 +75,21 @@ export function PageTransition({
  * Animates children with a stagger effect
  */
 export interface StaggerProps {
-  children: ReactNode
+  children: ReactNode;
   /**
    * Delay between each child animation (in seconds)
    */
-  staggerDelay?: number
+  staggerDelay?: number;
   /**
    * Custom className
    */
-  className?: string
+  className?: string;
 }
 
 export function StaggerChildren({
   children,
   staggerDelay = 0.1,
-  className = "",
+  className = '',
 }: StaggerProps) {
   return (
     <motion.div
@@ -106,7 +106,7 @@ export function StaggerChildren({
     >
       {children}
     </motion.div>
-  )
+  );
 }
 
 /**
@@ -114,14 +114,14 @@ export function StaggerChildren({
  * Individual item in a staggered animation
  */
 export interface StaggerItemProps {
-  children: ReactNode
+  children: ReactNode;
   /**
    * Custom className
    */
-  className?: string
+  className?: string;
 }
 
-export function StaggerItem({ children, className = "" }: StaggerItemProps) {
+export function StaggerItem({ children, className = '' }: StaggerItemProps) {
   return (
     <motion.div
       variants={{
@@ -133,7 +133,7 @@ export function StaggerItem({ children, className = "" }: StaggerItemProps) {
     >
       {children}
     </motion.div>
-  )
+  );
 }
 
 /**
@@ -141,26 +141,26 @@ export function StaggerItem({ children, className = "" }: StaggerItemProps) {
  * Animates content sliding in from left, right, top, or bottom
  */
 export interface SlideInProps {
-  children: ReactNode
-  from?: "left" | "right" | "top" | "bottom"
-  delay?: number
-  duration?: number
-  className?: string
+  children: ReactNode;
+  from?: 'left' | 'right' | 'top' | 'bottom';
+  delay?: number;
+  duration?: number;
+  className?: string;
 }
 
 export function SlideIn({
   children,
-  from = "bottom",
+  from = 'bottom',
   delay = 0,
   duration = 0.4,
-  className = "",
+  className = '',
 }: SlideInProps) {
   const directions = {
     left: { x: -50, y: 0 },
     right: { x: 50, y: 0 },
     top: { x: 0, y: -50 },
     bottom: { x: 0, y: 50 },
-  }
+  };
 
   return (
     <motion.div
@@ -171,7 +171,7 @@ export function SlideIn({
     >
       {children}
     </motion.div>
-  )
+  );
 }
 
 /**
@@ -179,17 +179,17 @@ export function SlideIn({
  * Scales element from small to normal size
  */
 export interface ScaleInProps {
-  children: ReactNode
-  delay?: number
-  duration?: number
-  className?: string
+  children: ReactNode;
+  delay?: number;
+  duration?: number;
+  className?: string;
 }
 
 export function ScaleIn({
   children,
   delay = 0,
   duration = 0.3,
-  className = "",
+  className = '',
 }: ScaleInProps) {
   return (
     <motion.div
@@ -198,7 +198,7 @@ export function ScaleIn({
       transition={{
         duration,
         delay,
-        type: "spring",
+        type: 'spring',
         stiffness: 300,
         damping: 25,
       }}
@@ -206,7 +206,7 @@ export function ScaleIn({
     >
       {children}
     </motion.div>
-  )
+  );
 }
 
 /**
@@ -214,24 +214,24 @@ export function ScaleIn({
  * Scales element on hover with spring animation
  */
 export interface HoverScaleProps {
-  children: ReactNode
-  scale?: number
-  className?: string
+  children: ReactNode;
+  scale?: number;
+  className?: string;
 }
 
 export function HoverScale({
   children,
   scale = 1.05,
-  className = "",
+  className = '',
 }: HoverScaleProps) {
   return (
     <motion.div
       whileHover={{ scale }}
       whileTap={{ scale: 0.95 }}
-      transition={{ type: "spring", stiffness: 400, damping: 17 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 17 }}
       className={className}
     >
       {children}
     </motion.div>
-  )
+  );
 }

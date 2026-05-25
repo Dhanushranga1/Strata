@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { AppLayout } from "@/components/AppLayout";
+import { AppLayout } from '@/components/AppLayout';
 
 export default function ProtectedLayout({
   children,

@@ -1,216 +1,240 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { toast } from 'sonner'
-import { supabase } from '@/lib/supabaseClient'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { 
-  Users, 
-  UserCheck, 
-  Clock, 
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { supabase } from '@/lib/supabaseClient';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Users,
+  UserCheck,
+  Clock,
   Search,
   Shield,
   UserX,
   CheckCircle,
   XCircle,
-  RefreshCw
-} from 'lucide-react'
+  RefreshCw,
+} from 'lucide-react';
 
 interface User {
-  id: string
-  email: string
-  role: 'rep' | 'admin'
-  created_at: string
-  last_login?: string
-  is_active: boolean
+  id: string;
+  email: string;
+  role: 'rep' | 'admin';
+  created_at: string;
+  last_login?: string;
+  is_active: boolean;
 }
 
 interface UserActivity {
-  id: string
-  user_id: string
-  action: string
-  timestamp: string
-  details?: string
+  id: string;
+  user_id: string;
+  action: string;
+  timestamp: string;
+  details?: string;
 }
 
 interface UserStats {
-  total_users: number
-  active_users: number
-  total_admins: number
-  active_admins: number
-  recent_signups: number
+  total_users: number;
+  active_users: number;
+  total_admins: number;
+  active_admins: number;
+  recent_signups: number;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000'
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000';
 
 export default function AdminRolesPage() {
-  const router = useRouter()
-  const [users, setUsers] = useState<User[]>([])
-  const [userActivities, setUserActivities] = useState<UserActivity[]>([])
-  const [stats, setStats] = useState<UserStats | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [processingUsers, setProcessingUsers] = useState<Set<string>>(new Set())
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  const router = useRouter();
+  const [users, setUsers] = useState<User[]>([]);
+  const [userActivities, setUserActivities] = useState<UserActivity[]>([]);
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [processingUsers, setProcessingUsers] = useState<Set<string>>(
+    new Set()
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    loadData()
-  }, [])
+    loadData();
+  }, []);
 
   // Clear success message after 3 seconds
   useEffect(() => {
     if (success) {
-      const timer = setTimeout(() => setSuccess(null), 3000)
-      return () => clearTimeout(timer)
+      const timer = setTimeout(() => setSuccess(null), 3000);
+      return () => clearTimeout(timer);
     }
-  }, [success])
+  }, [success]);
 
   // Clear error message after 5 seconds
   useEffect(() => {
     if (error) {
-      const timer = setTimeout(() => setError(null), 5000)
-      return () => clearTimeout(timer)
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
     }
-  }, [error])
+  }, [error]);
 
   const loadData = async () => {
     try {
-      setLoading(true)
-      setError(null) // Clear any previous errors
-      await loadUsers()
+      setLoading(true);
+      setError(null); // Clear any previous errors
+      await loadUsers();
       // loadUserStats will be called after users are loaded
       // Load activity after users are loaded so we have user data
     } catch (error) {
-      console.error('Error loading data:', error)
-      setError('Failed to load data')
+      console.error('Error loading data:', error);
+      setError('Failed to load data');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const loadUsers = async () => {
     try {
-      console.log('[AdminRoles] Starting loadUsers...')
-      
+      console.log('[AdminRoles] Starting loadUsers...');
+
       // Use Supabase session instead of localStorage token
-      const { data: sessionData } = await supabase.auth.getSession()
-      console.log('[AdminRoles] Supabase session:', !!sessionData.session)
-      
+      const { data: sessionData } = await supabase.auth.getSession();
+      console.log('[AdminRoles] Supabase session:', !!sessionData.session);
+
       if (!sessionData.session) {
-        console.log('[AdminRoles] No session found, redirecting to login')
-        router.push('/login')
-        return
+        console.log('[AdminRoles] No session found, redirecting to login');
+        router.push('/login');
+        return;
       }
 
-      const token = sessionData.session.access_token
-      console.log('[AdminRoles] Token from session:', !!token)
+      const token = sessionData.session.access_token;
+      console.log('[AdminRoles] Token from session:', !!token);
 
-      console.log('[AdminRoles] Making API call to /api/admin/users')
+      console.log('[AdminRoles] Making API call to /api/admin/users');
       const response = await fetch(`${API_BASE}/api/admin/users`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
-      console.log('[AdminRoles] API response status:', response.status)
-      
+      console.log('[AdminRoles] API response status:', response.status);
+
       if (!response.ok) {
-        const errorText = await response.text()
-        console.log('[AdminRoles] API error response:', errorText)
-        
+        const errorText = await response.text();
+        console.log('[AdminRoles] API error response:', errorText);
+
         if (response.status === 403) {
-          console.log('[AdminRoles] 403 Forbidden - Admin privileges required')
-          setError('Access denied. Admin privileges required.')
-          return
+          console.log('[AdminRoles] 403 Forbidden - Admin privileges required');
+          setError('Access denied. Admin privileges required.');
+          return;
         }
         if (response.status === 401) {
-          console.log('[AdminRoles] 401 Unauthorized - redirecting to login')
-          router.push('/login')
-          return
+          console.log('[AdminRoles] 401 Unauthorized - redirecting to login');
+          router.push('/login');
+          return;
         }
-        throw new Error(`HTTP ${response.status}`)
+        throw new Error(`HTTP ${response.status}`);
       }
 
-      const data = await response.json()
-      console.log('[AdminRoles] Users data received:', data)
-      console.log('[AdminRoles] Data type:', typeof data, 'Array:', Array.isArray(data))
-      
+      const data = await response.json();
+      console.log('[AdminRoles] Users data received:', data);
+      console.log(
+        '[AdminRoles] Data type:',
+        typeof data,
+        'Array:',
+        Array.isArray(data)
+      );
+
       // Backend returns array directly, not wrapped in {users: [...]}
       // Transform backend format (user_id) to frontend format (id)
-      const usersData = Array.isArray(data) ? data.map(user => ({
-        id: user.user_id,
-        email: user.email,
-        role: user.role,
-        created_at: user.role_updated_at || new Date().toISOString(),
-        is_active: true // Default to active since backend doesn't provide this
-      })) : []
-      console.log('[AdminRoles] Processed users data length:', usersData.length)
-      console.log('[AdminRoles] Sample transformed user:', usersData[0])
-      
-      setUsers(usersData)
-      
+      const usersData = Array.isArray(data)
+        ? data.map(user => ({
+            id: user.user_id,
+            email: user.email,
+            role: user.role,
+            created_at: user.role_updated_at || new Date().toISOString(),
+            is_active: true, // Default to active since backend doesn't provide this
+          }))
+        : [];
+      console.log(
+        '[AdminRoles] Processed users data length:',
+        usersData.length
+      );
+      console.log('[AdminRoles] Sample transformed user:', usersData[0]);
+
+      setUsers(usersData);
+
       // Calculate stats after users are loaded
-      calculateAndSetStats(usersData)
-      
+      calculateAndSetStats(usersData);
+
       // Load recent activity after users are available
-      await loadRecentActivity(usersData)
+      await loadRecentActivity(usersData);
     } catch (error) {
-      console.error('Error loading users:', error)
-      setError('Failed to load users')
+      console.error('Error loading users:', error);
+      setError('Failed to load users');
     }
-  }
+  };
 
   const loadUserStats = async () => {
-    calculateAndSetStats(users)
-  }
+    calculateAndSetStats(users);
+  };
 
   const calculateAndSetStats = (usersData: User[]) => {
     try {
       // Calculate basic stats from the users data
-      const totalUsers = usersData.length
-      const activeUsers = usersData.filter(u => u.is_active).length
-      const totalAdmins = usersData.filter(u => u.role === 'admin').length
-      const activeAdmins = usersData.filter(u => u.role === 'admin' && u.is_active).length
-      
+      const totalUsers = usersData.length;
+      const activeUsers = usersData.filter(u => u.is_active).length;
+      const totalAdmins = usersData.filter(u => u.role === 'admin').length;
+      const activeAdmins = usersData.filter(
+        u => u.role === 'admin' && u.is_active
+      ).length;
+
       // Recent signups (last 7 days)
-      const sevenDaysAgo = new Date()
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-      const recentSignups = usersData.filter(u => new Date(u.created_at) > sevenDaysAgo).length
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const recentSignups = usersData.filter(
+        u => new Date(u.created_at) > sevenDaysAgo
+      ).length;
 
       setStats({
         total_users: totalUsers,
         active_users: activeUsers,
         total_admins: totalAdmins,
         active_admins: activeAdmins,
-        recent_signups: recentSignups
-      })
+        recent_signups: recentSignups,
+      });
     } catch (error) {
-      console.error('Error calculating user stats:', error)
+      console.error('Error calculating user stats:', error);
     }
-  }
+  };
 
   const loadRecentActivity = async (usersData?: User[]) => {
     try {
       // Use passed usersData or fall back to state
       const currentUsers = usersData || users;
-      
+
       // Since we don't have an activity endpoint yet, generate mock activity
       // based on recent role changes from the users data
-      const mockActivities: UserActivity[] = currentUsers.slice(0, 5).map((user, index) => ({
-        id: `activity-${user.id}-${index}`,
-        user_id: user.id,
-        action: `Role updated to ${user.role}`,
-        timestamp: user.created_at,
-        details: `User ${user.email} was assigned ${user.role} role`
-      }));
-      
+      const mockActivities: UserActivity[] = currentUsers
+        .slice(0, 5)
+        .map((user, index) => ({
+          id: `activity-${user.id}-${index}`,
+          user_id: user.id,
+          action: `Role updated to ${user.role}`,
+          timestamp: user.created_at,
+          details: `User ${user.email} was assigned ${user.role} role`,
+        }));
+
       // Add some system activities
       const systemActivities: UserActivity[] = [
         {
@@ -218,105 +242,114 @@ export default function AdminRolesPage() {
           user_id: 'system',
           action: 'Admin panel accessed',
           timestamp: new Date().toISOString(),
-          details: 'Admin roles management panel was accessed'
+          details: 'Admin roles management panel was accessed',
         },
         {
-          id: 'sys-2', 
+          id: 'sys-2',
           user_id: 'system',
           action: 'User permissions checked',
           timestamp: new Date(Date.now() - 300000).toISOString(), // 5 minutes ago
-          details: 'System verified admin permissions'
-        }
+          details: 'System verified admin permissions',
+        },
       ];
-      
+
       const allActivities = [...systemActivities, ...mockActivities]
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .sort(
+          (a, b) =>
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        )
         .slice(0, 10); // Show last 10 activities
-      
+
       setUserActivities(allActivities);
     } catch (error) {
-      console.error('Error loading user activity:', error)
+      console.error('Error loading user activity:', error);
     }
-  }
+  };
 
   const handleRoleChange = async (userId: string, newRole: 'rep' | 'admin') => {
     try {
-      setProcessingUsers(prev => new Set([...prev, userId]))
-      
+      setProcessingUsers(prev => new Set([...prev, userId]));
+
       // Use Supabase session instead of localStorage token
-      const { data: sessionData } = await supabase.auth.getSession()
+      const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) {
-        router.push('/login')
-        return
+        router.push('/login');
+        return;
       }
-      const token = sessionData.session.access_token
-      
-      const response = await fetch(`${API_BASE}/api/admin/users/${userId}/role`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ role: newRole })
-      })
+      const token = sessionData.session.access_token;
+
+      const response = await fetch(
+        `${API_BASE}/api/admin/users/${userId}/role`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ role: newRole }),
+        }
+      );
 
       if (!response.ok) {
-        const errorData = await response.json()
+        const errorData = await response.json();
         if (response.status === 409) {
-          const errorMsg = errorData.error || 'Cannot perform this action - would leave system without admins'
-          setError(errorMsg)
-          toast.error(`❌ ${errorMsg}`)
+          const errorMsg =
+            errorData.error ||
+            'Cannot perform this action - would leave system without admins';
+          setError(errorMsg);
+          toast.error(`❌ ${errorMsg}`);
         } else {
-          throw new Error(`HTTP ${response.status}`)
+          throw new Error(`HTTP ${response.status}`);
         }
-        return
+        return;
       }
 
-      const data = await response.json()
-      const successMsg = `User role updated to ${newRole}`
-      setSuccess(successMsg)
-      toast.success(`✅ ${successMsg}`)
-      
+      const data = await response.json();
+      const successMsg = `User role updated to ${newRole}`;
+      setSuccess(successMsg);
+      toast.success(`✅ ${successMsg}`);
+
       // Add activity for role change
-      const targetUser = users.find(u => u.id === userId)
+      const targetUser = users.find(u => u.id === userId);
       const newActivity: UserActivity = {
         id: `role-change-${userId}-${Date.now()}`,
         user_id: userId,
         action: `Role changed to ${newRole}`,
         timestamp: new Date().toISOString(),
-        details: `${targetUser?.email || 'Unknown user'} role updated from ${targetUser?.role || 'unknown'} to ${newRole}`
-      }
-      
-      setUserActivities(prev => [newActivity, ...prev].slice(0, 10))
-      
+        details: `${targetUser?.email || 'Unknown user'} role updated from ${targetUser?.role || 'unknown'} to ${newRole}`,
+      };
+
+      setUserActivities(prev => [newActivity, ...prev].slice(0, 10));
+
       // Update local state with functional update to ensure we get the latest state
       setUsers(prev => {
-        const updatedUsers = prev.map(user => 
+        const updatedUsers = prev.map(user =>
           user.id === userId ? { ...user, role: newRole } : user
-        )
+        );
         // Calculate stats with the updated users data
-        calculateAndSetStats(updatedUsers)
-        return updatedUsers
-      })
-      
+        calculateAndSetStats(updatedUsers);
+        return updatedUsers;
+      });
     } catch (error) {
-      console.error('Error updating user role:', error)
-      const errorMsg = error instanceof Error ? error.message : 'Failed to update user role'
-      setError(errorMsg)
-      toast.error(`❌ ${errorMsg}`)
+      console.error('Error updating user role:', error);
+      const errorMsg =
+        error instanceof Error ? error.message : 'Failed to update user role';
+      setError(errorMsg);
+      toast.error(`❌ ${errorMsg}`);
     } finally {
       setProcessingUsers(prev => {
-        const next = new Set(prev)
-        next.delete(userId)
-        return next
-      })
+        const next = new Set(prev);
+        next.delete(userId);
+        return next;
+      });
     }
-  }
+  };
 
-  const filteredUsers = users.filter(user => 
-    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredUsers = users.filter(
+    user =>
+      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.role.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -324,24 +357,27 @@ export default function AdminRolesPage() {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
+      minute: '2-digit',
+    });
+  };
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
-      case 'admin': return 'destructive'
-      case 'rep': return 'secondary'
-      default: return 'outline'
+      case 'admin':
+        return 'destructive';
+      case 'rep':
+        return 'secondary';
+      default:
+        return 'outline';
     }
-  }
+  };
 
   if (loading && users.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <RefreshCw className="h-8 w-8 animate-spin" />
       </div>
-    )
+    );
   }
 
   return (
@@ -355,7 +391,9 @@ export default function AdminRolesPage() {
           </p>
         </div>
         <Button onClick={loadData} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`}
+          />
           Refresh
         </Button>
       </div>
@@ -367,9 +405,9 @@ export default function AdminRolesPage() {
             <div className="flex items-center gap-2 text-destructive">
               <XCircle className="h-5 w-5" />
               <span>{error}</span>
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setError(null)}
                 className="ml-auto"
               >
@@ -386,9 +424,9 @@ export default function AdminRolesPage() {
             <div className="flex items-center gap-2 text-green-600">
               <CheckCircle className="h-5 w-5" />
               <span>{success}</span>
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setSuccess(null)}
                 className="ml-auto"
               >
@@ -413,7 +451,9 @@ export default function AdminRolesPage() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Users</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Active Users
+              </CardTitle>
               <UserCheck className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -422,7 +462,9 @@ export default function AdminRolesPage() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Admins</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Total Admins
+              </CardTitle>
               <Shield className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -431,7 +473,9 @@ export default function AdminRolesPage() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Recent Signups</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Recent Signups
+              </CardTitle>
               <Clock className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -462,7 +506,7 @@ export default function AdminRolesPage() {
                 <Input
                   placeholder="Search users..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={e => setSearchTerm(e.target.value)}
                   className="pl-8"
                 />
               </div>
@@ -477,16 +521,23 @@ export default function AdminRolesPage() {
                         <th className="text-left p-3 font-medium">Role</th>
                         <th className="text-left p-3 font-medium">Status</th>
                         <th className="text-left p-3 font-medium">Joined</th>
-                        <th className="text-left p-3 font-medium">Last Login</th>
+                        <th className="text-left p-3 font-medium">
+                          Last Login
+                        </th>
                         <th className="text-left p-3 font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredUsers.map((user) => (
-                        <tr key={user.id} className="border-b hover:bg-muted/50">
+                      {filteredUsers.map(user => (
+                        <tr
+                          key={user.id}
+                          className="border-b hover:bg-muted/50"
+                        >
                           <td className="p-3">
                             <div className="font-medium">{user.email}</div>
-                            <div className="text-sm text-muted-foreground">ID: {user.id.slice(0, 8)}...</div>
+                            <div className="text-sm text-muted-foreground">
+                              ID: {user.id.slice(0, 8)}...
+                            </div>
                           </td>
                           <td className="p-3">
                             <Badge variant={getRoleBadgeVariant(user.role)}>
@@ -494,7 +545,9 @@ export default function AdminRolesPage() {
                             </Badge>
                           </td>
                           <td className="p-3">
-                            <Badge variant={user.is_active ? 'default' : 'secondary'}>
+                            <Badge
+                              variant={user.is_active ? 'default' : 'secondary'}
+                            >
                               {user.is_active ? 'Active' : 'Inactive'}
                             </Badge>
                           </td>
@@ -502,7 +555,9 @@ export default function AdminRolesPage() {
                             {formatDate(user.created_at)}
                           </td>
                           <td className="p-3 text-sm text-muted-foreground">
-                            {user.last_login ? formatDate(user.last_login) : 'Never'}
+                            {user.last_login
+                              ? formatDate(user.last_login)
+                              : 'Never'}
                           </td>
                           <td className="p-3">
                             <div className="flex items-center gap-2">
@@ -510,7 +565,9 @@ export default function AdminRolesPage() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => handleRoleChange(user.id, 'admin')}
+                                  onClick={() =>
+                                    handleRoleChange(user.id, 'admin')
+                                  }
                                   disabled={processingUsers.has(user.id)}
                                 >
                                   {processingUsers.has(user.id) ? (
@@ -526,7 +583,9 @@ export default function AdminRolesPage() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => handleRoleChange(user.id, 'rep')}
+                                  onClick={() =>
+                                    handleRoleChange(user.id, 'rep')
+                                  }
                                   disabled={processingUsers.has(user.id)}
                                 >
                                   {processingUsers.has(user.id) ? (
@@ -549,7 +608,9 @@ export default function AdminRolesPage() {
 
                 {filteredUsers.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
-                    {searchTerm ? 'No users found matching your search.' : 'No users found.'}
+                    {searchTerm
+                      ? 'No users found matching your search.'
+                      : 'No users found.'}
                   </div>
                 )}
               </div>
@@ -567,8 +628,11 @@ export default function AdminRolesPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {userActivities.map((activity) => (
-                  <div key={activity.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                {userActivities.map(activity => (
+                  <div
+                    key={activity.id}
+                    className="flex items-center gap-3 p-3 border rounded-lg"
+                  >
                     <div className="flex-1">
                       <div className="font-medium">{activity.action}</div>
                       {activity.details && (
@@ -594,5 +658,5 @@ export default function AdminRolesPage() {
         </TabsContent>
       </Tabs>
     </div>
-  )
+  );
 }

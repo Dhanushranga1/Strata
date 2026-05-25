@@ -1,14 +1,14 @@
-"use client";
+'use client';
 
-import { Button, Chip } from "@heroui/react";
-import { motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, BrainCircuit, Shield, Zap } from "lucide-react";
-import { v } from "../../../ui/motion/variants";
+import { Button, Chip } from '@heroui/react';
+import { motion, useReducedMotion } from 'framer-motion';
+import { ArrowRight, BrainCircuit, Shield, Zap } from 'lucide-react';
+import { v } from '../../../ui/motion/variants';
 
 const trustSignals = [
-  { icon: Shield, text: "No credit card required" },
-  { icon: Zap, text: "Setup in under 5 minutes" },
-  { icon: BrainCircuit, text: "CASPER active on day one" },
+  { icon: Shield, text: 'No credit card required' },
+  { icon: Zap, text: 'Setup in under 5 minutes' },
+  { icon: BrainCircuit, text: 'CASPER active on day one' },
 ];
 
 export default function CTA() {
@@ -25,18 +25,19 @@ export default function CTA() {
         variants={v.list}
         initial="hidden"
         whileInView="visible"
-        viewport={{ once: true, margin: "-80px" }}
+        viewport={{ once: true, margin: '-80px' }}
       >
         <motion.div variants={v.item} className="space-y-5 mb-10">
           <h2 className="text-4xl sm:text-5xl font-bold tracking-tight leading-tight text-white">
-            Your support team deserves{" "}
+            Your support team deserves{' '}
             <span className="bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">
               smarter tools.
             </span>
           </h2>
           <p className="text-lg text-zinc-400 max-w-xl mx-auto leading-relaxed">
-            Upload your knowledge base, invite your team, and let CASPER handle routing and
-            prioritisation from day one. No spreadsheets, no manual triage.
+            Upload your knowledge base, invite your team, and let CASPER handle
+            routing and prioritisation from day one. No spreadsheets, no manual
+            triage.
           </p>
         </motion.div>
 
@@ -68,7 +69,7 @@ export default function CTA() {
           variants={v.item}
           className="flex flex-wrap items-center justify-center gap-2"
         >
-          {trustSignals.map((s) => (
+          {trustSignals.map(s => (
             <Chip
               key={s.text}
               startContent={<s.icon className="size-3.5" />}

@@ -1,11 +1,15 @@
-import { supabase } from './supabaseClient'
+import { supabase } from './supabaseClient';
 
-export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000').replace(/\/$/, '')
+export const API_BASE = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  'http://127.0.0.1:8000'
+).replace(/\/$/, '');
 
 export async function apiGet<T>(path: string, token?: string): Promise<T> {
   if (!token) {
-    const { data: sessionData } = await supabase.auth.getSession()
-    token = sessionData?.session?.access_token
+    const { data: sessionData } = await supabase.auth.getSession();
+    token = sessionData?.session?.access_token;
   }
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -13,17 +17,17 @@ export async function apiGet<T>(path: string, token?: string): Promise<T> {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     cache: 'no-store',
-  })
+  });
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`API ${res.status}: ${text}`)
+    const text = await res.text();
+    throw new Error(`API ${res.status}: ${text}`);
   }
-  return res.json()
+  return res.json();
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const { data: sessionData } = await supabase.auth.getSession()
-  const token = sessionData?.session?.access_token
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: {
@@ -31,10 +35,10 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
-  })
+  });
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`API ${res.status}: ${text}`)
+    const text = await res.text();
+    throw new Error(`API ${res.status}: ${text}`);
   }
-  return res.json()
+  return res.json();
 }

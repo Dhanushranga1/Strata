@@ -1,13 +1,13 @@
-"use client";
+'use client';
 
-import { motion } from "framer-motion";
+import { motion } from 'framer-motion';
 
 // Modern spinner with Midnight Prism colors
-export function LoadingSpinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
+export function LoadingSpinner({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
   const sizeClasses = {
-    sm: "w-4 h-4",
-    md: "w-6 h-6", 
-    lg: "w-8 h-8",
+    sm: 'w-4 h-4',
+    md: 'w-6 h-6',
+    lg: 'w-8 h-8',
   };
 
   return (
@@ -17,7 +17,7 @@ export function LoadingSpinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
       transition={{
         duration: 1,
         repeat: Infinity,
-        ease: "linear",
+        ease: 'linear',
       }}
     >
       <div className="absolute inset-0 rounded-full border-2 border-muted"></div>
@@ -30,7 +30,7 @@ export function LoadingSpinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
 export function PulsingDots() {
   return (
     <div className="flex items-center space-x-1">
-      {[0, 1, 2].map((index) => (
+      {[0, 1, 2].map(index => (
         <motion.div
           key={index}
           className="w-2 h-2 bg-primary rounded-full"
@@ -50,11 +50,15 @@ export function PulsingDots() {
 }
 
 // Success animation checkmark
-export function SuccessCheckmark({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
+export function SuccessCheckmark({
+  size = 'md',
+}: {
+  size?: 'sm' | 'md' | 'lg';
+}) {
   const sizeClasses = {
-    sm: "w-4 h-4",
-    md: "w-6 h-6",
-    lg: "w-8 h-8",
+    sm: 'w-4 h-4',
+    md: 'w-6 h-6',
+    lg: 'w-8 h-8',
   };
 
   return (
@@ -62,7 +66,7 @@ export function SuccessCheckmark({ size = "md" }: { size?: "sm" | "md" | "lg" })
       className={`${sizeClasses[size]} relative`}
       initial={{ scale: 0 }}
       animate={{ scale: 1 }}
-      transition={{ type: "spring", stiffness: 200, damping: 10 }}
+      transition={{ type: 'spring', stiffness: 200, damping: 10 }}
     >
       <motion.svg
         className="w-full h-full text-success"
@@ -85,19 +89,18 @@ export function SuccessCheckmark({ size = "md" }: { size?: "sm" | "md" | "lg" })
 }
 
 // Floating action button with ripple effect
-export function FloatingButton({ 
-  children, 
-  onClick, 
-  className = "", 
+export function FloatingButton({
+  children,
+  onClick,
+  className = '',
   disabled,
-  type = "button",
-  ...props 
+  type = 'button',
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   className?: string;
   disabled?: boolean;
-  type?: "button" | "submit" | "reset";
+  type?: 'button' | 'submit' | 'reset';
 }) {
   return (
     <motion.button
@@ -120,7 +123,7 @@ export function FloatingButton({
 }
 
 // Shimmer loading effect for cards
-export function ShimmerCard({ className = "" }: { className?: string }) {
+export function ShimmerCard({ className = '' }: { className?: string }) {
   return (
     <div className={`animate-pulse ${className}`}>
       <div className="bg-muted/50 rounded-lg p-6 space-y-4">
@@ -141,14 +144,20 @@ export function ShimmerCard({ className = "" }: { className?: string }) {
 }
 
 // Typing animation for text
-export function TypewriterText({ text, delay = 0 }: { text: string; delay?: number }) {
+export function TypewriterText({
+  text,
+  delay = 0,
+}: {
+  text: string;
+  delay?: number;
+}) {
   return (
     <motion.span
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ delay }}
     >
-      {text.split("").map((char, index) => (
+      {text.split('').map((char, index) => (
         <motion.span
           key={index}
           initial={{ opacity: 0 }}

@@ -1,209 +1,262 @@
-'use client'
+'use client';
 
-import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { useOrganization } from '@/contexts/OrganizationContext'
-import api from '@/lib/api-client'
-import { toast } from 'sonner'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { PageShell } from '@/ui/motion/PageShell'
-import { Users, UserPlus, Trash2, ArrowLeft, Search, Shield, Clock } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import api from '@/lib/api-client';
+import { toast } from 'sonner';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { PageShell } from '@/ui/motion/PageShell';
+import {
+  Users,
+  UserPlus,
+  Trash2,
+  ArrowLeft,
+  Search,
+  Shield,
+  Clock,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Member {
-  organization_id: string
-  user_id: string
-  role: string
-  joined_at: string
-  invited_by: string | null
-  user_email: string | null
-  last_sign_in_at: string | null
+  organization_id: string;
+  user_id: string;
+  role: string;
+  joined_at: string;
+  invited_by: string | null;
+  user_email: string | null;
+  last_sign_in_at: string | null;
 }
 
-const ROLE_ORDER = ['owner', 'admin', 'rep', 'member']
+const ROLE_ORDER = ['owner', 'admin', 'rep', 'member'];
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Owner',
   admin: 'Admin',
   rep: 'Support Rep',
   member: 'Client',
-}
+};
 
 const roleBadgeClass: Record<string, string> = {
   owner: 'bg-purple-100 text-purple-800 border border-purple-300',
   admin: 'bg-blue-100 text-blue-800 border border-blue-300',
   rep: 'bg-green-100 text-green-800 border border-green-300',
   member: 'bg-gray-100 text-gray-700 border border-gray-300',
-}
+};
 
 function formatRelative(dateStr: string | null): string {
-  if (!dateStr) return 'Never'
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  const hours = Math.floor(mins / 60)
-  const days = Math.floor(hours / 24)
-  if (days > 30) return new Date(dateStr).toLocaleDateString()
-  if (days > 0) return `${days}d ago`
-  if (hours > 0) return `${hours}h ago`
-  if (mins > 0) return `${mins}m ago`
-  return 'Just now'
+  if (!dateStr) return 'Never';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(mins / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 30) return new Date(dateStr).toLocaleDateString();
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (mins > 0) return `${mins}m ago`;
+  return 'Just now';
 }
 
 function initials(email: string | null): string {
-  if (!email) return '?'
-  return email[0].toUpperCase()
+  if (!email) return '?';
+  return email[0].toUpperCase();
 }
 
 export default function AdminUsersPage() {
-  const router = useRouter()
-  const { currentOrganization, isReady } = useOrganization()
-  const orgId = currentOrganization?.id
-  const orgName = currentOrganization?.name ?? 'your organisation'
+  const router = useRouter();
+  const { currentOrganization, isReady } = useOrganization();
+  const orgId = currentOrganization?.id;
+  const orgName = currentOrganization?.name ?? 'your organisation';
 
-  const [currentUser, setCurrentUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [members, setMembers] = useState<Member[]>([])
-  const [membersLoading, setMembersLoading] = useState(false)
-  const [search, setSearch] = useState('')
-  const [roleChanging, setRoleChanging] = useState<string | null>(null)
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [roleChanging, setRoleChanging] = useState<string | null>(null);
 
   // Remove confirmation dialog
-  const [removeDialog, setRemoveDialog] = useState<{ open: boolean; member: Member | null }>({
+  const [removeDialog, setRemoveDialog] = useState<{
+    open: boolean;
+    member: Member | null;
+  }>({
     open: false,
     member: null,
-  })
-  const [removing, setRemoving] = useState(false)
+  });
+  const [removing, setRemoving] = useState(false);
 
   // Invite dialog
-  const [inviteDialog, setInviteDialog] = useState(false)
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('rep')
-  const [inviting, setInviting] = useState(false)
-  const [inviteResult, setInviteResult] = useState<{ url: string; emailSent: boolean } | null>(null)
+  const [inviteDialog, setInviteDialog] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('rep');
+  const [inviting, setInviting] = useState(false);
+  const [inviteResult, setInviteResult] = useState<{
+    url: string;
+    emailSent: boolean;
+  } | null>(null);
 
   // Auth check
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const userData = await api.get('/api/me')
+        const userData = await api.get('/api/me');
         if (userData.role !== 'admin') {
-          router.replace('/dashboard')
-          return
+          router.replace('/dashboard');
+          return;
         }
-        setCurrentUser(userData)
+        setCurrentUser(userData);
       } catch {
-        router.replace('/login')
+        router.replace('/login');
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
-    checkAuth()
-  }, [router])
+    };
+    checkAuth();
+  }, [router]);
 
-  const loadMembers = useCallback(async (q?: string) => {
-    if (!orgId) return
-    try {
-      setMembersLoading(true)
-      const params = q ? `?q=${encodeURIComponent(q)}` : ''
-      const data: Member[] = await api.get(`/api/organizations/${orgId}/members${params}`, orgId)
-      setMembers(data.sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)))
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to load members')
-    } finally {
-      setMembersLoading(false)
-    }
-  }, [orgId])
+  const loadMembers = useCallback(
+    async (q?: string) => {
+      if (!orgId) return;
+      try {
+        setMembersLoading(true);
+        const params = q ? `?q=${encodeURIComponent(q)}` : '';
+        const data: Member[] = await api.get(
+          `/api/organizations/${orgId}/members${params}`,
+          orgId
+        );
+        setMembers(
+          data.sort(
+            (a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)
+          )
+        );
+      } catch (e: any) {
+        toast.error(e.message || 'Failed to load members');
+      } finally {
+        setMembersLoading(false);
+      }
+    },
+    [orgId]
+  );
 
   useEffect(() => {
     if (currentUser && isReady && orgId) {
-      loadMembers()
+      loadMembers();
     }
-  }, [currentUser, isReady, orgId, loadMembers])
+  }, [currentUser, isReady, orgId, loadMembers]);
 
   // Debounced search
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (currentUser && orgId) loadMembers(search || undefined)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [search, currentUser, orgId, loadMembers])
+      if (currentUser && orgId) loadMembers(search || undefined);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search, currentUser, orgId, loadMembers]);
 
   const handleRoleChange = async (member: Member, newRole: string) => {
-    if (newRole === member.role || !orgId) return
+    if (newRole === member.role || !orgId) return;
     try {
-      setRoleChanging(member.user_id)
-      await api.patch(`/api/organizations/${orgId}/members/${member.user_id}`, { role: newRole }, orgId)
+      setRoleChanging(member.user_id);
+      await api.patch(
+        `/api/organizations/${orgId}/members/${member.user_id}`,
+        { role: newRole },
+        orgId
+      );
       setMembers(prev =>
         prev
-          .map(m => m.user_id === member.user_id ? { ...m, role: newRole } : m)
-          .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role))
-      )
-      toast.success(`${member.user_email} is now ${newRole}`)
+          .map(m =>
+            m.user_id === member.user_id ? { ...m, role: newRole } : m
+          )
+          .sort(
+            (a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)
+          )
+      );
+      toast.success(`${member.user_email} is now ${newRole}`);
     } catch (e: any) {
-      toast.error(e.message || 'Failed to update role')
+      toast.error(e.message || 'Failed to update role');
     } finally {
-      setRoleChanging(null)
+      setRoleChanging(null);
     }
-  }
+  };
 
   const handleRemove = async () => {
-    if (!removeDialog.member || !orgId) return
-    const { member } = removeDialog
+    if (!removeDialog.member || !orgId) return;
+    const { member } = removeDialog;
     try {
-      setRemoving(true)
-      await api.delete(`/api/organizations/${orgId}/members/${member.user_id}`, orgId)
-      setMembers(prev => prev.filter(m => m.user_id !== member.user_id))
-      toast.success(`${member.user_email} removed from ${orgName}`)
-      setRemoveDialog({ open: false, member: null })
+      setRemoving(true);
+      await api.delete(
+        `/api/organizations/${orgId}/members/${member.user_id}`,
+        orgId
+      );
+      setMembers(prev => prev.filter(m => m.user_id !== member.user_id));
+      toast.success(`${member.user_email} removed from ${orgName}`);
+      setRemoveDialog({ open: false, member: null });
     } catch (e: any) {
-      toast.error(e.message || 'Failed to remove member')
+      toast.error(e.message || 'Failed to remove member');
     } finally {
-      setRemoving(false)
+      setRemoving(false);
     }
-  }
+  };
 
   const handleInvite = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!inviteEmail.trim() || !orgId) return
+    e.preventDefault();
+    if (!inviteEmail.trim() || !orgId) return;
     try {
-      setInviting(true)
+      setInviting(true);
       const data = await api.post(
         `/api/organizations/${orgId}/invites`,
         { email: inviteEmail.trim(), role: inviteRole },
         orgId
-      )
-      setInviteResult({ url: data.invite_url, emailSent: data.email_sent })
+      );
+      setInviteResult({ url: data.invite_url, emailSent: data.email_sent });
       if (data.email_sent) {
-        toast.success(`Invite sent to ${inviteEmail}`)
+        toast.success(`Invite sent to ${inviteEmail}`);
       }
     } catch (e: any) {
-      toast.error(e.message || 'Failed to create invite')
+      toast.error(e.message || 'Failed to create invite');
     } finally {
-      setInviting(false)
+      setInviting(false);
     }
-  }
+  };
 
   const resetInviteDialog = () => {
-    setInviteDialog(false)
-    setInviteEmail('')
-    setInviteRole('rep')
-    setInviting(false)
-    setInviteResult(null)
-  }
+    setInviteDialog(false);
+    setInviteEmail('');
+    setInviteRole('rep');
+    setInviting(false);
+    setInviteResult(null);
+  };
 
   if (loading) {
     return (
       <div className="min-h-screen grid place-items-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
-    )
+    );
   }
 
   return (
@@ -238,7 +291,7 @@ export default function AdminUsersPage() {
           <Input
             placeholder="@email search…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={e => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
@@ -247,15 +300,22 @@ export default function AdminUsersPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">
-              {membersLoading ? 'Loading…' : `${members.length} member${members.length !== 1 ? 's' : ''}`}
+              {membersLoading
+                ? 'Loading…'
+                : `${members.length} member${members.length !== 1 ? 's' : ''}`}
             </CardTitle>
-            <CardDescription>Manage roles and access for your team</CardDescription>
+            <CardDescription>
+              Manage roles and access for your team
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {membersLoading && members.length === 0 ? (
               <div className="p-6 space-y-3">
                 {[1, 2, 3].map(i => (
-                  <div key={i} className="h-12 bg-muted animate-pulse rounded-md" />
+                  <div
+                    key={i}
+                    className="h-12 bg-muted animate-pulse rounded-md"
+                  />
                 ))}
               </div>
             ) : members.length === 0 ? (
@@ -280,7 +340,9 @@ export default function AdminUsersPage() {
                       <p className="text-sm font-medium truncate">
                         {member.user_email ?? member.user_id}
                         {member.user_id === currentUser?.id && (
-                          <span className="ml-2 text-xs text-muted-foreground">(you)</span>
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            (you)
+                          </span>
                         )}
                       </p>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
@@ -296,15 +358,22 @@ export default function AdminUsersPage() {
                     <div className="flex-shrink-0 w-32">
                       <Select
                         value={member.role}
-                        onValueChange={(v) => handleRoleChange(member, v)}
+                        onValueChange={v => handleRoleChange(member, v)}
                         disabled={
                           roleChanging === member.user_id ||
-                          (member.role === 'owner' && members.filter(m => m.role === 'owner').length <= 1)
+                          (member.role === 'owner' &&
+                            members.filter(m => m.role === 'owner').length <= 1)
                         }
                       >
                         <SelectTrigger className="h-8 text-xs">
                           <SelectValue>
-                            <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded', roleBadgeClass[member.role] ?? roleBadgeClass.member)}>
+                            <span
+                              className={cn(
+                                'text-xs font-medium px-1.5 py-0.5 rounded',
+                                roleBadgeClass[member.role] ??
+                                  roleBadgeClass.member
+                              )}
+                            >
                               {ROLE_LABELS[member.role] ?? member.role}
                             </span>
                           </SelectValue>
@@ -312,7 +381,12 @@ export default function AdminUsersPage() {
                         <SelectContent>
                           {ROLE_ORDER.map(r => (
                             <SelectItem key={r} value={r} className="text-xs">
-                              <span className={cn('text-xs font-medium px-1.5 py-0.5 rounded', roleBadgeClass[r])}>
+                              <span
+                                className={cn(
+                                  'text-xs font-medium px-1.5 py-0.5 rounded',
+                                  roleBadgeClass[r]
+                                )}
+                              >
                                 {ROLE_LABELS[r] ?? r}
                               </span>
                             </SelectItem>
@@ -328,7 +402,8 @@ export default function AdminUsersPage() {
                       className="flex-shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                       disabled={
                         member.user_id === currentUser?.id ||
-                        (member.role === 'owner' && members.filter(m => m.role === 'owner').length <= 1)
+                        (member.role === 'owner' &&
+                          members.filter(m => m.role === 'owner').length <= 1)
                       }
                       onClick={() => setRemoveDialog({ open: true, member })}
                     >
@@ -345,21 +420,31 @@ export default function AdminUsersPage() {
       {/* Remove confirmation dialog */}
       <Dialog
         open={removeDialog.open}
-        onOpenChange={(open) => !open && setRemoveDialog({ open: false, member: null })}
+        onOpenChange={open =>
+          !open && setRemoveDialog({ open: false, member: null })
+        }
       >
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Remove member?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
-            <strong>{removeDialog.member?.user_email}</strong> will lose access to{' '}
-            <strong>{orgName}</strong>. Their tickets will remain but they will be unassigned.
+            <strong>{removeDialog.member?.user_email}</strong> will lose access
+            to <strong>{orgName}</strong>. Their tickets will remain but they
+            will be unassigned.
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRemoveDialog({ open: false, member: null })}>
+            <Button
+              variant="outline"
+              onClick={() => setRemoveDialog({ open: false, member: null })}
+            >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleRemove} disabled={removing}>
+            <Button
+              variant="destructive"
+              onClick={handleRemove}
+              disabled={removing}
+            >
               {removing ? 'Removing…' : 'Remove'}
             </Button>
           </DialogFooter>
@@ -367,7 +452,12 @@ export default function AdminUsersPage() {
       </Dialog>
 
       {/* Invite dialog */}
-      <Dialog open={inviteDialog} onOpenChange={(open) => { if (!open) resetInviteDialog() }}>
+      <Dialog
+        open={inviteDialog}
+        onOpenChange={open => {
+          if (!open) resetInviteDialog();
+        }}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -389,8 +479,8 @@ export default function AdminUsersPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  navigator.clipboard.writeText(inviteResult.url)
-                  toast.success('Link copied')
+                  navigator.clipboard.writeText(inviteResult.url);
+                  toast.success('Link copied');
                 }}
               >
                 Copy link
@@ -405,7 +495,7 @@ export default function AdminUsersPage() {
                   type="email"
                   placeholder="user@example.com"
                   value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
+                  onChange={e => setInviteEmail(e.target.value)}
                   required
                 />
               </div>
@@ -423,10 +513,17 @@ export default function AdminUsersPage() {
                 </Select>
               </div>
               <DialogFooter>
-                <Button variant="outline" type="button" onClick={resetInviteDialog}>
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={resetInviteDialog}
+                >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={inviting || !inviteEmail.trim()}>
+                <Button
+                  type="submit"
+                  disabled={inviting || !inviteEmail.trim()}
+                >
                   {inviting ? 'Sending…' : 'Send Invite'}
                 </Button>
               </DialogFooter>
@@ -440,5 +537,5 @@ export default function AdminUsersPage() {
         </DialogContent>
       </Dialog>
     </PageShell>
-  )
+  );
 }

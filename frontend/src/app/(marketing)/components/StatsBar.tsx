@@ -1,14 +1,14 @@
-"use client";
+'use client';
 
-import { motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from 'framer-motion';
 
 const stats = [
-  { value: "4", label: "Query intent classes" },
-  { value: "6", label: "Confidence factors" },
-  { value: "P1–P7", label: "Priority levels" },
-  { value: "MMR", label: "Intent-adaptive retrieval" },
-  { value: "0-admin", label: "Ticket routing setup" },
-  { value: "60 s", label: "KB cache TTL" },
+  { value: '4', label: 'Query intent classes' },
+  { value: '6', label: 'Confidence factors' },
+  { value: 'P1–P7', label: 'Priority levels' },
+  { value: 'MMR', label: 'Intent-adaptive retrieval' },
+  { value: '0-admin', label: 'Ticket routing setup' },
+  { value: '60 s', label: 'KB cache TTL' },
 ];
 
 export default function StatsBar() {
@@ -27,8 +27,12 @@ export default function StatsBar() {
               transition={{ duration: 0.4, delay: i * 0.06 }}
               className="text-center md:px-6"
             >
-              <div className="text-lg font-bold text-white font-mono tracking-tight">{s.value}</div>
-              <div className="text-xs text-zinc-500 mt-0.5 leading-tight">{s.label}</div>
+              <div className="text-lg font-bold text-white font-mono tracking-tight">
+                {s.value}
+              </div>
+              <div className="text-xs text-zinc-500 mt-0.5 leading-tight">
+                {s.label}
+              </div>
             </motion.div>
           ))}
         </div>

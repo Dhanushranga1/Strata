@@ -1,8 +1,9 @@
 """SLA policy management — per-org, per-priority first-response and resolution targets."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-import uuid as uuid_lib
 import logging
+import uuid as uuid_lib
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from .auth import User, get_current_user
 from .org_middleware import require_org_context, require_org_role
@@ -17,16 +18,17 @@ router = APIRouter(prefix="/api/sla", tags=["sla"])
 SLA_DEFAULTS: dict[int, dict[str, float]] = {
     1: {"first_response_hours": 48.0, "resolution_hours": 168.0},
     2: {"first_response_hours": 24.0, "resolution_hours": 72.0},
-    3: {"first_response_hours": 8.0,  "resolution_hours": 48.0},
-    4: {"first_response_hours": 4.0,  "resolution_hours": 24.0},
-    5: {"first_response_hours": 2.0,  "resolution_hours": 12.0},
-    6: {"first_response_hours": 1.0,  "resolution_hours": 6.0},
-    7: {"first_response_hours": 1.0,  "resolution_hours": 4.0},
+    3: {"first_response_hours": 8.0, "resolution_hours": 48.0},
+    4: {"first_response_hours": 4.0, "resolution_hours": 24.0},
+    5: {"first_response_hours": 2.0, "resolution_hours": 12.0},
+    6: {"first_response_hours": 1.0, "resolution_hours": 6.0},
+    7: {"first_response_hours": 1.0, "resolution_hours": 4.0},
 }
 
 
 async def _get_db():
     from .db import get_connection
+
     return await get_connection()
 
 
@@ -52,8 +54,10 @@ async def get_sla_policies(request: Request, user: User = Depends(get_current_us
                     VALUES ($1, $2, $3, $4)
                     ON CONFLICT (organization_id, priority_level) DO NOTHING
                     """,
-                    uuid_lib.UUID(org_id), lvl,
-                    defaults["first_response_hours"], defaults["resolution_hours"],
+                    uuid_lib.UUID(org_id),
+                    lvl,
+                    defaults["first_response_hours"],
+                    defaults["resolution_hours"],
                 )
             rows = await conn.fetch(
                 "SELECT priority_level, first_response_hours, resolution_hours "
@@ -62,14 +66,16 @@ async def get_sla_policies(request: Request, user: User = Depends(get_current_us
                 uuid_lib.UUID(org_id),
             )
 
-        return SLAPolicyResponse(policies=[
-            SLAPolicyItem(
-                priority_level=r["priority_level"],
-                first_response_hours=float(r["first_response_hours"]),
-                resolution_hours=float(r["resolution_hours"]),
-            )
-            for r in rows
-        ])
+        return SLAPolicyResponse(
+            policies=[
+                SLAPolicyItem(
+                    priority_level=r["priority_level"],
+                    first_response_hours=float(r["first_response_hours"]),
+                    resolution_hours=float(r["resolution_hours"]),
+                )
+                for r in rows
+            ]
+        )
     finally:
         await conn.close()
 
@@ -86,7 +92,10 @@ async def upsert_sla_policies(
     require_org_role(request, {"owner", "admin"})
 
     if not payload.policies:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="At least one policy required")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="At least one policy required",
+        )
 
     conn = await _get_db()
     try:
@@ -102,8 +111,10 @@ async def upsert_sla_policies(
                     resolution_hours     = EXCLUDED.resolution_hours,
                     updated_at           = NOW()
                 """,
-                uuid_lib.UUID(org_id), p.priority_level,
-                p.first_response_hours, p.resolution_hours,
+                uuid_lib.UUID(org_id),
+                p.priority_level,
+                p.first_response_hours,
+                p.resolution_hours,
             )
 
         rows = await conn.fetch(
@@ -112,13 +123,15 @@ async def upsert_sla_policies(
             "ORDER BY priority_level",
             uuid_lib.UUID(org_id),
         )
-        return SLAPolicyResponse(policies=[
-            SLAPolicyItem(
-                priority_level=r["priority_level"],
-                first_response_hours=float(r["first_response_hours"]),
-                resolution_hours=float(r["resolution_hours"]),
-            )
-            for r in rows
-        ])
+        return SLAPolicyResponse(
+            policies=[
+                SLAPolicyItem(
+                    priority_level=r["priority_level"],
+                    first_response_hours=float(r["first_response_hours"]),
+                    resolution_hours=float(r["resolution_hours"]),
+                )
+                for r in rows
+            ]
+        )
     finally:
         await conn.close()

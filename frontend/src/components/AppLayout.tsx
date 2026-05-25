@@ -1,13 +1,17 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Menu, Ticket } from "lucide-react";
-import { motion } from "framer-motion";
-import { Sidebar } from "@/components/Sidebar";
-import { useOrganization } from "@/contexts/OrganizationContext";
+import { useEffect, useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import { Menu, Ticket } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Sidebar } from '@/components/Sidebar';
+import { useOrganization } from '@/contexts/OrganizationContext';
 
-function OrgMissingScreen({ refreshOrganizations }: { refreshOrganizations: () => Promise<void> }) {
+function OrgMissingScreen({
+  refreshOrganizations,
+}: {
+  refreshOrganizations: () => Promise<void>;
+}) {
   useEffect(() => {
     const id = setInterval(refreshOrganizations, 3000);
     return () => clearInterval(id);
@@ -23,13 +27,15 @@ function OrgMissingScreen({ refreshOrganizations }: { refreshOrganizations: () =
         </div>
       </div>
       <div className="text-center max-w-xs px-4">
-        <h2 className="text-lg font-semibold">Creating your workspace&hellip;</h2>
+        <h2 className="text-lg font-semibold">
+          Creating your workspace&hellip;
+        </h2>
         <p className="text-sm text-muted-foreground mt-1.5">
           Your account is ready. Hang tight while we set up your organisation.
         </p>
       </div>
       <div className="flex gap-1.5">
-        {[0, 1, 2].map((i) => (
+        {[0, 1, 2].map(i => (
           <motion.div
             key={i}
             className="w-1.5 h-1.5 bg-primary rounded-full"
@@ -48,18 +54,25 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
-  const { user, currentOrganization, loading, isOrgMissing, refreshOrganizations } = useOrganization();
+  const {
+    user,
+    currentOrganization,
+    loading,
+    isOrgMissing,
+    refreshOrganizations,
+  } = useOrganization();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const pathname = usePathname();
 
   // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
-  }, []);
+  }, [pathname]);
 
   // Redirect to login if not authenticated once loading finishes
   useEffect(() => {
     if (!loading && !user) {
-      router.push("/login");
+      router.push('/login');
     }
   }, [loading, user, router]);
 
@@ -73,7 +86,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <span className="font-bold text-lg tracking-tight">TicketPilot</span>
         </div>
         <div className="flex gap-1.5">
-          {[0, 1, 2].map((i) => (
+          {[0, 1, 2].map(i => (
             <motion.div
               key={i}
               className="w-1.5 h-1.5 bg-primary rounded-full"
@@ -89,9 +102,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   if (!user) return null;
 
   if (isOrgMissing) {
-    return (
-      <OrgMissingScreen refreshOrganizations={refreshOrganizations} />
-    );
+    return <OrgMissingScreen refreshOrganizations={refreshOrganizations} />;
   }
 
   return (
@@ -121,7 +132,9 @@ export function AppLayout({ children }: AppLayoutProps) {
             <div className="w-6 h-6 bg-primary rounded flex items-center justify-center">
               <Ticket className="w-3.5 h-3.5 text-white" />
             </div>
-            <span className="font-bold text-sm tracking-tight">TicketPilot</span>
+            <span className="font-bold text-sm tracking-tight">
+              TicketPilot
+            </span>
           </div>
         </header>
 

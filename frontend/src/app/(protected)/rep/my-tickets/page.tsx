@@ -1,31 +1,31 @@
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
-import Link from 'next/link'
-import api from '@/lib/api-client'
-import { useOrganization } from '@/contexts/OrganizationContext'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { StatusBadge } from '@/components/StatusBadge'
-import { PageShell } from '@/ui/motion/PageShell'
-import { Inbox, Search, AlertTriangle, Clock, Building2 } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import api from '@/lib/api-client';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { StatusBadge } from '@/components/StatusBadge';
+import { PageShell } from '@/ui/motion/PageShell';
+import { Inbox, Search, AlertTriangle, Clock, Building2 } from 'lucide-react';
 
 interface MyTicket {
-  id: string
-  title: string
-  status: 'open' | 'in_progress' | 'resolved' | 'closed' | 'escalated'
-  priority: string
-  priority_level?: number
-  needs_attention: boolean
-  is_overdue: boolean
-  message_count: number
-  last_message_at: string
-  created_at: string
-  organization_id: string
-  organization_name: string
-  customer_email?: string
+  id: string;
+  title: string;
+  status: 'open' | 'in_progress' | 'resolved' | 'closed' | 'escalated';
+  priority: string;
+  priority_level?: number;
+  needs_attention: boolean;
+  is_overdue: boolean;
+  message_count: number;
+  last_message_at: string;
+  created_at: string;
+  organization_id: string;
+  organization_name: string;
+  customer_email?: string;
 }
 
 const PRIORITY_COLORS: Record<number, string> = {
@@ -36,49 +36,54 @@ const PRIORITY_COLORS: Record<number, string> = {
   5: 'bg-indigo-950/40 text-indigo-400 border border-indigo-800',
   6: 'bg-violet-950/40 text-violet-400 border border-violet-800',
   7: 'bg-zinc-800/60 text-zinc-400 border border-zinc-700',
-}
+};
 
 function timeAgo(s: string) {
-  const diff = Date.now() - new Date(s).getTime()
-  const h = Math.floor(diff / 3600000)
-  const d = Math.floor(h / 24)
-  if (d > 0) return `${d}d ago`
-  if (h > 0) return `${h}h ago`
-  return `${Math.floor(diff / 60000)}m ago`
+  const diff = Date.now() - new Date(s).getTime();
+  const h = Math.floor(diff / 3600000);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `${d}d ago`;
+  if (h > 0) return `${h}h ago`;
+  return `${Math.floor(diff / 60000)}m ago`;
 }
 
 export default function MyTicketsPage() {
-  const { currentOrganization } = useOrganization()
-  const [tickets, setTickets] = useState<MyTicket[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState('open')
-  const [search, setSearch] = useState('')
+  const { currentOrganization } = useOrganization();
+  const [tickets, setTickets] = useState<MyTicket[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('open');
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const params = new URLSearchParams({ status_filter: statusFilter, limit: '50' })
-      if (search) params.set('q', search)
+      const params = new URLSearchParams({
+        status_filter: statusFilter,
+        limit: '50',
+      });
+      if (search) params.set('q', search);
       // my-tickets is cross-org — pass no org header (api client omits it when undefined)
-      const data = await api.get(`/api/rep/my-tickets?${params}`)
-      setTickets(data.items)
-      setTotal(data.total)
+      const data = await api.get(`/api/rep/my-tickets?${params}`);
+      setTickets(data.items);
+      setTotal(data.total);
     } catch (e) {
-      console.error('my-tickets load failed', e)
+      console.error('my-tickets load failed', e);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [statusFilter, search])
+  }, [statusFilter, search]);
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const grouped = tickets.reduce<Record<string, MyTicket[]>>((acc, t) => {
-    const key = t.organization_name
-    if (!acc[key]) acc[key] = []
-    acc[key].push(t)
-    return acc
-  }, {})
+    const key = t.organization_name;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(t);
+    return acc;
+  }, {});
 
   return (
     <PageShell>
@@ -89,7 +94,8 @@ export default function MyTicketsPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">My Tickets</h1>
             <p className="text-sm text-muted-foreground">
-              All tickets assigned to you across every organization · {total} total
+              All tickets assigned to you across every organization · {total}{' '}
+              total
             </p>
           </div>
         </div>
@@ -119,7 +125,7 @@ export default function MyTicketsPage() {
         {/* Content */}
         {loading ? (
           <div className="space-y-2">
-            {[1,2,3].map(i => (
+            {[1, 2, 3].map(i => (
               <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
             ))}
           </div>
@@ -140,7 +146,9 @@ export default function MyTicketsPage() {
                   <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                     {orgName}
                   </span>
-                  <span className="text-xs text-muted-foreground">({orgTickets.length})</span>
+                  <span className="text-xs text-muted-foreground">
+                    ({orgTickets.length})
+                  </span>
                 </div>
 
                 <div className="space-y-2">
@@ -155,14 +163,18 @@ export default function MyTicketsPage() {
                           <div className="flex items-start gap-3">
                             {/* Priority pill */}
                             {ticket.priority_level && (
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5 ${PRIORITY_COLORS[ticket.priority_level] ?? ''}`}>
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5 ${PRIORITY_COLORS[ticket.priority_level] ?? ''}`}
+                              >
                                 P{ticket.priority_level}
                               </span>
                             )}
 
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
-                                <p className="text-sm font-medium truncate">{ticket.title}</p>
+                                <p className="text-sm font-medium truncate">
+                                  {ticket.title}
+                                </p>
                                 {ticket.needs_attention && (
                                   <AlertTriangle className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
                                 )}
@@ -178,7 +190,9 @@ export default function MyTicketsPage() {
                                   </span>
                                 )}
                                 <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                                  {timeAgo(ticket.last_message_at || ticket.created_at)}
+                                  {timeAgo(
+                                    ticket.last_message_at || ticket.created_at
+                                  )}
                                 </span>
                               </div>
                             </div>
@@ -194,5 +208,5 @@ export default function MyTicketsPage() {
         )}
       </div>
     </PageShell>
-  )
+  );
 }

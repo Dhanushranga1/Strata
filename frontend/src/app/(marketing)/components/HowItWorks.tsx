@@ -1,36 +1,40 @@
-"use client";
+'use client';
 
-import { motion, useReducedMotion } from "framer-motion";
-import { Bot, FileText, GitMerge, UserCheck } from "lucide-react";
+import { motion, useReducedMotion } from 'framer-motion';
+import { Bot, FileText, GitMerge, UserCheck } from 'lucide-react';
 
 const steps = [
   {
     icon: FileText,
-    title: "Upload your knowledge base",
-    description: "Drop in PDFs, DOCX, Markdown, or plain text. TicketPilot chunks and embeds your docs into a semantic search index — no configuration needed.",
-    iconClass: "text-indigo-400",
-    step: "01",
+    title: 'Upload your knowledge base',
+    description:
+      'Drop in PDFs, DOCX, Markdown, or plain text. TicketPilot chunks and embeds your docs into a semantic search index — no configuration needed.',
+    iconClass: 'text-indigo-400',
+    step: '01',
   },
   {
     icon: GitMerge,
-    title: "CASPER profiles every ticket",
-    description: "At creation, CASPER classifies the intent (factual / procedural / troubleshooting), scores urgency and complexity, and assigns a P1–P7 priority.",
-    iconClass: "text-violet-400",
-    step: "02",
+    title: 'CASPER profiles every ticket',
+    description:
+      'At creation, CASPER classifies the intent (factual / procedural / troubleshooting), scores urgency and complexity, and assigns a P1–P7 priority.',
+    iconClass: 'text-violet-400',
+    step: '02',
   },
   {
     icon: Bot,
-    title: "AI drafts a cited answer",
-    description: "Gemini searches your KB with intent-adaptive MMR retrieval and writes a reply with inline [1][2][3] citations and a calibrated confidence score.",
-    iconClass: "text-cyan-400",
-    step: "03",
+    title: 'AI drafts a cited answer',
+    description:
+      'Gemini searches your KB with intent-adaptive MMR retrieval and writes a reply with inline [1][2][3] citations and a calibrated confidence score.',
+    iconClass: 'text-cyan-400',
+    step: '03',
   },
   {
     icon: UserCheck,
-    title: "Auto-assigned to the right rep",
-    description: "Complex tickets go to senior reps. Simple lookups go to the lowest-load rep. Load-balanced in real-time — zero manual triage.",
-    iconClass: "text-emerald-400",
-    step: "04",
+    title: 'Auto-assigned to the right rep',
+    description:
+      'Complex tickets go to senior reps. Simple lookups go to the lowest-load rep. Load-balanced in real-time — zero manual triage.',
+    iconClass: 'text-emerald-400',
+    step: '04',
   },
 ];
 
@@ -65,7 +69,8 @@ export default function HowItWorks() {
           transition={{ duration: 0.5, delay: 0.2 }}
           className="text-zinc-400 max-w-xl mx-auto"
         >
-          Knowledge ingestion to intelligent routing and AI-drafted reply — fully automated, no manual queue management.
+          Knowledge ingestion to intelligent routing and AI-drafted reply —
+          fully automated, no manual queue management.
         </motion.p>
       </div>
 

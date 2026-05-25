@@ -1,10 +1,10 @@
-"use client";
+'use client';
 
-import { useState, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { supabase } from "@/lib/supabaseClient";
-import { useOrganization } from "@/contexts/OrganizationContext";
+import { useState, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
+import { supabase } from '@/lib/supabaseClient';
+import { useOrganization } from '@/contexts/OrganizationContext';
 import {
   Building2,
   BookOpen,
@@ -20,17 +20,17 @@ import {
   Zap,
   BookMarked,
   UserPlus,
-} from "lucide-react";
+} from 'lucide-react';
 
 const API_BASE = (
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.NEXT_PUBLIC_API_BASE ||
-  "http://127.0.0.1:8000"
-).replace(/\/$/, "");
+  'http://127.0.0.1:8000'
+).replace(/\/$/, '');
 
 async function getToken(): Promise<string> {
   const { data } = await supabase.auth.getSession();
-  return data?.session?.access_token ?? "";
+  return data?.session?.access_token ?? '';
 }
 
 // ─── Step metadata ────────────────────────────────────────────────────────────
@@ -39,54 +39,58 @@ const STEPS = [
   {
     id: 1,
     icon: Building2,
-    label: "Workspace",
-    time: "~30 sec",
-    headline: "Your workspace,\nyour brand.",
-    sub: "This is what your team and customers will see. Pick a name that means something.",
-    accent: "from-indigo-600 to-indigo-400",
-    iconBg: "bg-indigo-500/10 border-indigo-500/25",
-    iconColor: "text-indigo-400",
+    label: 'Workspace',
+    time: '~30 sec',
+    headline: 'Your workspace,\nyour brand.',
+    sub: 'This is what your team and customers will see. Pick a name that means something.',
+    accent: 'from-indigo-600 to-indigo-400',
+    iconBg: 'bg-indigo-500/10 border-indigo-500/25',
+    iconColor: 'text-indigo-400',
   },
   {
     id: 2,
     icon: BookOpen,
-    label: "Knowledge",
-    time: "~2 min",
-    headline: "Answers, not\nguesswork.",
-    sub: "Every document you upload becomes an AI citation. Reps stop copy-pasting and start linking.",
-    accent: "from-violet-600 to-violet-400",
-    iconBg: "bg-violet-500/10 border-violet-500/25",
-    iconColor: "text-violet-400",
+    label: 'Knowledge',
+    time: '~2 min',
+    headline: 'Answers, not\nguesswork.',
+    sub: 'Every document you upload becomes an AI citation. Reps stop copy-pasting and start linking.',
+    accent: 'from-violet-600 to-violet-400',
+    iconBg: 'bg-violet-500/10 border-violet-500/25',
+    iconColor: 'text-violet-400',
   },
   {
     id: 3,
     icon: Users,
-    label: "Team",
-    time: "~1 min",
-    headline: "Faster\ntogether.",
+    label: 'Team',
+    time: '~1 min',
+    headline: 'Faster\ntogether.',
     sub: "Reps route smarter when CASPER knows the team. Add them now — they'll get email invites.",
-    accent: "from-emerald-600 to-emerald-400",
-    iconBg: "bg-emerald-500/10 border-emerald-500/25",
-    iconColor: "text-emerald-400",
+    accent: 'from-emerald-600 to-emerald-400',
+    iconBg: 'bg-emerald-500/10 border-emerald-500/25',
+    iconColor: 'text-emerald-400',
   },
   {
     id: 4,
     icon: Rocket,
-    label: "Launch",
-    time: "Done",
+    label: 'Launch',
+    time: 'Done',
     headline: "You're live.",
     sub: "Everything is working from minute one. Here's what CASPER is already doing for you.",
-    accent: "from-indigo-600 to-violet-500",
-    iconBg: "bg-indigo-500/10 border-indigo-500/25",
-    iconColor: "text-indigo-400",
+    accent: 'from-indigo-600 to-violet-500',
+    iconBg: 'bg-indigo-500/10 border-indigo-500/25',
+    iconColor: 'text-indigo-400',
   },
 ];
 
 // ─── Confetti ──────────────────────────────────────────────────────────────────
 
 const CONFETTI_COLORS = [
-  "bg-indigo-500", "bg-violet-500", "bg-emerald-500",
-  "bg-amber-400", "bg-rose-500", "bg-sky-400",
+  'bg-indigo-500',
+  'bg-violet-500',
+  'bg-emerald-500',
+  'bg-amber-400',
+  'bg-rose-500',
+  'bg-sky-400',
 ];
 
 function Confetti() {
@@ -111,7 +115,11 @@ function Confetti() {
           style={{ width: d.size, height: d.size }}
           initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
           animate={{ x: d.x, y: d.y, opacity: 0, scale: 0 }}
-          transition={{ duration: 0.8 + Math.random() * 0.4, delay: d.delay, ease: "easeOut" }}
+          transition={{
+            duration: 0.8 + Math.random() * 0.4,
+            delay: d.delay,
+            ease: 'easeOut',
+          }}
         />
       ))}
     </div>
@@ -122,10 +130,14 @@ function Confetti() {
 
 function LeftPanel({ step }: { step: number }) {
   const s = STEPS[step - 1];
-  const timeRemaining = STEPS.slice(step - 1).filter(s => s.time !== "Done").length;
+  const timeRemaining = STEPS.slice(step - 1).filter(
+    s => s.time !== 'Done'
+  ).length;
 
   return (
-    <div className={`hidden lg:flex flex-col justify-between h-full p-10 bg-gradient-to-br ${s.accent} relative overflow-hidden`}>
+    <div
+      className={`hidden lg:flex flex-col justify-between h-full p-10 bg-gradient-to-br ${s.accent} relative overflow-hidden`}
+    >
       {/* Background texture */}
       <div className="absolute inset-0 opacity-10">
         <div className="absolute top-0 left-0 w-64 h-64 rounded-full bg-white blur-3xl -translate-x-1/2 -translate-y-1/2" />
@@ -137,7 +149,9 @@ function LeftPanel({ step }: { step: number }) {
         <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
           <Ticket className="w-4 h-4 text-white" />
         </div>
-        <span className="font-bold text-white text-base tracking-tight">TicketPilot</span>
+        <span className="font-bold text-white text-base tracking-tight">
+          TicketPilot
+        </span>
       </div>
 
       {/* Step-specific content */}
@@ -153,7 +167,9 @@ function LeftPanel({ step }: { step: number }) {
           <h2 className="text-3xl font-bold text-white leading-tight whitespace-pre-line mb-4">
             {s.headline}
           </h2>
-          <p className="text-white/75 text-sm leading-relaxed max-w-xs">{s.sub}</p>
+          <p className="text-white/75 text-sm leading-relaxed max-w-xs">
+            {s.sub}
+          </p>
         </motion.div>
       </AnimatePresence>
 
@@ -163,7 +179,7 @@ function LeftPanel({ step }: { step: number }) {
         <span>
           {timeRemaining > 0
             ? `Step ${step} of ${STEPS.length} · ~${timeRemaining} min remaining`
-            : "Setup complete"}
+            : 'Setup complete'}
         </span>
       </div>
     </div>
@@ -180,7 +196,7 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
         className="h-full bg-indigo-500 rounded-full"
         initial={{ width: 0 }}
         animate={{ width: `${pct}%` }}
-        transition={{ duration: 0.5, ease: "easeInOut" }}
+        transition={{ duration: 0.5, ease: 'easeInOut' }}
       />
     </div>
   );
@@ -188,31 +204,42 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
 
 // ─── Step 1 ───────────────────────────────────────────────────────────────────
 
-function Step1({ onNext, orgId, initialName }: { onNext: () => void; orgId: string; initialName: string }) {
+function Step1({
+  onNext,
+  orgId,
+  initialName,
+}: {
+  onNext: () => void;
+  orgId: string;
+  initialName: string;
+}) {
   const [name, setName] = useState(initialName);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   const handleNext = async () => {
     const trimmed = name.trim();
-    if (!trimmed) { setError("Workspace name is required"); return; }
+    if (!trimmed) {
+      setError('Workspace name is required');
+      return;
+    }
     setSaving(true);
-    setError("");
+    setError('');
     try {
       const token = await getToken();
       const res = await fetch(`${API_BASE}/api/organizations/${orgId}`, {
-        method: "PATCH",
+        method: 'PATCH',
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "X-Organization-ID": orgId,
+          'Content-Type': 'application/json',
+          'X-Organization-ID': orgId,
         },
         body: JSON.stringify({ name: trimmed }),
       });
       if (!res.ok) throw new Error(await res.text());
       onNext();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save");
+      setError(e instanceof Error ? e.message : 'Failed to save');
     } finally {
       setSaving(false);
     }
@@ -224,17 +251,26 @@ function Step1({ onNext, orgId, initialName }: { onNext: () => void; orgId: stri
         <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center mb-4">
           <Building2 className="w-5 h-5 text-indigo-400" />
         </div>
-        <h2 className="text-xl font-bold text-white mb-1">Name your workspace</h2>
-        <p className="text-sm text-zinc-400">This is what your team and customers will see.</p>
+        <h2 className="text-xl font-bold text-white mb-1">
+          Name your workspace
+        </h2>
+        <p className="text-sm text-zinc-400">
+          This is what your team and customers will see.
+        </p>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-zinc-300 mb-1.5">Workspace name</label>
+        <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+          Workspace name
+        </label>
         <input
           autoFocus
           value={name}
-          onChange={(e) => { setName(e.target.value); setError(""); }}
-          onKeyDown={(e) => e.key === "Enter" && handleNext()}
+          onChange={e => {
+            setName(e.target.value);
+            setError('');
+          }}
+          onKeyDown={e => e.key === 'Enter' && handleNext()}
           placeholder="Acme Support"
           className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-colors"
         />
@@ -247,7 +283,13 @@ function Step1({ onNext, orgId, initialName }: { onNext: () => void; orgId: stri
         disabled={saving || !name.trim()}
         className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
       >
-        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}
+        {saving ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <>
+            Continue <ArrowRight className="w-4 h-4" />
+          </>
+        )}
       </button>
     </div>
   );
@@ -255,31 +297,42 @@ function Step1({ onNext, orgId, initialName }: { onNext: () => void; orgId: stri
 
 // ─── Step 2 ───────────────────────────────────────────────────────────────────
 
-function Step2({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => void; orgId: string }) {
+function Step2({
+  onNext,
+  onSkip,
+  orgId,
+}: {
+  onNext: () => void;
+  onSkip: () => void;
+  orgId: string;
+}) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   const handleUpload = async () => {
     if (!file) return;
     setUploading(true);
-    setError("");
+    setError('');
     try {
       const token = await getToken();
       const form = new FormData();
-      form.append("file", file);
+      form.append('file', file);
       const res = await fetch(`${API_BASE}/api/kb/ingest`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "X-Organization-ID": orgId },
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Organization-ID': orgId,
+        },
         body: form,
       });
       if (!res.ok) throw new Error(await res.text());
       setDone(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      setError(e instanceof Error ? e.message : 'Upload failed');
     } finally {
       setUploading(false);
     }
@@ -289,7 +342,10 @@ function Step2({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
     e.preventDefault();
     setDragging(false);
     const dropped = e.dataTransfer.files[0];
-    if (dropped) { setFile(dropped); setError(""); }
+    if (dropped) {
+      setFile(dropped);
+      setError('');
+    }
   }, []);
 
   return (
@@ -298,35 +354,54 @@ function Step2({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
         <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/25 flex items-center justify-center mb-4">
           <BookOpen className="w-5 h-5 text-violet-400" />
         </div>
-        <h2 className="text-xl font-bold text-white mb-1">Add your first doc</h2>
+        <h2 className="text-xl font-bold text-white mb-1">
+          Add your first doc
+        </h2>
         <p className="text-sm text-zinc-400">
-          PDF, DOCX, Markdown, or text. CASPER embeds it so AI answers can cite it immediately.
+          PDF, DOCX, Markdown, or text. CASPER embeds it so AI answers can cite
+          it immediately.
         </p>
       </div>
 
       {done ? (
         <div className="flex items-center gap-2.5 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 text-sm">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span><strong>{file?.name}</strong> uploaded and indexed.</span>
+          <span>
+            <strong>{file?.name}</strong> uploaded and indexed.
+          </span>
         </div>
       ) : (
         <>
           <div
             onClick={() => fileRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragOver={e => {
+              e.preventDefault();
+              setDragging(true);
+            }}
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
             className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
-              dragging ? "border-indigo-500 bg-indigo-500/5" : "border-zinc-700 hover:border-zinc-500"
+              dragging
+                ? 'border-indigo-500 bg-indigo-500/5'
+                : 'border-zinc-700 hover:border-zinc-500'
             }`}
           >
-            <Upload className={`w-6 h-6 mx-auto mb-2 transition-colors ${dragging ? "text-indigo-400" : "text-zinc-500"}`} />
+            <Upload
+              className={`w-6 h-6 mx-auto mb-2 transition-colors ${dragging ? 'text-indigo-400' : 'text-zinc-500'}`}
+            />
             {file ? (
               <p className="text-sm text-zinc-300">{file.name}</p>
             ) : (
               <>
-                <p className="text-sm text-zinc-400">Drop a file here or <span className="text-indigo-400 underline">click to choose</span></p>
-                <p className="text-xs text-zinc-600 mt-1">PDF · DOCX · MD · TXT</p>
+                <p className="text-sm text-zinc-400">
+                  Drop a file here or{' '}
+                  <span className="text-indigo-400 underline">
+                    click to choose
+                  </span>
+                </p>
+                <p className="text-xs text-zinc-600 mt-1">
+                  PDF · DOCX · MD · TXT
+                </p>
               </>
             )}
             <input
@@ -336,7 +411,10 @@ function Step2({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
               aria-label="Upload a knowledge base document"
               className="hidden"
               accept=".pdf,.docx,.md,.txt,.markdown"
-              onChange={(e) => { setFile(e.target.files?.[0] ?? null); setError(""); }}
+              onChange={e => {
+                setFile(e.target.files?.[0] ?? null);
+                setError('');
+              }}
             />
           </div>
           {error && <p className="text-xs text-red-400">{error}</p>}
@@ -347,7 +425,13 @@ function Step2({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
               disabled={uploading}
               className="w-full flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
             >
-              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Upload className="w-4 h-4" /> Upload &amp; Index</>}
+              {uploading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Upload className="w-4 h-4" /> Upload &amp; Index
+                </>
+              )}
             </button>
           )}
         </>
@@ -375,35 +459,52 @@ function Step2({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
 
 // ─── Step 3 ───────────────────────────────────────────────────────────────────
 
-function Step3({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => void; orgId: string }) {
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"rep" | "admin">("rep");
+function Step3({
+  onNext,
+  onSkip,
+  orgId,
+}: {
+  onNext: () => void;
+  onSkip: () => void;
+  orgId: string;
+}) {
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<'rep' | 'admin'>('rep');
   const [sent, setSent] = useState<{ email: string; role: string }[]>([]);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   const handleInvite = async () => {
     const trimmed = email.trim().toLowerCase();
-    if (!trimmed.includes("@")) { setError("Enter a valid email"); return; }
-    if (sent.some((s) => s.email === trimmed)) { setError("Already invited"); return; }
+    if (!trimmed.includes('@')) {
+      setError('Enter a valid email');
+      return;
+    }
+    if (sent.some(s => s.email === trimmed)) {
+      setError('Already invited');
+      return;
+    }
     setSending(true);
-    setError("");
+    setError('');
     try {
       const token = await getToken();
-      const res = await fetch(`${API_BASE}/api/organizations/${orgId}/invites`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "X-Organization-ID": orgId,
-        },
-        body: JSON.stringify({ email: trimmed, role }),
-      });
+      const res = await fetch(
+        `${API_BASE}/api/organizations/${orgId}/invites`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'X-Organization-ID': orgId,
+          },
+          body: JSON.stringify({ email: trimmed, role }),
+        }
+      );
       if (!res.ok) throw new Error(await res.text());
-      setSent((prev) => [...prev, { email: trimmed, role }]);
-      setEmail("");
+      setSent(prev => [...prev, { email: trimmed, role }]);
+      setEmail('');
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Invite failed");
+      setError(e instanceof Error ? e.message : 'Invite failed');
     } finally {
       setSending(false);
     }
@@ -417,7 +518,8 @@ function Step3({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
         </div>
         <h2 className="text-xl font-bold text-white mb-1">Invite your team</h2>
         <p className="text-sm text-zinc-400">
-          Reps handle tickets; admins manage the workspace. Everyone gets an email invite.
+          Reps handle tickets; admins manage the workspace. Everyone gets an
+          email invite.
         </p>
       </div>
 
@@ -425,8 +527,11 @@ function Step3({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
         <div className="flex gap-2">
           <input
             value={email}
-            onChange={(e) => { setEmail(e.target.value); setError(""); }}
-            onKeyDown={(e) => e.key === "Enter" && handleInvite()}
+            onChange={e => {
+              setEmail(e.target.value);
+              setError('');
+            }}
+            onKeyDown={e => e.key === 'Enter' && handleInvite()}
             placeholder="teammate@company.com"
             type="email"
             className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-colors"
@@ -435,7 +540,7 @@ function Step3({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
             value={role}
             title="Invite role"
             aria-label="Invite role"
-            onChange={(e) => setRole(e.target.value as "rep" | "admin")}
+            onChange={e => setRole(e.target.value as 'rep' | 'admin')}
             className="bg-zinc-800 border border-zinc-700 rounded-lg px-2.5 py-2.5 text-sm text-zinc-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
           >
             <option value="rep">Rep</option>
@@ -447,7 +552,11 @@ function Step3({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
             disabled={sending || !email.trim()}
             className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg px-3 py-2.5 transition-colors shrink-0"
           >
-            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {sending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Plus className="w-4 h-4" />
+            )}
           </button>
         </div>
 
@@ -455,11 +564,18 @@ function Step3({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
 
         {sent.length > 0 && (
           <div className="space-y-1.5">
-            {sent.map((s) => (
-              <div key={s.email} className="flex items-center gap-2 bg-zinc-800/60 border border-zinc-700/50 rounded-lg px-3 py-2">
+            {sent.map(s => (
+              <div
+                key={s.email}
+                className="flex items-center gap-2 bg-zinc-800/60 border border-zinc-700/50 rounded-lg px-3 py-2"
+              >
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span className="text-sm text-zinc-300 flex-1 truncate">{s.email}</span>
-                <span className="text-xs text-zinc-500 border border-zinc-700 rounded px-1.5 py-0.5 uppercase tracking-wider shrink-0">{s.role}</span>
+                <span className="text-sm text-zinc-300 flex-1 truncate">
+                  {s.email}
+                </span>
+                <span className="text-xs text-zinc-500 border border-zinc-700 rounded px-1.5 py-0.5 uppercase tracking-wider shrink-0">
+                  {s.role}
+                </span>
               </div>
             ))}
           </div>
@@ -489,13 +605,39 @@ function Step3({ onNext, onSkip, orgId }: { onNext: () => void; onSkip: () => vo
 // ─── Step 4 ───────────────────────────────────────────────────────────────────
 
 const HIGHLIGHTS = [
-  { icon: Zap,        color: "text-indigo-400", bg: "bg-indigo-500/10 border-indigo-500/20", label: "CASPER auto-routes every incoming ticket" },
-  { icon: BookMarked, color: "text-violet-400",  bg: "bg-violet-500/10 border-violet-500/20",  label: "AI drafts cited answers from your KB" },
-  { icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20", label: "P1–P7 priority scoring — zero manual triage" },
-  { icon: UserPlus,   color: "text-orange-400",  bg: "bg-orange-500/10 border-orange-500/20",  label: "Confidence-based escalation to your reps" },
+  {
+    icon: Zap,
+    color: 'text-indigo-400',
+    bg: 'bg-indigo-500/10 border-indigo-500/20',
+    label: 'CASPER auto-routes every incoming ticket',
+  },
+  {
+    icon: BookMarked,
+    color: 'text-violet-400',
+    bg: 'bg-violet-500/10 border-violet-500/20',
+    label: 'AI drafts cited answers from your KB',
+  },
+  {
+    icon: CheckCircle2,
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-500/10 border-emerald-500/20',
+    label: 'P1–P7 priority scoring — zero manual triage',
+  },
+  {
+    icon: UserPlus,
+    color: 'text-orange-400',
+    bg: 'bg-orange-500/10 border-orange-500/20',
+    label: 'Confidence-based escalation to your reps',
+  },
 ];
 
-function Step4({ orgId, refreshOrganizations }: { orgId: string; refreshOrganizations: () => Promise<void> }) {
+function Step4({
+  orgId,
+  refreshOrganizations,
+}: {
+  orgId: string;
+  refreshOrganizations: () => Promise<void>;
+}) {
   const router = useRouter();
   const [launching, setLaunching] = useState(false);
   const [showConfetti, setShowConfetti] = useState(true);
@@ -505,18 +647,18 @@ function Step4({ orgId, refreshOrganizations }: { orgId: string; refreshOrganiza
     try {
       const token = await getToken();
       await fetch(`${API_BASE}/api/organizations/${orgId}`, {
-        method: "PATCH",
+        method: 'PATCH',
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "X-Organization-ID": orgId,
+          'Content-Type': 'application/json',
+          'X-Organization-ID': orgId,
         },
         body: JSON.stringify({ settings: { onboarding_completed: true } }),
       });
       await refreshOrganizations();
-      router.push("/dashboard");
+      router.push('/dashboard');
     } catch {
-      router.push("/dashboard");
+      router.push('/dashboard');
     }
   };
 
@@ -529,15 +671,24 @@ function Step4({ orgId, refreshOrganizations }: { orgId: string; refreshOrganiza
             <Rocket className="w-7 h-7 text-indigo-400" />
           </div>
         </div>
-        <h2 className="text-xl font-bold text-white mb-1">You&apos;re all set!</h2>
-        <p className="text-sm text-zinc-400">Here&apos;s what&apos;s already working from minute one:</p>
+        <h2 className="text-xl font-bold text-white mb-1">
+          You&apos;re all set!
+        </h2>
+        <p className="text-sm text-zinc-400">
+          Here&apos;s what&apos;s already working from minute one:
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        {HIGHLIGHTS.map((h) => (
-          <div key={h.label} className={`flex items-start gap-2.5 p-3 rounded-xl border ${h.bg}`}>
+        {HIGHLIGHTS.map(h => (
+          <div
+            key={h.label}
+            className={`flex items-start gap-2.5 p-3 rounded-xl border ${h.bg}`}
+          >
             <h.icon className={`w-4 h-4 shrink-0 mt-0.5 ${h.color}`} />
-            <span className="text-xs text-zinc-300 leading-snug">{h.label}</span>
+            <span className="text-xs text-zinc-300 leading-snug">
+              {h.label}
+            </span>
           </div>
         ))}
       </div>
@@ -549,7 +700,13 @@ function Step4({ orgId, refreshOrganizations }: { orgId: string; refreshOrganiza
         onMouseEnter={() => setShowConfetti(false)}
         className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold rounded-lg px-4 py-3 transition-colors"
       >
-        {launching ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Open Dashboard <ArrowRight className="w-4 h-4" /></>}
+        {launching ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <>
+            Open Dashboard <ArrowRight className="w-4 h-4" />
+          </>
+        )}
       </button>
     </div>
   );
@@ -560,8 +717,8 @@ function Step4({ orgId, refreshOrganizations }: { orgId: string; refreshOrganiza
 export default function OnboardingPage() {
   const [step, setStep] = useState(1);
   const { currentOrganization, refreshOrganizations } = useOrganization();
-  const orgId = currentOrganization?.id ?? "";
-  const orgName = currentOrganization?.name ?? "";
+  const orgId = currentOrganization?.id ?? '';
+  const orgName = currentOrganization?.name ?? '';
   const current = STEPS[step - 1];
 
   return (
@@ -578,7 +735,9 @@ export default function OnboardingPage() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2 text-xs text-zinc-500">
               <current.icon className={`w-3.5 h-3.5 ${current.iconColor}`} />
-              <span>Step {step} of {STEPS.length} — {current.label}</span>
+              <span>
+                Step {step} of {STEPS.length} — {current.label}
+              </span>
             </div>
             <div className="flex items-center gap-1.5 text-xs text-zinc-600">
               <Clock className="w-3 h-3" />
@@ -599,10 +758,33 @@ export default function OnboardingPage() {
               transition={{ duration: 0.25 }}
               className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8"
             >
-              {step === 1 && <Step1 orgId={orgId} initialName={orgName} onNext={() => setStep(2)} />}
-              {step === 2 && <Step2 orgId={orgId} onNext={() => setStep(3)} onSkip={() => setStep(3)} />}
-              {step === 3 && <Step3 orgId={orgId} onNext={() => setStep(4)} onSkip={() => setStep(4)} />}
-              {step === 4 && <Step4 orgId={orgId} refreshOrganizations={refreshOrganizations} />}
+              {step === 1 && (
+                <Step1
+                  orgId={orgId}
+                  initialName={orgName}
+                  onNext={() => setStep(2)}
+                />
+              )}
+              {step === 2 && (
+                <Step2
+                  orgId={orgId}
+                  onNext={() => setStep(3)}
+                  onSkip={() => setStep(3)}
+                />
+              )}
+              {step === 3 && (
+                <Step3
+                  orgId={orgId}
+                  onNext={() => setStep(4)}
+                  onSkip={() => setStep(4)}
+                />
+              )}
+              {step === 4 && (
+                <Step4
+                  orgId={orgId}
+                  refreshOrganizations={refreshOrganizations}
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         </div>

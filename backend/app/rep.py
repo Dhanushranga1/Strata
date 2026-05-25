@@ -1,46 +1,71 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
-from typing import Optional
 import asyncio
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+
 from .auth import User, get_current_user
-from .schemas import (
-    QueueResponse, QueueCounts, QueueItem,
-    EscalateRequest, StatusChangeRequest, AssignRequest,
-    AckAttentionRequest, PriorityRequest, PriorityLevelRequest, ETRRequest,
-    RepWorkloadResponse, RepWorkloadItem,
-)
 from .org_middleware import require_org_context
+from .schemas import (
+    AckAttentionRequest,
+    AssignRequest,
+    EscalateRequest,
+    ETRRequest,
+    PriorityLevelRequest,
+    PriorityRequest,
+    QueueCounts,
+    QueueItem,
+    QueueResponse,
+    RepWorkloadItem,
+    RepWorkloadResponse,
+    StatusChangeRequest,
+)
 
 router = APIRouter(prefix="/api/rep", tags=["rep"])
 
+
 def require_rep(user: User, request: Request = None):
-    """Enforce rep/admin role, preferring org-scoped role when org context is available."""
+    """Enforce rep/admin role, preferring org-scoped role when org context is available.
+    Falls back to DB role lookup (not JWT) to avoid stale role after demotion."""
     if request is not None:
         org_role = getattr(request.state, "user_role_in_org", None)
         if org_role is not None:
             if org_role not in ("rep", "admin", "owner"):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rep/admin access required")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Rep/admin access required",
+                )
             return
-    if (user.role or "customer") not in ("rep", "admin"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rep/admin access required")
+    from .roles import get_user_role
+
+    if get_user_role(user.id) not in ("rep", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Rep/admin access required"
+        )
+
 
 async def get_db_connection():
     from .db import get_connection
+
     return await get_connection()
+
 
 @router.get("/queue", response_model=QueueResponse)
 async def queue(
     request: Request,
-    lane: str = Query("needs_attention", pattern="^(needs_attention|open|escalated|all|resolved_today)$"),
+    lane: str = Query(
+        "needs_attention",
+        pattern="^(needs_attention|open|escalated|all|resolved_today)$",
+    ),
     q: Optional[str] = Query(None, max_length=100),
     mine: Optional[bool] = Query(False),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
     """Get tickets queue based on lane with optional filters"""
     org_id = require_org_context(request)
     require_rep(user, request)
-    
+
     conn = await get_db_connection()
     try:
         # Build WHERE clause based on lane (all conditions use table alias t.)
@@ -50,11 +75,15 @@ async def queue(
         if lane == "needs_attention":
             where_conditions.append("t.needs_attention = true AND t.status != 'closed'")
         elif lane == "open":
-            where_conditions.append("t.status IN ('open', 'in_progress', 'resolved') AND t.needs_attention = false")
+            where_conditions.append(
+                "t.status IN ('open', 'in_progress', 'resolved') AND t.needs_attention = false"
+            )
         elif lane == "escalated":
             where_conditions.append("t.status = 'escalated'")
         elif lane == "resolved_today":
-            where_conditions.append("t.status = 'resolved' AND DATE(t.updated_at) = CURRENT_DATE")
+            where_conditions.append(
+                "t.status = 'resolved' AND DATE(t.updated_at) = CURRENT_DATE"
+            )
         # 'all' lane has no specific condition
 
         # Add search filter
@@ -67,7 +96,9 @@ async def queue(
             where_conditions.append(f"t.assignee_id = ${len(params) + 1}")
             params.append(user.id)
 
-        where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        where_clause = (
+            "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        )
 
         # Count query (no JOIN needed)
         count_query = f"""
@@ -101,72 +132,69 @@ async def queue(
         # Convert to response format
         items = [
             QueueItem(
-                id=str(row['id']),
-                title=row['title'],
-                status=row['status'],
-                priority=row['priority'],
-                priority_level=row['priority_level'],
-                needs_attention=row['needs_attention'],
-                assignee_id=str(row['assignee_id']) if row['assignee_id'] else None,
-                message_count=row['message_count'],
-                last_message_at=row['last_message_at'],
-                created_at=row['created_at'],
-                escalated_at=row['escalated_at'],
-                escalated_to_name=row['escalated_to_name'],
-                expected_resolve_at=row['expected_resolve_at'],
-                etr_set_at=row['etr_set_at'],
-                accepted_at=row['accepted_at'],
+                id=str(row["id"]),
+                title=row["title"],
+                status=row["status"],
+                priority=row["priority"],
+                priority_level=row["priority_level"],
+                needs_attention=row["needs_attention"],
+                assignee_id=str(row["assignee_id"]) if row["assignee_id"] else None,
+                message_count=row["message_count"],
+                last_message_at=row["last_message_at"],
+                created_at=row["created_at"],
+                escalated_at=row["escalated_at"],
+                escalated_to_name=row["escalated_to_name"],
+                expected_resolve_at=row["expected_resolve_at"],
+                etr_set_at=row["etr_set_at"],
+                accepted_at=row["accepted_at"],
             )
             for row in items_result
         ]
 
         return QueueResponse(
-            items=items,
-            total=total_result,
-            offset=offset,
-            limit=limit
+            items=items, total=total_result, offset=offset, limit=limit
         )
 
     finally:
         await conn.close()
+
 
 @router.get("/counts", response_model=QueueCounts)
 async def counts(request: Request, user: User = Depends(get_current_user)):
     """Get counts for all queue lanes"""
     org_id = require_org_context(request)
     require_rep(user, request)
-    
+
     conn = await get_db_connection()
     try:
         # Get counts for each lane
         needs_attention_count = await conn.fetchval(
             "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1 AND needs_attention = true AND status != 'closed'",
-            org_id
+            org_id,
         )
-        
+
         open_active_count = await conn.fetchval(
             "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1 AND status IN ('open', 'in_progress', 'resolved') AND needs_attention = false",
-            org_id
+            org_id,
         )
-        
+
         escalated_count = await conn.fetchval(
             "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1 AND status = 'escalated'",
-            org_id
+            org_id,
         )
-        
+
         all_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1",
-            org_id
+            "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1", org_id
         )
 
         resolved_today_count = await conn.fetchval(
             "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1 AND status = 'resolved' AND DATE(updated_at) = CURRENT_DATE",
-            org_id
+            org_id,
         )
 
         in_progress_count = await conn.fetchval(
             "SELECT COUNT(*) FROM app.tickets WHERE organization_id = $1 AND status = 'in_progress'",
-            org_id
+            org_id,
         )
 
         return QueueCounts(
@@ -175,16 +203,19 @@ async def counts(request: Request, user: User = Depends(get_current_user)):
             in_progress=in_progress_count,
             escalated=escalated_count,
             all=all_count,
-            resolved_today=resolved_today_count
+            resolved_today=resolved_today_count,
         )
-        
+
     finally:
         await conn.close()
+
 
 @router.get("/my-tickets")
 async def my_tickets(
     request: Request,
-    status_filter: str = Query("open", pattern="^(open|in_progress|escalated|resolved|closed|all)$"),
+    status_filter: str = Query(
+        "open", pattern="^(open|in_progress|escalated|resolved|closed|all)$"
+    ),
     q: Optional[str] = Query(None, max_length=100),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
@@ -245,7 +276,9 @@ async def my_tickets(
             ORDER BY t.last_message_at DESC
             LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
             """,
-            *params, limit, offset,
+            *params,
+            limit,
+            offset,
         )
 
         items = [
@@ -275,9 +308,7 @@ async def my_tickets(
 
 @router.post("/tickets/{ticket_id}/accept", status_code=status.HTTP_200_OK)
 async def accept_ticket(
-    ticket_id: str,
-    request: Request,
-    user: User = Depends(get_current_user)
+    ticket_id: str, request: Request, user: User = Depends(get_current_user)
 ):
     """Accept an open ticket — sets status=in_progress, records accepted_at, assigns to caller."""
     org_id = require_org_context(request)
@@ -288,12 +319,16 @@ async def accept_ticket(
         async with conn.transaction():
             ticket = await conn.fetchrow(
                 "SELECT id, status FROM app.tickets WHERE id = $1 AND organization_id = $2",
-                ticket_id, org_id
+                ticket_id,
+                org_id,
             )
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found")
-            if ticket['status'] not in ('open', 'escalated'):
-                raise HTTPException(status_code=409, detail="Only open or escalated tickets can be accepted")
+            if ticket["status"] not in ("open", "escalated"):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Only open or escalated tickets can be accepted",
+                )
 
             await conn.execute(
                 """
@@ -302,24 +337,33 @@ async def accept_ticket(
                     assignee_id = $1, updated_at = NOW(), needs_attention = false
                 WHERE id = $2
                 """,
-                user.id, ticket_id
+                user.id,
+                ticket_id,
             )
             await conn.execute(
                 """
                 INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
                 VALUES ($1, $2, 'system', $3, '[system] Ticket accepted — now in progress', NOW())
                 """,
-                ticket_id, user.id, org_id
+                ticket_id,
+                user.id,
+                org_id,
             )
             await conn.execute(
                 "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
-                ticket_id
+                ticket_id,
             )
         from .admin import log_audit
-        asyncio.create_task(log_audit(
-            "ticket.accepted", user,
-            resource_type="ticket", resource_id=ticket_id, org_id=org_id,
-        ))
+
+        asyncio.create_task(
+            log_audit(
+                "ticket.accepted",
+                user,
+                resource_type="ticket",
+                resource_id=ticket_id,
+                org_id=org_id,
+            )
+        )
         return {"ok": True}
     finally:
         await conn.close()
@@ -330,40 +374,43 @@ async def escalate(
     ticket_id: str,
     body: EscalateRequest,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
     """
     Escalate a ticket to escalated status.
     Accessible by: Rep/Admin OR the ticket creator (customer self-escalation).
     """
     org_id = require_org_context(request)
-    
+
     conn = await get_db_connection()
     try:
         async with conn.transaction():
             # Check if ticket exists and get creator
             ticket = await conn.fetchrow(
-                "SELECT id, status, created_by FROM app.tickets WHERE id = $1 AND organization_id = $2", 
-                ticket_id, org_id
+                "SELECT id, status, created_by FROM app.tickets WHERE id = $1 AND organization_id = $2",
+                ticket_id,
+                org_id,
             )
-            
+
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found")
-            
+
             # Permission check: Allow rep/admin OR ticket creator
             user_role = user.role or "customer"
             is_rep_or_admin = user_role in ("rep", "admin")
-            is_ticket_creator = str(ticket['created_by']) == user.id
-            
+            is_ticket_creator = str(ticket["created_by"]) == user.id
+
             if not (is_rep_or_admin or is_ticket_creator):
                 raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, 
-                    detail="Only reps, admins, or the ticket creator can escalate this ticket"
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only reps, admins, or the ticket creator can escalate this ticket",
                 )
-            
-            if ticket['status'] == 'closed':
-                raise HTTPException(status_code=409, detail="Cannot escalate closed ticket")
-            
+
+            if ticket["status"] == "closed":
+                raise HTTPException(
+                    status_code=409, detail="Cannot escalate closed ticket"
+                )
+
             # Update ticket status, flag, and escalation target
             await conn.execute(
                 """
@@ -373,9 +420,10 @@ async def escalate(
                     escalated_to = $2, escalated_at = NOW()
                 WHERE id = $1
                 """,
-                ticket_id, body.escalated_to_user_id
+                ticket_id,
+                body.escalated_to_user_id,
             )
-            
+
             # Create system message (differentiate customer vs rep escalation)
             if is_ticket_creator and not is_rep_or_admin:
                 message_body = "[system] Customer requested human assistance"
@@ -385,70 +433,81 @@ async def escalate(
                 message_body = "[system] Ticket escalated by support team"
                 if body.reason:
                     message_body += f" • Reason: {body.reason}"
-            
+
             await conn.execute(
                 """
                 INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
                 VALUES ($1, $2, 'system', $3, $4, NOW())
                 """,
-                ticket_id, user.id, org_id, message_body
+                ticket_id,
+                user.id,
+                org_id,
+                message_body,
             )
-            
+
             # Update message count
             await conn.execute(
                 "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
-                ticket_id
+                ticket_id,
             )
-            
+
         from .admin import log_audit
-        asyncio.create_task(log_audit(
-            "ticket.escalated", user,
-            resource_type="ticket", resource_id=ticket_id, org_id=org_id,
-            metadata={"reason": body.reason},
-        ))
+
+        asyncio.create_task(
+            log_audit(
+                "ticket.escalated",
+                user,
+                resource_type="ticket",
+                resource_id=ticket_id,
+                org_id=org_id,
+                metadata={"reason": body.reason},
+            )
+        )
         return {"ok": True}
 
     finally:
         await conn.close()
+
 
 @router.post("/tickets/{ticket_id}/status", status_code=status.HTTP_200_OK)
 async def set_status(
     ticket_id: str,
     body: StatusChangeRequest,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
     """Change ticket status with transition validation"""
     org_id = require_org_context(request)
     require_rep(user, request)
-    
+
     conn = await get_db_connection()
     try:
         async with conn.transaction():
             # Check if ticket exists
             ticket = await conn.fetchrow(
-                "SELECT id, status FROM app.tickets WHERE id = $1 AND organization_id = $2", 
-                ticket_id, org_id
+                "SELECT id, status FROM app.tickets WHERE id = $1 AND organization_id = $2",
+                ticket_id,
+                org_id,
             )
-            
+
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found")
-            
-            current_status = ticket['status']
+
+            current_status = ticket["status"]
             new_status = body.status
-            
+
             # Validate transition - closed can only go to open
-            if current_status == 'closed' and new_status != 'open':
+            if current_status == "closed" and new_status != "open":
                 raise HTTPException(
-                    status_code=409, 
-                    detail="Closed tickets can only be reopened (status=open)"
+                    status_code=409,
+                    detail="Closed tickets can only be reopened (status=open)",
                 )
-            
+
             # Determine needs_attention flag
             needs_attention_update = ""
-            if new_status in ('resolved', 'closed'):
+            if new_status in ("resolved", "closed"):
                 needs_attention_update = ", needs_attention = false"
-            
+
             # Update ticket status
             await conn.execute(
                 f"""
@@ -456,67 +515,91 @@ async def set_status(
                 SET status = $1, last_message_at = NOW(), updated_at = NOW(){needs_attention_update}
                 WHERE id = $2
                 """,
-                new_status, ticket_id
+                new_status,
+                ticket_id,
             )
-            
+
             # Create system message
             message_body = f"[system] Status changed to {new_status}"
-            
+
             await conn.execute(
                 """
                 INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
                 VALUES ($1, $2, 'system', $3, $4, NOW())
                 """,
-                ticket_id, user.id, org_id, message_body
+                ticket_id,
+                user.id,
+                org_id,
+                message_body,
             )
-            
+
             # Update message count
             await conn.execute(
                 "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
-                ticket_id
+                ticket_id,
             )
 
         from .admin import log_audit
-        asyncio.create_task(log_audit(
-            f"ticket.status.{new_status}", user,
-            resource_type="ticket", resource_id=ticket_id, org_id=org_id,
-        ))
+
+        asyncio.create_task(
+            log_audit(
+                f"ticket.status.{new_status}",
+                user,
+                resource_type="ticket",
+                resource_id=ticket_id,
+                org_id=org_id,
+            )
+        )
         return {"ok": True}
 
     finally:
         await conn.close()
+
 
 @router.post("/tickets/{ticket_id}/assign", status_code=status.HTTP_200_OK)
 async def assign(
     ticket_id: str,
     body: AssignRequest,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
     """Assign ticket to a rep"""
     org_id = require_org_context(request)
     require_rep(user, request)
-    
+
     conn = await get_db_connection()
     try:
         async with conn.transaction():
             # Check if ticket exists
             ticket = await conn.fetchrow(
-                "SELECT id FROM app.tickets WHERE id = $1 AND organization_id = $2", 
-                ticket_id, org_id
+                "SELECT id FROM app.tickets WHERE id = $1 AND organization_id = $2",
+                ticket_id,
+                org_id,
             )
-            
+
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found")
-            
+
             # Determine assignee
             assignee_id = body.assignee_id or str(user.id)
+
+            # Verify assignee is a member of this org
+            member_check = await conn.fetchval(
+                "SELECT 1 FROM app.organization_members WHERE organization_id = $1 AND user_id = $2",
+                org_id,
+                assignee_id,
+            )
+            if not member_check:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Assignee is not a member of this organization",
+                )
 
             # Look up assignee email for a human-readable system message
             assignee_row = await conn.fetchrow(
                 "SELECT email FROM auth.users WHERE id = $1", assignee_id
             )
-            assignee_display = (assignee_row["email"] if assignee_row else assignee_id)
+            assignee_display = assignee_row["email"] if assignee_row else assignee_id
 
             # Update ticket assignee
             await conn.execute(
@@ -525,54 +608,60 @@ async def assign(
                 SET assignee_id = $1, updated_at = NOW()
                 WHERE id = $2
                 """,
-                assignee_id, ticket_id
+                assignee_id,
+                ticket_id,
             )
 
             message_body = f"[system] Assigned to {assignee_display}"
-            
+
             await conn.execute(
                 """
                 INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
                 VALUES ($1, $2, 'system', $3, $4, NOW())
                 """,
-                ticket_id, user.id, org_id, message_body
+                ticket_id,
+                user.id,
+                org_id,
+                message_body,
             )
-            
+
             # Update message count
             await conn.execute(
                 "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
-                ticket_id
+                ticket_id,
             )
-            
+
         return {"ok": True}
-        
+
     finally:
         await conn.close()
+
 
 @router.post("/tickets/{ticket_id}/acknowledge", status_code=status.HTTP_200_OK)
 async def acknowledge_attention(
     ticket_id: str,
     body: AckAttentionRequest,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
     """Acknowledge attention flag on ticket"""
     org_id = require_org_context(request)
     require_rep(user, request)
-    
+
     conn = await get_db_connection()
     try:
         async with conn.transaction():
             # Check if ticket exists and needs attention
             ticket = await conn.fetchrow(
-                "SELECT id, needs_attention FROM app.tickets WHERE id = $1 AND organization_id = $2", 
-                ticket_id, org_id
+                "SELECT id, needs_attention FROM app.tickets WHERE id = $1 AND organization_id = $2",
+                ticket_id,
+                org_id,
             )
-            
+
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found")
-            
-            if ticket['needs_attention']:
+
+            if ticket["needs_attention"]:
                 # Clear attention flag
                 await conn.execute(
                     """
@@ -580,39 +669,43 @@ async def acknowledge_attention(
                     SET needs_attention = false, last_message_at = NOW()
                     WHERE id = $1
                     """,
-                    ticket_id
+                    ticket_id,
                 )
-                
+
                 # Create system message
                 message_body = "[system] Attention acknowledged"
                 if body.note:
                     message_body += f" • Note: {body.note}"
-                
+
                 await conn.execute(
                     """
                     INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
                     VALUES ($1, $2, 'system', $3, $4, NOW())
                     """,
-                    ticket_id, user.id, org_id, message_body
+                    ticket_id,
+                    user.id,
+                    org_id,
+                    message_body,
                 )
-                
+
                 # Update message count
                 await conn.execute(
                     "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
-                    ticket_id
+                    ticket_id,
                 )
-            
+
         return {"ok": True}
-        
+
     finally:
         await conn.close()
+
 
 @router.post("/tickets/{ticket_id}/priority-level", status_code=status.HTTP_200_OK)
 async def set_priority_level(
     ticket_id: str,
     body: PriorityLevelRequest,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
     """Set the numeric priority level (1–7) on a ticket."""
     org_id = require_org_context(request)
@@ -623,7 +716,8 @@ async def set_priority_level(
         async with conn.transaction():
             ticket = await conn.fetchrow(
                 "SELECT id FROM app.tickets WHERE id = $1 AND organization_id = $2",
-                ticket_id, org_id
+                ticket_id,
+                org_id,
             )
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found")
@@ -634,18 +728,22 @@ async def set_priority_level(
                 SET priority_level = $1, updated_at = NOW()
                 WHERE id = $2
                 """,
-                body.priority_level, ticket_id
+                body.priority_level,
+                ticket_id,
             )
             await conn.execute(
                 """
                 INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
                 VALUES ($1, $2, 'system', $3, $4, NOW())
                 """,
-                ticket_id, user.id, org_id, f"[system] Priority level set to {body.priority_level}"
+                ticket_id,
+                user.id,
+                org_id,
+                f"[system] Priority level set to {body.priority_level}",
             )
             await conn.execute(
                 "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
-                ticket_id
+                ticket_id,
             )
         return {"ok": True}
     finally:
@@ -657,7 +755,7 @@ async def set_etr(
     ticket_id: str,
     body: ETRRequest,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
     """Set or update the Expected Time to Resolve (ETR) for a ticket."""
     org_id = require_org_context(request)
@@ -668,12 +766,15 @@ async def set_etr(
         async with conn.transaction():
             ticket = await conn.fetchrow(
                 "SELECT id, status FROM app.tickets WHERE id = $1 AND organization_id = $2",
-                ticket_id, org_id
+                ticket_id,
+                org_id,
             )
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found")
-            if ticket['status'] in ('resolved', 'closed'):
-                raise HTTPException(status_code=409, detail="Cannot set ETR on resolved/closed ticket")
+            if ticket["status"] in ("resolved", "closed"):
+                raise HTTPException(
+                    status_code=409, detail="Cannot set ETR on resolved/closed ticket"
+                )
 
             await conn.execute(
                 """
@@ -686,19 +787,23 @@ async def set_etr(
                     updated_at = NOW()
                 WHERE id = $3
                 """,
-                body.expected_resolve_at, user.id, ticket_id
+                body.expected_resolve_at,
+                user.id,
+                ticket_id,
             )
             await conn.execute(
                 """
                 INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
                 VALUES ($1, $2, 'system', $3, $4, NOW())
                 """,
-                ticket_id, user.id, org_id,
-                f"[system] Expected resolution set to {body.expected_resolve_at.strftime('%Y-%m-%d %H:%M UTC')}"
+                ticket_id,
+                user.id,
+                org_id,
+                f"[system] Expected resolution set to {body.expected_resolve_at.strftime('%Y-%m-%d %H:%M UTC')}",
             )
             await conn.execute(
                 "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
-                ticket_id
+                ticket_id,
             )
         return {"ok": True}
     finally:
@@ -710,24 +815,25 @@ async def set_priority(
     ticket_id: str,
     body: PriorityRequest,
     request: Request,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
     """Set ticket priority"""
     org_id = require_org_context(request)
     require_rep(user, request)
-    
+
     conn = await get_db_connection()
     try:
         async with conn.transaction():
             # Check if ticket exists
             ticket = await conn.fetchrow(
-                "SELECT id FROM app.tickets WHERE id = $1 AND organization_id = $2", 
-                ticket_id, org_id
+                "SELECT id FROM app.tickets WHERE id = $1 AND organization_id = $2",
+                ticket_id,
+                org_id,
             )
-            
+
             if not ticket:
                 raise HTTPException(status_code=404, detail="Ticket not found")
-            
+
             # Update ticket priority
             await conn.execute(
                 """
@@ -735,32 +841,38 @@ async def set_priority(
                 SET priority = $1, last_message_at = NOW()
                 WHERE id = $2
                 """,
-                body.priority, ticket_id
+                body.priority,
+                ticket_id,
             )
-            
+
             # Create system message
             message_body = f"[system] Priority set to {body.priority}"
-            
+
             await conn.execute(
                 """
                 INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body, created_at)
                 VALUES ($1, $2, 'system', $3, $4, NOW())
                 """,
-                ticket_id, user.id, org_id, message_body
+                ticket_id,
+                user.id,
+                org_id,
+                message_body,
             )
-            
+
             # Update message count
             await conn.execute(
                 "UPDATE app.tickets SET message_count = message_count + 1 WHERE id = $1",
-                ticket_id
+                ticket_id,
             )
-            
+
         return {"ok": True}
-        
+
     finally:
         await conn.close()
 
+
 # ── Workload ──────────────────────────────────────────────────────────────────
+
 
 @router.get("/workload", response_model=RepWorkloadResponse)
 async def get_workload(request: Request, user: User = Depends(get_current_user)):
@@ -771,9 +883,11 @@ async def get_workload(request: Request, user: User = Depends(get_current_user))
     conn = await get_db_connection()
     try:
         import uuid as uuid_lib
+
         org_uuid = uuid_lib.UUID(org_id)
 
-        rows = await conn.fetch("""
+        rows = await conn.fetch(
+            """
             SELECT
                 om.user_id::text,
                 au.email,
@@ -790,14 +904,19 @@ async def get_workload(request: Request, user: User = Depends(get_current_user))
               AND ur.role IN ('rep', 'admin')
             GROUP BY om.user_id, au.email, ur.role
             ORDER BY open_tickets ASC, au.email ASC
-        """, org_uuid)
+        """,
+            org_uuid,
+        )
 
-        unassigned = await conn.fetchval("""
+        unassigned = await conn.fetchval(
+            """
             SELECT COUNT(*) FROM app.tickets
             WHERE organization_id = $1
               AND status IN ('open','in_progress','escalated')
               AND assignee_id IS NULL
-        """, org_uuid)
+        """,
+            org_uuid,
+        )
 
         return RepWorkloadResponse(
             reps=[
