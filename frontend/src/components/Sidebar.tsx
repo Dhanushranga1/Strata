@@ -142,6 +142,8 @@ const NOTIF_ICONS: Record<string, string> = {
 
 function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
   const router = useRouter();
+  const { currentOrganization, isReady } = useOrganization();
+  const orgId = currentOrganization?.id ?? null;
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -153,9 +155,10 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
   useEffect(() => { setMounted(true); }, []);
 
   const fetchNotifications = async () => {
+    if (!orgId) return;
     try {
       setLoading(true);
-      const data = await api.get<{ unread: number; items: NotificationItem[] }>("/api/notifications");
+      const data = await api.get<{ unread: number; items: NotificationItem[] }>("/api/notifications", orgId);
       setUnread(data.unread ?? 0);
       setItems(data.items ?? []);
     } catch {
@@ -166,10 +169,11 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
   };
 
   useEffect(() => {
+    if (!isReady || !orgId) return;
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isReady, orgId]);
 
   // Close on outside click — checks both button and portal panel
   useEffect(() => {
@@ -205,13 +209,13 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
   const markRead = async (id: string) => {
     setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n)));
     setUnread((u) => Math.max(0, u - 1));
-    await api.post(`/api/notifications/${id}/read`, {});
+    await api.post(`/api/notifications/${id}/read`, {}, orgId);
   };
 
   const markAllRead = async () => {
     setItems((prev) => prev.map((n) => ({ ...n, read_at: n.read_at ?? new Date().toISOString() })));
     setUnread(0);
-    await api.post("/api/notifications/read-all", {});
+    await api.post("/api/notifications/read-all", {}, orgId);
   };
 
   const deleteNotif = async (id: string, e: React.MouseEvent) => {
@@ -219,7 +223,7 @@ function NotificationBell({ isCollapsed }: { isCollapsed: boolean }) {
     const wasUnread = items.find((n) => n.id === id)?.read_at === null;
     setItems((prev) => prev.filter((n) => n.id !== id));
     if (wasUnread) setUnread((u) => Math.max(0, u - 1));
-    await api.delete(`/api/notifications/${id}`);
+    await api.delete(`/api/notifications/${id}`, orgId);
   };
 
   const handleClick = async (notif: NotificationItem) => {
