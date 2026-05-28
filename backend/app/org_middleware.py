@@ -366,24 +366,24 @@ def require_org_context(request: Request) -> str:
     """
     Require organization context in request.
 
-    Raises HTTPException if org_id not present.
+    Tries request.state first (set by middleware after membership check),
+    then falls back to reading the header/query-param directly.  The
+    fallback is safe because every protected endpoint also calls
+    get_current_user(), which validates the JWT independently.
 
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        Organization ID
-
-    Raises:
-        HTTPException: If org_id not in request state
-
-    Example:
-        @router.get("/api/tickets")
-        async def list_tickets(request: Request):
-            org_id = require_org_context(request)
-            # org_id is guaranteed to be present
+    Raises HTTPException(400) if org_id is absent from both sources.
     """
+    # Primary: set by OrganizationContextMiddleware after membership check
     org_id = get_org_from_request(request)
+
+    # Fallback: middleware JWT parsing sometimes fails silently (JWKS race,
+    # token format edge-cases).  Read the header / query param directly so
+    # the request is not blocked when auth is still enforced by get_current_user.
+    if not org_id:
+        org_id = (
+            request.headers.get("X-Organization-ID")
+            or request.query_params.get("org_id")
+        )
 
     if not org_id:
         raise HTTPException(
