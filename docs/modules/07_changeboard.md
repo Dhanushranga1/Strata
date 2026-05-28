@@ -1,5 +1,10 @@
 # ChangeBoard — Change Management (Lightweight)
 
+> **Implementation Status: ✅ Built & Deployed**  
+> Backend: `backend/app/changeboard.py` · Migration: `0039_changeboard.sql` (live)  
+> Frontend: `frontend/src/app/(protected)/changes/page.tsx`  
+> See [STRATA_MODULES_SPRINT.md](../sprint/STRATA_MODULES_SPRINT.md) for full build notes.
+
 ## Problem It Solves
 An SME IT admin once pushed a DNS config change at 3pm on a Friday. Email stopped working company-wide for 4 hours. There was no review. No rollback plan. No one knew it was happening.
 

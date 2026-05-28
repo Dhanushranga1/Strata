@@ -1,5 +1,10 @@
 # PatchWatch — Patch Management
 
+> **Implementation Status: ✅ Built & Deployed**  
+> Backend: `backend/app/patchwatch.py` · Migration: `0038_patchwatch.sql` (live)  
+> Frontend: `frontend/src/app/(protected)/patches/page.tsx`  
+> See [STRATA_MODULES_SPRINT.md](../sprint/STRATA_MODULES_SPRINT.md) for full build notes.
+
 ## Problem It Solves
 SMEs are prime ransomware targets. Most breaches exploit unpatched systems. The problem: SME IT teams have no systematic way to track what needs patching across their device fleet. They rely on Windows Update notifications being clicked, which is not a security strategy.
 

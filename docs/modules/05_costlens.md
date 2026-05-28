@@ -1,5 +1,10 @@
 # CostLens — Cost Intelligence & Optimization
 
+> **Implementation Status: ✅ Built & Deployed**  
+> Backend: `backend/app/costlens.py` · No new migration (computed from existing tables)  
+> Frontend: `frontend/src/app/(protected)/costlens/page.tsx`  
+> See [STRATA_MODULES_SPRINT.md](../sprint/STRATA_MODULES_SPRINT.md) for full build notes.
+
 ## Problem It Solves
 SME IT spend is notoriously wasteful. Licenses nobody uses stay on autopay. SaaS subscriptions accumulate because nobody owns the renewal decision. Assets gather dust but stay on the books as active. IT doesn't have a single view of what they're spending — so they can't cut anything.
 

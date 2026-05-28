@@ -1,5 +1,10 @@
 # ProcureFlow — Procurement & Purchase Approvals
 
+> **Implementation Status: ✅ Built & Deployed**  
+> Backend: `backend/app/procureflow.py` · Migration: `0037_procureflow.sql` (live)  
+> Frontend: `frontend/src/app/(protected)/procurement/page.tsx`  
+> See [STRATA_MODULES_SPRINT.md](../sprint/STRATA_MODULES_SPRINT.md) for full build notes.
+
 ## Problem It Solves
 At SMEs, purchase requests travel through email chains. The approval trail exists only in someone's inbox. Budget tracking is impossible. IT has no idea what's been ordered, what's in transit, or what's been delivered. An engineer needs a laptop — it takes 2 weeks of email ping-pong before anything is ordered.
 

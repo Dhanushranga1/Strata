@@ -1,28 +1,24 @@
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import os
-from contextlib import asynccontextmanager
-
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
 from .auth import User, get_current_user
 from .error_handlers import register_exception_handlers
-from .logging_config import get_logger, setup_logging
+from .logging_config import setup_logging, get_logger
 from .middleware import add_request_logging
 from .org_middleware import add_organization_context
 
 # Import security features
 try:
-    from slowapi.errors import RateLimitExceeded
-
     from .security import (
         SecurityHeadersMiddleware,
         get_cors_config,
         limiter,
-        rate_limit_exceeded_handler,
+        rate_limit_exceeded_handler
     )
-
+    from slowapi.errors import RateLimitExceeded
     SECURITY_ENABLED = True
 except ImportError:
     # Fallback if slowapi not installed
@@ -41,18 +37,15 @@ setup_logging(
     app_name="ticketpilot",
     log_level=LOG_LEVEL,
     enable_console=True,  # Always enable console for now
-    enable_file=ENVIRONMENT != "development",  # Only file logs in production
+    enable_file=ENVIRONMENT != "development"  # Only file logs in production
 )
 
 logger = get_logger(__name__)
-logger.info(
-    "Starting TicketPilot API",
-    extra={
-        "environment": ENVIRONMENT,
-        "version": API_VERSION,
-        "security_enabled": SECURITY_ENABLED,
-    },
-)
+logger.info("Starting TicketPilot API", extra={
+    "environment": ENVIRONMENT,
+    "version": API_VERSION,
+    "security_enabled": SECURITY_ENABLED
+})
 
 
 def _check_faiss_indices():
@@ -76,7 +69,8 @@ def _check_faiss_indices():
         return
 
     org_dirs = [
-        d for d in os.listdir(index_dir) if os.path.isdir(os.path.join(index_dir, d))
+        d for d in os.listdir(index_dir)
+        if os.path.isdir(os.path.join(index_dir, d))
     ]
     if not org_dirs:
         logger.warning(
@@ -102,12 +96,10 @@ async def _overdue_scan():
     2. Mark tickets overdue (respects ETR when set) and send first notification
     3. Send repeat overdue reminders + ETR 1-hour-before reminder
     """
-    from .db import get_connection
     from .email import (
-        send_etr_reminder_email,
-        send_overdue_email,
-        send_overdue_reminder_email,
+        send_overdue_email, send_overdue_reminder_email, send_etr_reminder_email
     )
+    from .db import get_connection
 
     try:
         conn = await get_connection()
@@ -115,25 +107,22 @@ async def _overdue_scan():
         logger.error("Overdue scan: DB connection failed: %s", exc)
         return
     try:
-        orgs = await conn.fetch(
-            "SELECT id, settings FROM app.organizations WHERE is_active = true"
-        )
+        orgs = await conn.fetch("SELECT id, settings FROM app.organizations WHERE is_active = true")
         for org in orgs:
-            org_id = str(org["id"])
-            raw = org["settings"]
+            org_id = str(org['id'])
+            raw = org['settings']
             if not raw:
                 settings = {}
             elif isinstance(raw, str):
                 import json as _json
-
                 settings = _json.loads(raw)
             else:
                 settings = dict(raw)
-            threshold_h = float(settings.get("overdue_threshold_hours", 48))
-            reminder_h = float(settings.get("overdue_reminder_hours", 24))
+            threshold_h = float(settings.get('overdue_threshold_hours', 48))
+            reminder_h = float(settings.get('overdue_reminder_hours', 24))
 
             # Build attention threshold map from org settings (falls back to defaults)
-            raw_thresholds = settings.get("attention_thresholds", {})
+            raw_thresholds = settings.get('attention_thresholds', {})
             attention_thresholds = {
                 lvl: float(raw_thresholds.get(str(lvl), default_h))
                 for lvl, default_h in _PRIORITY_DEFAULT_HOURS.items()
@@ -141,8 +130,7 @@ async def _overdue_scan():
 
             # ── 1. Auto-flag needs_attention by priority_level ─────────────────
             for lvl, hours in attention_thresholds.items():
-                await conn.execute(
-                    """
+                await conn.execute("""
                     UPDATE app.tickets
                     SET needs_attention = true
                     WHERE organization_id = $1
@@ -150,11 +138,7 @@ async def _overdue_scan():
                       AND needs_attention = false
                       AND status NOT IN ('resolved', 'closed')
                       AND EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 > $3
-                """,
-                    org_id,
-                    lvl,
-                    hours,
-                )
+                """, org_id, lvl, hours)
 
             # ── 2. Mark overdue (ETR-aware, SLA-policy-aware) ─────────────────
             # Fetch per-priority SLA policies for this org (empty if not configured)
@@ -163,15 +147,12 @@ async def _overdue_scan():
                 "WHERE organization_id = $1 AND is_active = TRUE",
                 org_id,
             )
-            sla_map = {
-                r["priority_level"]: float(r["resolution_hours"]) for r in sla_rows
-            }
+            sla_map = {r['priority_level']: float(r['resolution_hours']) for r in sla_rows}
 
             # Tickets without ETR: per-priority SLA hours, fallback to org threshold_h
             for lvl in range(1, 8):
                 hours = sla_map.get(lvl, threshold_h)
-                await conn.execute(
-                    """
+                await conn.execute("""
                     UPDATE app.tickets
                     SET is_overdue = true
                     WHERE organization_id = $1
@@ -180,15 +161,10 @@ async def _overdue_scan():
                       AND expected_resolve_at IS NULL
                       AND status NOT IN ('resolved', 'closed')
                       AND EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 > $3
-                """,
-                    org_id,
-                    lvl,
-                    hours,
-                )
+                """, org_id, lvl, hours)
 
             # Tickets with no priority_level set — use flat org threshold
-            await conn.execute(
-                """
+            await conn.execute("""
                 UPDATE app.tickets
                 SET is_overdue = true
                 WHERE organization_id = $1
@@ -197,19 +173,13 @@ async def _overdue_scan():
                   AND expected_resolve_at IS NULL
                   AND status NOT IN ('resolved', 'closed')
                   AND EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 > $2
-            """,
-                org_id,
-                threshold_h,
-            )
+            """, org_id, threshold_h)
 
             # First-response SLA breach: flag needs_attention if no rep reply yet
-            for lvl, first_resp_h in {
-                r["priority_level"]: float(r["first_response_hours"]) for r in sla_rows
-            }.items():
+            for lvl, first_resp_h in {r['priority_level']: float(r['first_response_hours']) for r in sla_rows}.items():
                 if first_resp_h <= 0:
                     continue
-                await conn.execute(
-                    """
+                await conn.execute("""
                     UPDATE app.tickets
                     SET needs_attention = true
                     WHERE organization_id = $1
@@ -218,15 +188,10 @@ async def _overdue_scan():
                       AND first_response_at IS NULL
                       AND status NOT IN ('resolved', 'closed')
                       AND EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 > $3
-                """,
-                    org_id,
-                    lvl,
-                    first_resp_h,
-                )
+                """, org_id, lvl, first_resp_h)
 
             # Tickets WITH ETR: overdue only if past their ETR
-            await conn.execute(
-                """
+            await conn.execute("""
                 UPDATE app.tickets
                 SET is_overdue = true
                 WHERE organization_id = $1
@@ -234,13 +199,10 @@ async def _overdue_scan():
                   AND expected_resolve_at IS NOT NULL
                   AND expected_resolve_at < NOW()
                   AND status NOT IN ('resolved', 'closed')
-            """,
-                org_id,
-            )
+            """, org_id)
 
             # ── 3a. First-time overdue notification ────────────────────────────
-            newly_overdue = await conn.fetch(
-                """
+            newly_overdue = await conn.fetch("""
                 SELECT t.id, t.title, au.email AS assignee_email,
                        EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600 AS hours_open
                 FROM app.tickets t
@@ -249,24 +211,18 @@ async def _overdue_scan():
                   AND t.is_overdue = true
                   AND t.overdue_notified_at IS NULL
                   AND t.status NOT IN ('resolved', 'closed')
-            """,
-                org_id,
-            )
+            """, org_id)
 
             for row in newly_overdue:
-                tid = str(row["id"])
-                if row["assignee_email"]:
-                    send_overdue_email(
-                        row["assignee_email"], tid, row["title"], int(row["hours_open"])
-                    )
+                tid = str(row['id'])
+                if row['assignee_email']:
+                    send_overdue_email(row['assignee_email'], tid, row['title'], int(row['hours_open']))
                 await conn.execute(
-                    "UPDATE app.tickets SET overdue_notified_at = NOW() WHERE id = $1",
-                    row["id"],
+                    "UPDATE app.tickets SET overdue_notified_at = NOW() WHERE id = $1", row['id']
                 )
 
             # ── 3b. Repeat overdue reminders ───────────────────────────────────
-            reminder_due = await conn.fetch(
-                """
+            reminder_due = await conn.fetch("""
                 SELECT t.id, t.title, au.email AS assignee_email,
                        EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600 AS hours_open
                 FROM app.tickets t
@@ -276,25 +232,18 @@ async def _overdue_scan():
                   AND t.overdue_notified_at IS NOT NULL
                   AND EXTRACT(EPOCH FROM (NOW() - t.overdue_notified_at)) / 3600 > $2
                   AND t.status NOT IN ('resolved', 'closed')
-            """,
-                org_id,
-                reminder_h,
-            )
+            """, org_id, reminder_h)
 
             for row in reminder_due:
-                tid = str(row["id"])
-                if row["assignee_email"]:
-                    send_overdue_reminder_email(
-                        row["assignee_email"], tid, row["title"], int(row["hours_open"])
-                    )
+                tid = str(row['id'])
+                if row['assignee_email']:
+                    send_overdue_reminder_email(row['assignee_email'], tid, row['title'], int(row['hours_open']))
                 await conn.execute(
-                    "UPDATE app.tickets SET overdue_notified_at = NOW() WHERE id = $1",
-                    row["id"],
+                    "UPDATE app.tickets SET overdue_notified_at = NOW() WHERE id = $1", row['id']
                 )
 
             # ── 3c. ETR 1-hour-before reminders ───────────────────────────────
-            etr_due = await conn.fetch(
-                """
+            etr_due = await conn.fetch("""
                 SELECT t.id, t.title, t.expected_resolve_at, au.email AS assignee_email
                 FROM app.tickets t
                 LEFT JOIN auth.users au ON au.id = t.assignee_id
@@ -303,20 +252,15 @@ async def _overdue_scan():
                   AND t.etr_reminder_sent = false
                   AND t.expected_resolve_at BETWEEN NOW() AND NOW() + INTERVAL '1 hour'
                   AND t.status NOT IN ('resolved', 'closed')
-            """,
-                org_id,
-            )
+            """, org_id)
 
             for row in etr_due:
-                tid = str(row["id"])
-                etr_str = row["expected_resolve_at"].strftime("%Y-%m-%d %H:%M UTC")
-                if row["assignee_email"]:
-                    send_etr_reminder_email(
-                        row["assignee_email"], tid, row["title"], etr_str
-                    )
+                tid = str(row['id'])
+                etr_str = row['expected_resolve_at'].strftime('%Y-%m-%d %H:%M UTC')
+                if row['assignee_email']:
+                    send_etr_reminder_email(row['assignee_email'], tid, row['title'], etr_str)
                 await conn.execute(
-                    "UPDATE app.tickets SET etr_reminder_sent = true WHERE id = $1",
-                    row["id"],
+                    "UPDATE app.tickets SET etr_reminder_sent = true WHERE id = $1", row['id']
                 )
     finally:
         await conn.close()
@@ -342,7 +286,6 @@ async def _pool_keepalive():
     the common case where Render cold-starts while Supabase is still waking up.
     """
     from .db import get_connection, reinit_pool_if_needed
-
     while True:
         await asyncio.sleep(4 * 60)
         try:
@@ -357,20 +300,59 @@ async def _pool_keepalive():
             logger.warning("[keepalive] pool ping failed: %s", type(exc).__name__)
 
 
+async def _casper_agent_scan_loop():
+    """
+    CASPER Proactive Intelligence — runs every 60 minutes.
+    Scans all active orgs and generates/refreshes typed insights:
+    warranty alerts, license waste, depreciation milestones, repair ROI, idle assets.
+    """
+    import threading
+    from .casper.asset_intelligence import run_all_agents_for_org
+
+    # Initial delay — let the server fully start before first scan
+    await asyncio.sleep(30)
+
+    while True:
+        try:
+            from .db import get_connection
+            conn = await get_connection()
+            try:
+                org_rows = await conn.fetch(
+                    "SELECT id FROM app.organizations WHERE is_active = true"
+                )
+                org_ids = [str(r["id"]) for r in org_rows]
+            finally:
+                await conn.close()
+
+            logger.info("[CASPER agent] Starting scan for %d org(s)", len(org_ids))
+
+            def _scan_all():
+                for org_id in org_ids:
+                    try:
+                        run_all_agents_for_org(org_id)
+                    except Exception as exc:
+                        logger.warning("[CASPER agent] Scan failed for org %s: %s", org_id, exc)
+
+            # Run in thread so we don't block the event loop
+            await asyncio.get_event_loop().run_in_executor(None, _scan_all)
+            logger.info("[CASPER agent] Scan complete for %d org(s)", len(org_ids))
+
+        except Exception as exc:
+            logger.error("[CASPER agent] Scan loop error: %s", exc)
+
+        await asyncio.sleep(60 * 60)   # re-scan every hour
+
+
 async def _rebuild_one_org(org_id: str, load_snapshot_fn, rebuild_fn) -> None:
     """Try snapshot load first; fall back to full per-vector rebuild for one org."""
     try:
         count = await load_snapshot_fn(org_id)
         if count is not None:
-            logger.info(
-                "[startup] org %s loaded from snapshot (%d vectors)", org_id, count
-            )
+            logger.info("[startup] org %s loaded from snapshot (%d vectors)", org_id, count)
             return
         count = await rebuild_fn(org_id)
         if count:
-            logger.info(
-                "[startup] org %s rebuilt from embeddings (%d vectors)", org_id, count
-            )
+            logger.info("[startup] org %s rebuilt from embeddings (%d vectors)", org_id, count)
         else:
             logger.info("[startup] org %s has no embeddings yet", org_id)
     except Exception as exc:
@@ -379,35 +361,16 @@ async def _rebuild_one_org(org_id: str, load_snapshot_fn, rebuild_fn) -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    from .db import close_pool, init_pool
-
+    from .db import init_pool, close_pool
     await init_pool()
-
-    # Run pending database migrations on every startup.
-    # Idempotent — only applies .sql files not yet recorded in app.schema_migrations.
-    from .migration_runner import run_migrations
-
-    await run_migrations()
-
-    # ── Safety: guard against dev→prod misconfiguration ───────────────────
-    _env = os.getenv("ENVIRONMENT", "development")
-    _origin = os.getenv("WEB_ORIGIN", "")
-    if _env == "production" and "localhost" in _origin:
-        logger.warning(
-            "ENVIRONMENT=production but WEB_ORIGIN contains localhost — check config!"
-        )
-    if _env == "development" and "localhost" not in _origin and _origin:
-        logger.warning(
-            "ENVIRONMENT=development but WEB_ORIGIN is a remote URL — check config!"
-        )
 
     # Rebuild per-org FAISS indexes on cold start (Render free-tier spin-up / redeploy).
     # Strategy: discover every org that has stored embeddings, try snapshot first,
     # fall back to full rebuild from individual vectors.
     _check_faiss_indices()
     try:
-        from .db import get_connection
         from .store import load_org_snapshot, rebuild_org_from_db
+        from .db import get_connection
 
         conn = await get_connection()
         try:
@@ -419,27 +382,61 @@ async def lifespan(_app: FastAPI):
 
         org_ids = [str(r["organization_id"]) for r in org_rows if r["organization_id"]]
         if org_ids:
-            logger.info(
-                "[startup] Rebuilding FAISS for %d org(s): %s", len(org_ids), org_ids
-            )
-            rebuild_tasks = [
-                _rebuild_one_org(org_id, load_org_snapshot, rebuild_org_from_db)
-                for org_id in org_ids
-            ]
+            logger.info("[startup] Rebuilding FAISS for %d org(s): %s", len(org_ids), org_ids)
+            rebuild_tasks = [_rebuild_one_org(org_id, load_org_snapshot, rebuild_org_from_db) for org_id in org_ids]
             await asyncio.gather(*rebuild_tasks)
         else:
-            logger.info(
-                "[startup] No stored embeddings in DB yet — FAISS indexes will be built on first ingest"
-            )
+            logger.info("[startup] No stored embeddings in DB yet — FAISS indexes will be built on first ingest")
     except Exception as exc:
         logger.error("[startup] Per-org FAISS rebuild failed: %s", exc)
 
-    task = asyncio.create_task(_overdue_task())
+    # Initialise CASPER Foundation Layer — tool registry + entity namespaces
+    try:
+        from .casper import casper_engine
+        from .casper.correlator import EntityNamespace
+        casper_engine.startup()
+
+        # Register AssetLog namespace for cross-ticket correlation
+        def _search_assets(q_emb, org_id, top_k):
+            from .store import search_org_vectors
+            from .db_sync import get_db_connection
+            scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 3)
+            hits = [(float(s), int(fid)) for s, fid in zip(scores_raw, ids_raw) if s >= 0.3 and fid >= 0]
+            if not hits:
+                return []
+            faiss_ids = [fid for _, fid in hits[:top_k * 2]]
+            with get_db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT ee.faiss_id, a.id, a.name, a.asset_tag, a.category,
+                           a.specs->>'serial_number' AS serial
+                    FROM app.entity_embeddings ee
+                    JOIN app.assets a ON a.id = ee.entity_id
+                    WHERE ee.organization_id = %s AND ee.entity_type = 'asset'
+                      AND ee.faiss_id = ANY(%s)
+                """, (org_id, faiss_ids))
+                rows = cur.fetchall()
+            score_map = {fid: s for s, fid in hits}
+            return [
+                {"id": str(r["id"]), "label": f"{r['name']} ({r['asset_tag']})",
+                 "score": score_map.get(r["faiss_id"], 0.3),
+                 "snippet": f"{r['category']} · SN:{r.get('serial') or 'N/A'}"}
+                for r in rows
+            ][:top_k]
+
+        casper_engine.correlator.register_namespace(EntityNamespace(
+            name="asset", search_fn=_search_assets,
+        ))
+    except Exception as exc:
+        logger.warning("[startup] CASPEREngine startup failed (non-fatal): %s", exc)
+
+    task      = asyncio.create_task(_overdue_task())
     keepalive = asyncio.create_task(_pool_keepalive())
+    agent_task = asyncio.create_task(_casper_agent_scan_loop())
     yield
-    task.cancel()
-    keepalive.cancel()
-    for t in (task, keepalive):
+    for t in (task, keepalive, agent_task):
+        t.cancel()
+    for t in (task, keepalive, agent_task):
         try:
             await t
         except asyncio.CancelledError:
@@ -472,43 +469,51 @@ if SECURITY_ENABLED:
     app.add_middleware(SecurityHeadersMiddleware)
 
 # Get appropriate CORS configuration
-cors_config = (
-    get_cors_config()
-    if SECURITY_ENABLED
-    else {
-        "allow_origins": [
-            WEB_ORIGIN,
-            "http://localhost:3000",
-            "http://localhost:3001",
-            "http://localhost:3002",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:3001",
-            "http://127.0.0.1:3002",
-        ],
-        "allow_credentials": True,
-        "allow_methods": ["*"],
-        "allow_headers": ["*"],
-    }
-)
+cors_config = get_cors_config() if SECURITY_ENABLED else {
+    "allow_origins": [
+        WEB_ORIGIN, 
+        "http://localhost:3000", 
+        "http://localhost:3001", 
+        "http://localhost:3002",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001", 
+        "http://127.0.0.1:3002"
+    ],
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
 
 app.add_middleware(CORSMiddleware, **cors_config)
 
-from .admin import router as admin_router
-
 # Import and mount routers
 from .auth import router as auth_router
+from .kb import router as kb_router
+from .tickets import router as tickets_router
+from .rep import router as rep_router
+from .admin import router as admin_router
+from .feedback import router as feedback_router
+from .organizations import router as organizations_router
+from .invites import router as invites_router
+from .reports import router as reports_router
+from .notifications import router as notifications_router
+from .sla import router as sla_router
 from .canned_responses import router as canned_responses_router
 from .custom_fields import router as custom_fields_router
 from .entitlements_router import router as entitlements_router
-from .feedback import router as feedback_router
-from .invites import router as invites_router
-from .kb import router as kb_router
-from .notifications import router as notifications_router
-from .organizations import router as organizations_router
-from .rep import router as rep_router
-from .reports import router as reports_router
-from .sla import router as sla_router
-from .tickets import router as tickets_router
+from .knowbase import router as knowbase_router
+from .billing import router as billing_router
+from .assets import router as assets_router
+from .contractvault import router as contractvault_router
+from .costlens import router as costlens_router
+from .procureflow import router as procureflow_router
+from .patchwatch import router as patchwatch_router
+from .changeboard import router as changeboard_router
+from .servicehub import router as servicehub_router
+from .flowbot import router as flowbot_router
+from .incidentbridge import router as incidentbridge_router
+from .statuscast import router as statuscast_router
+from .casper.query import router as casper_query_router
 
 app.include_router(auth_router)
 app.include_router(kb_router)
@@ -524,34 +529,30 @@ app.include_router(sla_router)
 app.include_router(canned_responses_router)
 app.include_router(custom_fields_router)
 app.include_router(entitlements_router)
+app.include_router(knowbase_router)
+app.include_router(billing_router)
+app.include_router(assets_router)
+app.include_router(contractvault_router)
+app.include_router(costlens_router)
+app.include_router(procureflow_router)
+app.include_router(patchwatch_router)
+app.include_router(changeboard_router)
+app.include_router(servicehub_router)
+app.include_router(flowbot_router)
+app.include_router(incidentbridge_router)
+app.include_router(statuscast_router)
+app.include_router(casper_query_router)
 
 
 @app.get("/api/health")
-async def health():
-    """Health check with FAISS, DB pool, and background task status."""
-    import time as _time
-
-    from .db import _pool as _asyncpg_pool
-    from .store import _cache as _faiss_cache
-
-    faiss_org_count = len(_faiss_cache) if _faiss_cache is not None else 0
-    pool_ok = _asyncpg_pool is not None and not _asyncpg_pool._closed
-
-    return {
-        "ok": True,
-        "api": "ticketpilot",
-        "version": API_VERSION,
-        "faiss_orgs_cached": faiss_org_count,
-        "db_pool_connected": pool_ok,
-        "timestamp": _time.time(),
-    }
+def health():
+    return {"ok": True, "api": "ticketpilot", "version": API_VERSION}
 
 
 @app.get("/api/wake")
 async def wake():
     """Pre-warm both DB pools and return latency. Bookmark this for demo cold-starts."""
     import time as _time
-
     from .db import get_connection, reinit_pool_if_needed
     from .db_sync import _pool as _sync_pool
 
@@ -564,10 +565,7 @@ async def wake():
         conn = await get_connection()
         await conn.fetchval("SELECT 1")
         await conn.close()
-        result["asyncpg"] = {
-            "ok": True,
-            "latency_ms": round((_time.monotonic() - t0) * 1000),
-        }
+        result["asyncpg"] = {"ok": True, "latency_ms": round((_time.monotonic() - t0) * 1000)}
     except Exception as exc:
         result["asyncpg"] = {"ok": False, "error": type(exc).__name__}
         result["ready"] = False
@@ -576,13 +574,9 @@ async def wake():
     t0 = _time.monotonic()
     try:
         from .db_sync import get_db_connection as _sync_conn
-
         with _sync_conn() as conn:
             conn.execute("SELECT 1")
-        result["psycopg3"] = {
-            "ok": True,
-            "latency_ms": round((_time.monotonic() - t0) * 1000),
-        }
+        result["psycopg3"] = {"ok": True, "latency_ms": round((_time.monotonic() - t0) * 1000)}
     except Exception as exc:
         result["psycopg3"] = {"ok": False, "error": type(exc).__name__}
         result["ready"] = False
@@ -594,9 +588,8 @@ async def wake():
 async def health_db():
     """Diagnose DB connectivity without exposing credentials."""
     import time
-    from urllib.parse import urlparse
-
     import asyncpg
+    from urllib.parse import urlparse
 
     raw_url = os.getenv("DATABASE_URL", "")
     if not raw_url:
@@ -637,7 +630,6 @@ async def health_db():
 
     return result
 
-
 @app.get("/api/me")
 def me(user: User = Depends(get_current_user)):
     return user
@@ -647,12 +639,10 @@ def me(user: User = Depends(get_current_user)):
 
 from fastapi import Body
 
-
 @app.get("/api/me/profile")
 async def get_my_profile(user: User = Depends(get_current_user)):
     """Return caller's user_metadata (display_name, phone, bio)."""
     from .auth import supabase
-
     try:
         resp = supabase.auth.admin.get_user_by_id(user.id)
         meta = resp.user.user_metadata or {} if resp.user else {}
@@ -672,11 +662,9 @@ async def update_my_profile(
 ):
     """Update display_name, phone, and/or bio in Supabase user_metadata."""
     from .auth import supabase
-
     allowed = {k: v for k, v in body.items() if k in ("display_name", "phone", "bio")}
     if not allowed:
         from fastapi import HTTPException
-
         raise HTTPException(400, "No valid fields provided")
     try:
         resp = supabase.auth.admin.get_user_by_id(user.id)
@@ -685,6 +673,5 @@ async def update_my_profile(
         supabase.auth.admin.update_user_by_id(user.id, {"user_metadata": merged})
     except Exception as exc:
         from fastapi import HTTPException
-
         raise HTTPException(500, f"Failed to update profile: {exc}")
     return {"ok": True, **allowed}
