@@ -321,15 +321,15 @@ function InsightsPanel({ orgId }: { orgId: string }) {
       "rounded-xl border overflow-hidden",
       critical > 0 ? "border-red-500/30" : warning > 0 ? "border-amber-500/30" : "border-blue-500/30",
     )}>
-      {/* Panel header */}
-      <button
-        type="button"
-        onClick={() => setCollapsed(c => !c)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors"
-      >
-        <div className="flex items-center gap-2.5">
+      {/* Panel header — collapse toggle and refresh are siblings, never nested */}
+      <div className="flex items-center bg-muted/30 hover:bg-muted/50 transition-colors px-4 py-3">
+        {/* Left: clickable label area triggers collapse */}
+        <div
+          className="flex flex-1 items-center gap-2.5 cursor-pointer min-w-0"
+          onClick={() => setCollapsed(c => !c)}
+        >
           <Brain className={cn(
-            "w-4 h-4",
+            "w-4 h-4 shrink-0",
             critical > 0 ? "text-red-400" : warning > 0 ? "text-amber-400" : "text-blue-400",
           )} />
           <span className="text-sm font-semibold text-foreground">CASPER Intelligence</span>
@@ -345,15 +345,21 @@ function InsightsPanel({ orgId }: { orgId: string }) {
           )}
           {isLoading && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground" />}
         </div>
-        <div className="flex items-center gap-3">
+        {/* Right: refresh + chevron — siblings of the label div, not children */}
+        <div className="flex items-center gap-2 shrink-0 ml-3">
           {lastRun && <span className="text-xs text-muted-foreground hidden sm:block">Last scan {lastRun}</span>}
-          <button type="button" onClick={e => { e.stopPropagation(); handleRefresh() }}
-            className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+          <button
+            type="button"
+            onClick={() => handleRefresh()}
+            className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
-          {collapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
+          <div className="cursor-pointer" onClick={() => setCollapsed(c => !c)}>
+            {collapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
+          </div>
         </div>
-      </button>
+      </div>
 
       {/* Insight cards */}
       {!collapsed && (
