@@ -2,25 +2,24 @@
 
 import { SWRConfig } from "swr";
 import api from "@/lib/api-client";
+import { useOrganization } from "@/contexts/OrganizationContext";
 
 export function SWRProvider({ children }: { children: React.ReactNode }) {
+  const { currentOrganization } = useOrganization();
+  const orgId = currentOrganization?.id ?? null;
+
   return (
     <SWRConfig
       value={{
-        // Deduplicate identical requests within 4s window
         dedupingInterval: 4000,
-        // Background revalidation on window focus (instant feel on tab switch)
         revalidateOnFocus: true,
         revalidateOnReconnect: true,
-        // Don't refetch on mount if data is fresh (< 30s)
         revalidateIfStale: true,
-        // Global fetcher — strips boilerplate from every useSWR call
-        fetcher: (endpoint: string) => api.get(endpoint),
-        // Surface errors but don't retry forever
+        // Pass orgId so every useSWR call sends X-Organization-ID automatically
+        fetcher: (endpoint: string) => api.get(endpoint, orgId),
         shouldRetryOnError: true,
         errorRetryCount: 2,
         errorRetryInterval: 3000,
-        // Keep stale data visible while refetching (zero blank screens)
         keepPreviousData: true,
       }}
     >
