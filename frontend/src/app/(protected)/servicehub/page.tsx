@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { LayoutGrid, Plus, Trash2, Edit2, Loader2, ExternalLink, Globe, Lock } from "lucide-react";
 import api from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { CardGridSkeleton } from "@/components/skeletons/ModulePageSkeleton";
 
 interface FormField {
   key: string;
@@ -238,32 +240,23 @@ function CatalogModal({ mode, initial, onClose, onSaved }: {
 }
 
 export default function ServiceHubPage() {
-  const [items, setItems] = useState<CatalogItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<CatalogItem | null>(null);
 
-  const load = async () => {
-    try {
-      const data = await api.get<{ catalog: CatalogItem[] }>("/api/servicehub/catalog?include_inactive=true");
-      setItems(data.catalog ?? []);
-    } catch { /* silent */ }
-    finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); }, []);
+  const { data, isLoading, mutate } = useSWR<{ catalog: CatalogItem[] }>("/api/servicehub/catalog?include_inactive=true");
+  const items = data?.catalog ?? [];
 
   const deleteItem = async (id: string) => {
     await api.delete(`/api/servicehub/catalog/${id}`);
-    load();
+    mutate();
   };
 
   const publicCount = items.filter((i) => i.is_public && i.is_active).length;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-      {showCreate && <CatalogModal mode="create" onClose={() => setShowCreate(false)} onSaved={load} />}
-      {editing && <CatalogModal mode="edit" initial={editing} onClose={() => setEditing(null)} onSaved={load} />}
+      {showCreate && <CatalogModal mode="create" onClose={() => setShowCreate(false)} onSaved={() => mutate()} />}
+      {editing && <CatalogModal mode="edit" initial={editing} onClose={() => setEditing(null)} onSaved={() => mutate()} />}
 
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -294,10 +287,8 @@ export default function ServiceHubPage() {
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </div>
+      {isLoading ? (
+        <CardGridSkeleton cards={4} />
       ) : items.length === 0 ? (
         <div className="flex flex-col items-center py-20 gap-3 text-center">
           <LayoutGrid className="w-12 h-12 text-cyan-400/40" />

@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { Globe, Plus, Trash2, CheckCircle2, AlertTriangle, Loader2, ExternalLink } from "lucide-react";
 import api from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { ModulePageSkeleton } from "@/components/skeletons/ModulePageSkeleton";
 
 interface Service {
   id: string;
@@ -214,25 +216,15 @@ function AddServiceModal({ onClose, onAdded }: { onClose: () => void; onAdded: (
 }
 
 export default function StatusCastPage() {
-  const [services, setServices] = useState<Service[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [loading, setLoading] = useState(true);
   const [showPost, setShowPost] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
 
-  const load = async () => {
-    try {
-      const [svcData, statsData] = await Promise.all([
-        api.get<{ services: Service[] }>("/api/statuscast/services"),
-        api.get<Stats>("/api/statuscast/platform-stats"),
-      ]);
-      setServices(svcData.services ?? []);
-      setStats(statsData);
-    } catch { /* silent */ }
-    finally { setLoading(false); }
-  };
+  const { data: svcData, isLoading, mutate: mutateServices } = useSWR<{ services: Service[] }>("/api/statuscast/services");
+  const { data: statsData, mutate: mutateStats } = useSWR<Stats>("/api/statuscast/platform-stats");
+  const services = svcData?.services ?? [];
+  const stats = statsData ?? null;
 
-  useEffect(() => { load(); }, []);
+  const refresh = () => { mutateServices(); mutateStats(); };
 
   const updateServiceStatus = async (id: string, status: string) => {
     const svc = services.find((s) => s.id === id);
@@ -243,20 +235,20 @@ export default function StatusCastPage() {
       sort_order: svc.sort_order,
       current_status: status,
     });
-    load();
+    mutateServices();
   };
 
   const deleteService = async (id: string) => {
     await api.delete(`/api/statuscast/services/${id}`);
-    load();
+    refresh();
   };
 
   const healthColor = stats?.health === "critical" ? "text-red-400" : stats?.health === "warning" ? "text-yellow-400" : "text-green-400";
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-      {showPost && <PostUpdateModal services={services} onClose={() => setShowPost(false)} onPosted={load} />}
-      {showAddService && <AddServiceModal onClose={() => setShowAddService(false)} onAdded={load} />}
+      {showPost && <PostUpdateModal services={services} onClose={() => setShowPost(false)} onPosted={refresh} />}
+      {showAddService && <AddServiceModal onClose={() => setShowAddService(false)} onAdded={refresh} />}
 
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -312,10 +304,8 @@ export default function StatusCastPage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </div>
+      {isLoading ? (
+        <ModulePageSkeleton rows={4} />
       ) : services.length === 0 ? (
         <div className="flex flex-col items-center py-20 gap-3 text-center">
           <Globe className="w-12 h-12 text-teal-400/40" />

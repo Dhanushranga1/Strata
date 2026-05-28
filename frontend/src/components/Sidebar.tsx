@@ -539,6 +539,7 @@ export function Sidebar({
                         key={item.href}
                         href={item.href}
                         onClick={handleNavClick}
+                        onMouseEnter={() => router.prefetch(item.href)}
                         className={cn(
                           "relative group flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors",
                           active

@@ -5,6 +5,7 @@ import MotionProvider from '@/ui/motion/MotionProvider';
 import { Toaster } from 'sonner';
 import { OrganizationProvider } from '@/contexts/OrganizationContext';
 import { AuthHashHandler } from '@/components/AuthHashHandler';
+import { SWRProvider } from '@/components/SWRProvider';
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' });
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
@@ -33,8 +34,10 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="dark">
           <MotionProvider>
             <OrganizationProvider>
-              <AuthHashHandler />
-              {children}
+              <SWRProvider>
+                <AuthHashHandler />
+                {children}
+              </SWRProvider>
             </OrganizationProvider>
           </MotionProvider>
           <Toaster position="top-right" richColors />

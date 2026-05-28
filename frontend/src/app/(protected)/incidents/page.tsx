@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { AlertTriangle, Plus, Clock, CheckCircle2, Loader2, ChevronDown, ChevronUp, Shield } from "lucide-react";
 import api from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { ModulePageSkeleton } from "@/components/skeletons/ModulePageSkeleton";
 
 interface TimelineEntry {
   ts: string;
@@ -310,28 +312,18 @@ function DeclareModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
 }
 
 export default function IncidentsPage() {
-  const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"active" | "all">("active");
   const [showDeclare, setShowDeclare] = useState(false);
 
-  const load = async () => {
-    try {
-      const data = filter === "active"
-        ? await api.get<{ incidents: Incident[] }>("/api/incidents/active")
-        : await api.get<{ incidents: Incident[]; total: number }>("/api/incidents?limit=50");
-      setIncidents(data.incidents ?? []);
-    } catch { /* silent */ }
-    finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); }, [filter]);
+  const endpoint = filter === "active" ? "/api/incidents/active" : "/api/incidents?limit=50";
+  const { data, isLoading, mutate } = useSWR<{ incidents: Incident[]; total?: number }>(endpoint);
+  const incidents = data?.incidents ?? [];
 
   const activeCount = incidents.filter((i) => i.status !== "resolved").length;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      {showDeclare && <DeclareModal onClose={() => setShowDeclare(false)} onCreated={load} />}
+      {showDeclare && <DeclareModal onClose={() => setShowDeclare(false)} onCreated={() => mutate()} />}
 
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -360,7 +352,7 @@ export default function IncidentsPage() {
         {(["active", "all"] as const).map((f) => (
           <button
             key={f}
-            onClick={() => { setFilter(f); setLoading(true); }}
+            onClick={() => setFilter(f)}
             className={cn(
               "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors",
               filter === f ? "bg-card shadow text-foreground" : "text-muted-foreground hover:text-foreground"
@@ -371,10 +363,8 @@ export default function IncidentsPage() {
         ))}
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </div>
+      {isLoading ? (
+        <ModulePageSkeleton rows={4} />
       ) : incidents.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
           <Shield className="w-12 h-12 text-green-400 opacity-60" />
@@ -384,7 +374,7 @@ export default function IncidentsPage() {
       ) : (
         <div className="space-y-3">
           {incidents.map((inc) => (
-            <IncidentRow key={inc.id} inc={inc} onRefresh={load} />
+            <IncidentRow key={inc.id} inc={inc} onRefresh={() => mutate()} />
           ))}
         </div>
       )}

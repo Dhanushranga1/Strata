@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { Zap, Plus, Trash2, ToggleLeft, ToggleRight, Loader2, Info } from "lucide-react";
 import api from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { ModulePageSkeleton } from "@/components/skeletons/ModulePageSkeleton";
 
 interface Condition {
   field: string;
@@ -284,28 +286,19 @@ function CreateRuleModal({ onClose, onCreated }: { onClose: () => void; onCreate
 }
 
 export default function AutomationPage() {
-  const [rules, setRules] = useState<Rule[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
 
-  const load = async () => {
-    try {
-      const data = await api.get<{ rules: Rule[] }>("/api/automation/rules");
-      setRules(data.rules ?? []);
-    } catch { /* silent */ }
-    finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); }, []);
+  const { data, isLoading, mutate } = useSWR<{ rules: Rule[] }>("/api/automation/rules");
+  const rules = data?.rules ?? [];
 
   const deleteRule = async (id: string) => {
     await api.delete(`/api/automation/rules/${id}`);
-    load();
+    mutate();
   };
 
   const toggleRule = async (id: string) => {
     await api.post(`/api/automation/rules/${id}/toggle`, {});
-    load();
+    mutate();
   };
 
   const activeCount = rules.filter((r) => r.is_active).length;
@@ -313,7 +306,7 @@ export default function AutomationPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-      {showCreate && <CreateRuleModal onClose={() => setShowCreate(false)} onCreated={load} />}
+      {showCreate && <CreateRuleModal onClose={() => setShowCreate(false)} onCreated={() => mutate()} />}
 
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -351,10 +344,8 @@ export default function AutomationPage() {
         <span>Rules run synchronously after ticket events. Conditions are evaluated in AND logic — all must match for actions to fire.</span>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        </div>
+      {isLoading ? (
+        <ModulePageSkeleton rows={3} />
       ) : rules.length === 0 ? (
         <div className="flex flex-col items-center py-20 gap-3 text-center">
           <Zap className="w-12 h-12 text-yellow-400/40" />

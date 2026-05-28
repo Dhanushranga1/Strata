@@ -296,6 +296,8 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   const [newMessage, setNewMessage] = useState('')
   const [isInternal, setIsInternal] = useState(false)
   const [sending, setSending] = useState(false)
+  const [draftingAI, setDraftingAI] = useState(false)
+  const [draftRestored, setDraftRestored] = useState(false)
 
   // AI chat
   const [aiQuery, setAiQuery] = useState('')
@@ -362,6 +364,21 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     if (isReady && orgId) loadTicket()
   }, [ticketId, isReady, orgId])
 
+  // Restore draft from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(`draft:${ticketId}`)
+    if (saved) { setNewMessage(saved); setDraftRestored(true) }
+  }, [ticketId])
+
+  // Persist draft to localStorage as user types
+  useEffect(() => {
+    if (newMessage) {
+      localStorage.setItem(`draft:${ticketId}`, newMessage)
+    } else {
+      localStorage.removeItem(`draft:${ticketId}`)
+    }
+  }, [newMessage, ticketId])
+
   useEffect(() => {
     const userIsRep = currentUser?.role === 'rep' || currentUser?.role === 'admin'
     if (isReady && orgId && userIsRep) {
@@ -392,6 +409,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
       }, orgId)
       toast.success(isInternal ? 'Internal note saved' : 'Message sent')
       setNewMessage('')
+      setDraftRestored(false)
       setIsInternal(false)
       await loadTicket()
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
@@ -470,6 +488,49 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
     }
   }
 
+  const handleAIDraft = async () => {
+    if (!orgId || draftingAI) return
+    setDraftingAI(true)
+    setNewMessage('')
+    try {
+      const token = await getAuthToken()
+      const resp = await fetch(`${API_BASE}/api/tickets/${ticketId}/chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Organization-ID': orgId,
+        },
+        body: JSON.stringify({ query: 'Draft a clear, helpful reply to this ticket based on the conversation and any relevant knowledge base articles. Write only the reply text, no preamble.' }),
+      })
+      if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`)
+      const reader = resp.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const raw = line.slice(6).trim()
+          if (!raw) continue
+          try {
+            const event = JSON.parse(raw)
+            if (event.token) setNewMessage(prev => prev + event.token)
+            if (event.done || event.error) break
+          } catch { /* skip */ }
+        }
+      }
+    } catch {
+      toast.error('AI draft failed')
+    } finally {
+      setDraftingAI(false)
+    }
+  }
+
   const handleFeedback = async (messageId: string, feedbackType: 'positive' | 'negative') => {
     if (feedbackGiven[messageId] || !orgId) return
     try {
@@ -506,6 +567,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
 
   const handleResolve = async () => {
     if (!orgId) return
+    const prevData = ticketData
+    // Optimistic update — UI reflects resolved state immediately
+    setTicketData(prev => prev ? { ...prev, ticket: { ...prev.ticket, status: 'resolved' } } : prev)
+    setResolveOpen(false)
     try {
       setResolving(true)
       await api.post(`/api/tickets/${ticketId}/resolve`, {
@@ -513,9 +578,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         resolution_note: resolveNote || null,
       }, orgId)
       toast.success('Ticket resolved')
-      setResolveOpen(false)
       await loadTicket()
     } catch (err: any) {
+      setTicketData(prevData)
+      setResolveOpen(true)
       toast.error(err.message || 'Failed to resolve ticket')
     } finally {
       setResolving(false)
@@ -524,15 +590,18 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
 
   const handleAssign = async (repId: string) => {
     if (!orgId) return
+    const prevData = ticketData
+    // Optimistic update — show new assignee immediately
+    setTicketData(prev => prev ? { ...prev, ticket: { ...prev.ticket, assignee_id: repId } } : prev)
     try {
       setAssigning(true)
       await api.post(`/api/rep/tickets/${ticketId}/assign`, { assignee_id: repId }, orgId)
       toast.success('Ticket assigned')
       await loadTicket()
-      // refresh workload counts
       api.get<{ reps: { user_id: string; email: string; open_tickets: number }[] }>('/api/rep/workload', orgId)
         .then(d => setReps(d.reps)).catch(() => {})
     } catch {
+      setTicketData(prevData)
       toast.error('Failed to assign ticket')
     } finally {
       setAssigning(false)
@@ -553,8 +622,46 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto p-6 space-y-4">
-        {[1, 2, 3].map(i => <div key={i} className="h-20 bg-muted animate-pulse rounded-lg" />)}
+      <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-4 animate-pulse">
+        {/* Back nav */}
+        <div className="h-5 w-24 rounded bg-muted/60" />
+        {/* Header */}
+        <div className="space-y-2">
+          <div className="h-7 w-2/3 rounded-lg bg-muted" />
+          <div className="flex gap-2">
+            <div className="h-5 w-16 rounded-full bg-muted/70" />
+            <div className="h-5 w-20 rounded-full bg-muted/70" />
+            <div className="h-5 w-24 rounded-full bg-muted/50" />
+          </div>
+        </div>
+        {/* Main 2-col layout */}
+        <div className="flex gap-6">
+          {/* Messages column */}
+          <div className="flex-1 space-y-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="rounded-xl border border-border bg-card p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-muted" />
+                  <div className="h-3 w-24 rounded bg-muted/70" />
+                  <div className="h-3 w-16 rounded bg-muted/40 ml-auto" />
+                </div>
+                <div className="h-3 w-full rounded bg-muted/50" />
+                <div className={cn("h-3 rounded bg-muted/40", i === 1 ? "w-1/2" : i === 2 ? "w-2/3" : "w-4/5")} />
+              </div>
+            ))}
+          </div>
+          {/* Sidebar column */}
+          <div className="w-64 shrink-0 space-y-4">
+            <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="space-y-1">
+                  <div className="h-2.5 w-16 rounded bg-muted/50" />
+                  <div className="h-4 w-28 rounded bg-muted/70" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -915,6 +1022,16 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                       />
                     )}
                     <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAIDraft}
+                      disabled={draftingAI}
+                      className="text-xs text-violet-400 border-violet-500/30 hover:bg-violet-500/10 hover:text-violet-300"
+                    >
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      {draftingAI ? 'Drafting…' : 'AI Draft'}
+                    </Button>
+                    <Button
                       variant={isInternal ? 'secondary' : 'outline'}
                       size="sm"
                       onClick={() => setIsInternal(p => !p)}
@@ -937,7 +1054,12 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                   className={cn('text-sm resize-none', isInternal && 'bg-amber-950/20 border-amber-800/60')}
                 />
                 <div className="flex justify-between items-center">
-                  <span className="text-xs text-muted-foreground">{newMessage.length}/8000</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{newMessage.length}/8000</span>
+                    {draftRestored && newMessage && (
+                      <span className="text-xs text-amber-500/80">Draft restored</span>
+                    )}
+                  </div>
                   <Button type="submit" disabled={sending || !newMessage.trim()}>
                     {sending ? 'Sending…' : isInternal ? 'Save note' : 'Send message'}
                   </Button>
