@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { OrganizationSelector } from "@/components/OrganizationSelector";
 import api from "@/lib/api-client";
 import { useEntitlements } from "@/hooks/useEntitlements";
+import { useOrganization } from "@/contexts/OrganizationContext";
 import {
   Home,
   Ticket,
