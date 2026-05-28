@@ -543,6 +543,11 @@ app.include_router(incidentbridge_router)
 app.include_router(statuscast_router)
 app.include_router(casper_query_router)
 
+from .portal import router as portal_router
+from .api_keys import router as api_keys_router
+app.include_router(portal_router)
+app.include_router(api_keys_router)
+
 
 @app.get("/api/health")
 def health():

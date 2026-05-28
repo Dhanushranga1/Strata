@@ -12,7 +12,7 @@ export function useEntitlements() {
   const limit = (name: string): number => plan.limits[name] ?? 0
   const upgradeUrl = (targetPlan?: string): string => {
     const target = targetPlan ?? FEATURE_MIN_PLAN["ai_rag"] ?? "starter"
-    return `/settings?upgrade=${target}`
+    return `/pricing?highlight=${target}`
   }
 
   return { planId, can, limit, upgradeUrl }

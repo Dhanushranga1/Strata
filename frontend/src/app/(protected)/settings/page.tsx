@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import useSWR from 'swr';
 import {
   Settings,
   Save,
@@ -24,6 +25,12 @@ import {
   Zap,
   List,
   LayoutList,
+  Globe,
+  Key,
+  Copy,
+  Trash2,
+  Plus,
+  ExternalLink,
 } from 'lucide-react';
 
 // ─── Priority metadata ────────────────────────────────────────────────────────
@@ -126,6 +133,19 @@ export default function OrgSettingsPage() {
   const [fieldRequired, setFieldRequired] = useState(false);
   const [fieldSaving, setFieldSaving] = useState(false);
 
+  // ─── Org slug (for portal URL) ────────────────────────────────────────────
+  const [orgSlug, setOrgSlug] = useState('');
+
+  // ─── API Keys state ───────────────────────────────────────────────────────
+  type ApiKey = { id: string; name: string; key_prefix: string; is_active: boolean; last_used_at: string | null; expires_at: string | null; created_at: string };
+  const { data: keysData, mutate: mutateKeys } = useSWR<{ keys: ApiKey[] }>(
+    orgId ? '/api/keys' : null
+  );
+  const apiKeys = keysData?.keys ?? [];
+  const [newKeyName, setNewKeyName] = useState('');
+  const [keyCreating, setKeyCreating] = useState(false);
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+
   // ─── Load org data on mount ───────────────────────────────────────────────
   useEffect(() => {
     if (!orgId || !orgRole || (orgRole !== 'owner' && orgRole !== 'admin'))
@@ -136,6 +156,7 @@ export default function OrgSettingsPage() {
       .then(data => {
         setOrgName(data.name ?? '');
         setOrgDomain(data.domain ?? '');
+        setOrgSlug(data.slug ?? '');
         const s = data.settings || {};
         setOverdueHours(String(s.overdue_threshold_hours ?? 48));
         setReminderHours(String(s.overdue_reminder_hours ?? 24));
@@ -372,6 +393,38 @@ export default function OrgSettingsPage() {
     }
   };
 
+  // ─── API Key handlers ─────────────────────────────────────────────────────
+  const createApiKey = async () => {
+    if (!orgId || !newKeyName.trim()) return;
+    setKeyCreating(true);
+    try {
+      const result = await api.post<{ key: string; name: string; key_prefix: string }>(
+        '/api/keys',
+        { name: newKeyName.trim() },
+        orgId
+      );
+      setRevealedKey(result.key);
+      setNewKeyName('');
+      mutateKeys();
+      toast.success('API key created — save it now, it will not be shown again');
+    } catch {
+      toast.error('Failed to create API key');
+    } finally {
+      setKeyCreating(false);
+    }
+  };
+
+  const revokeApiKey = async (id: string) => {
+    if (!orgId) return;
+    try {
+      await api.delete(`/api/keys/${id}`, orgId);
+      mutateKeys();
+      toast.success('API key revoked');
+    } catch {
+      toast.error('Failed to revoke key');
+    }
+  };
+
   if (!currentOrganization || (orgRole !== 'owner' && orgRole !== 'admin'))
     return null;
 
@@ -398,11 +451,12 @@ export default function OrgSettingsPage() {
           if (tab === 'fields') loadFieldDefs();
         }}
       >
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 flex-wrap">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="sla">SLA Policies</TabsTrigger>
           <TabsTrigger value="canned">Canned Responses</TabsTrigger>
           <TabsTrigger value="fields">Custom Fields</TabsTrigger>
+          <TabsTrigger value="apikeys">API Keys</TabsTrigger>
         </TabsList>
 
         {/* ── GENERAL TAB ────────────────────────────────────────────────── */}
@@ -526,6 +580,52 @@ export default function OrgSettingsPage() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Customer Portal URL */}
+          {orgSlug && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Globe className="w-4 h-4" /> Customer Support Portal
+                </CardTitle>
+                <CardDescription>
+                  Share this URL with your customers so they can submit and track support requests — no account needed.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2 p-3 bg-muted/40 rounded-lg border border-border">
+                  <code className="flex-1 text-sm font-mono text-foreground break-all">
+                    {typeof window !== 'undefined' ? `${window.location.origin}/portal/${orgSlug}` : `/portal/${orgSlug}`}
+                  </code>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const url = `${window.location.origin}/portal/${orgSlug}`;
+                      navigator.clipboard.writeText(url);
+                      toast.success('Portal URL copied');
+                    }}
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </Button>
+                  <a
+                    href={`/portal/${orgSlug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Open customer portal in new tab"
+                  >
+                    <Button size="sm" variant="outline" aria-hidden>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </Button>
+                  </a>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Customers can submit requests with just their name and email — no Strata account required.
+                  Replies sent through Strata will be visible when they return with their reference number.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ── SLA POLICIES TAB ───────────────────────────────────────────── */}
@@ -926,6 +1026,110 @@ export default function OrgSettingsPage() {
                   </table>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── API KEYS TAB ───────────────────────────────────────────────── */}
+        <TabsContent value="apikeys" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Key className="w-4 h-4" /> API Keys
+              </CardTitle>
+              <CardDescription>
+                Create keys to access the Strata API from your own scripts, integrations, or webhooks.
+                Each key is shown <strong>once</strong> — store it securely.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {/* Revealed key banner */}
+              {revealedKey && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-2">
+                  <p className="text-sm font-semibold text-amber-400 flex items-center gap-1.5">
+                    <Key className="w-4 h-4" /> Your new API key — copy it now
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 font-mono text-sm break-all text-foreground bg-background border border-border rounded-lg px-3 py-2">
+                      {revealedKey}
+                    </code>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { navigator.clipboard.writeText(revealedKey); toast.success('Copied!'); }}
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-amber-400/80">
+                    This key will not be shown again. Store it in a password manager or secrets vault.
+                  </p>
+                  <Button size="sm" variant="outline" onClick={() => setRevealedKey(null)}>
+                    I have saved it — dismiss
+                  </Button>
+                </div>
+              )}
+
+              {/* Create new key */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newKeyName}
+                  onChange={e => setNewKeyName(e.target.value)}
+                  placeholder="Key name (e.g. Zapier integration)"
+                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  onKeyDown={e => { if (e.key === 'Enter') createApiKey(); }}
+                />
+                <Button onClick={createApiKey} disabled={keyCreating || !newKeyName.trim()} size="sm">
+                  <Plus className="w-3.5 h-3.5 mr-1" />
+                  {keyCreating ? 'Creating…' : 'Create key'}
+                </Button>
+              </div>
+
+              {/* Keys list */}
+              {apiKeys.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No API keys yet. Create one above to get programmatic access.
+                </p>
+              ) : (
+                <div className="divide-y divide-border rounded-xl border border-border overflow-hidden">
+                  {apiKeys.map(k => (
+                    <div key={k.id} className="flex items-center justify-between px-4 py-3 gap-4 text-sm">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{k.name}</p>
+                        <p className="text-xs text-muted-foreground font-mono mt-0.5">{k.key_prefix}••••••••</p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 text-xs text-muted-foreground">
+                        {k.last_used_at
+                          ? <span>Last used {new Date(k.last_used_at).toLocaleDateString()}</span>
+                          : <span>Never used</span>
+                        }
+                        {k.expires_at && (
+                          <span>Expires {new Date(k.expires_at).toLocaleDateString()}</span>
+                        )}
+                        <span className={`px-2 py-0.5 rounded-full font-medium ${k.is_active ? 'bg-green-500/10 text-green-400' : 'bg-muted text-muted-foreground'}`}>
+                          {k.is_active ? 'Active' : 'Revoked'}
+                        </span>
+                        {k.is_active && (
+                          <button
+                            type="button"
+                            onClick={() => revokeApiKey(k.id)}
+                            className="text-red-400 hover:text-red-300 transition-colors"
+                            title="Revoke key"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                Include your key in the <code className="bg-muted px-1 rounded text-xs">Authorization: Bearer &lt;key&gt;</code> header
+                and your org ID in <code className="bg-muted px-1 rounded text-xs">X-Organization-ID</code>.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>
