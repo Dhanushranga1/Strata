@@ -28,7 +28,7 @@ interface AuditEntry {
   resource_type: string;
   resource_id: string;
   org_id: string | null;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
 
@@ -108,6 +108,11 @@ export default function AuditLogPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState<string | null>(null);
+  const [selectedOrg, setSelectedOrg] = useState('all');
+  const [actionFilter, setActionFilter] = useState('');
+  const [actorFilter, setActorFilter] = useState('');
+  const [offset, setOffset] = useState(0);
+  const limit = 50;
 
   useEffect(() => {
     if (user && user.role !== 'admin') {
@@ -115,20 +120,10 @@ export default function AuditLogPage() {
     }
   }, [user, router]);
 
-  if (!user || user.role !== 'admin') {
-    return null;
-  }
-
-  const [selectedOrg, setSelectedOrg] = useState('all');
-  const [actionFilter, setActionFilter] = useState('');
-  const [actorFilter, setActorFilter] = useState('');
-  const [offset, setOffset] = useState(0);
-  const limit = 50;
-
   const loadOrgs = useCallback(async () => {
     try {
-      const data = await api.get('/api/admin/organizations');
-      setOrgs(data.map((o: any) => ({ id: o.id, name: o.name })));
+      const data = await api.get<OrgOption[]>('/api/admin/organizations');
+      setOrgs(data.map(o => ({ id: o.id, name: o.name })));
     } catch {
       /* non-fatal */
     }
@@ -144,11 +139,15 @@ export default function AuditLogPage() {
       if (selectedOrg !== 'all') params.set('org_id', selectedOrg);
       if (actionFilter) params.set('action', actionFilter);
       if (actorFilter) params.set('actor_email', actorFilter);
-      const data = await api.get(`/api/admin/audit-log?${params}`);
+      const data = await api.get<{
+        items: AuditEntry[];
+        total: number;
+        note?: string;
+      }>(`/api/admin/audit-log?${params}`);
       setEntries(data.items);
       setTotal(data.total);
       setNote(data.note ?? null);
-    } catch (e: any) {
+    } catch {
       toast.error('Failed to load audit log');
     } finally {
       setLoading(false);
@@ -161,6 +160,10 @@ export default function AuditLogPage() {
   useEffect(() => {
     loadLog();
   }, [loadLog]);
+
+  if (!user || user.role !== 'admin') {
+    return null;
+  }
 
   return (
     <PageShell>
@@ -208,9 +211,7 @@ export default function AuditLogPage() {
         {note && (
           <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/20">
             <CardContent className="py-3 px-4 text-sm text-amber-700 dark:text-amber-400">
-              {note} — run migration{' '}
-              <code className="text-xs font-mono">0022_audit_log.sql</code> to
-              enable event recording.
+              {note}
             </CardContent>
           </Card>
         )}

@@ -37,7 +37,9 @@ import {
   X,
   RefreshCw,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { PageShell } from '@/ui/motion/PageShell';
 import { m } from 'framer-motion';
 import { v } from '@/ui/motion/variants';
@@ -69,12 +71,16 @@ interface DocumentItem {
   created_at: string;
 }
 
+interface MeResponse {
+  role: string;
+}
+
 export default function KnowledgeBasePage() {
   const router = useRouter();
   const { currentOrganization, isReady } = useOrganization();
   const orgId = currentOrganization?.id;
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<KBStats | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -109,7 +115,7 @@ export default function KnowledgeBasePage() {
           router.push('/login');
           return;
         }
-        const userInfo = await api.get('/api/me');
+        const userInfo = await api.get<MeResponse>('/api/me');
         if (userInfo.role === 'customer') {
           router.replace('/tickets');
           return;
@@ -147,6 +153,24 @@ export default function KnowledgeBasePage() {
       setDocuments([]);
     } finally {
       setDocumentsLoading(false);
+    }
+  };
+
+  const deleteDocument = async (docId: string) => {
+    if (!orgId) return;
+    if (
+      !window.confirm(
+        'Delete this document and all its chunks? The AI will no longer use it to answer questions.'
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.delete(`/api/kb/documents/${docId}`, orgId);
+      toast.success('Document deleted');
+      loadDocuments();
+    } catch {
+      toast.error('Failed to delete document');
     }
   };
 
@@ -473,158 +497,161 @@ export default function KnowledgeBasePage() {
           {/* ── Upload tab ── */}
           {hasRepAccess && (
             <TabsContent value="upload">
-              <FeatureGate feature="kb" description="Knowledge Base upload and AI indexing require Starter plan or above.">
-              <m.div {...v.scaleIn}>
-                <Card className="bg-surface border">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">
-                      Upload Documents
-                    </CardTitle>
-                    <CardDescription>
-                      Add files or paste text — they&apos;ll be chunked and
-                      vector-indexed automatically.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
-                    {uploadMessage && (
-                      <div
-                        className={`flex items-start gap-2.5 rounded-lg border p-3 text-sm ${
-                          uploadMessage.type === 'error'
-                            ? 'border-danger/30 bg-danger/5 text-danger'
-                            : 'border-success/30 bg-success/5 text-success'
-                        }`}
-                      >
-                        {uploadMessage.type === 'error' ? (
-                          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                        ) : (
-                          <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                        )}
-                        <p>{uploadMessage.message}</p>
-                      </div>
-                    )}
+              <FeatureGate
+                feature="kb"
+                description="Knowledge Base upload and AI indexing require Starter plan or above."
+              >
+                <m.div {...v.scaleIn}>
+                  <Card className="bg-surface border">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">
+                        Upload Documents
+                      </CardTitle>
+                      <CardDescription>
+                        Add files or paste text — they&apos;ll be chunked and
+                        vector-indexed automatically.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-5">
+                      {uploadMessage && (
+                        <div
+                          className={`flex items-start gap-2.5 rounded-lg border p-3 text-sm ${
+                            uploadMessage.type === 'error'
+                              ? 'border-danger/30 bg-danger/5 text-danger'
+                              : 'border-success/30 bg-success/5 text-success'
+                          }`}
+                        >
+                          {uploadMessage.type === 'error' ? (
+                            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                          ) : (
+                            <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                          )}
+                          <p>{uploadMessage.message}</p>
+                        </div>
+                      )}
 
-                    {/* Drag-and-drop zone */}
-                    <div
-                      onDragOver={e => {
-                        e.preventDefault();
-                        setDragOver(true);
-                      }}
-                      onDragLeave={() => setDragOver(false)}
-                      onDrop={handleDrop}
-                      className={`relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors cursor-pointer ${
-                        dragOver
-                          ? 'border-primary bg-primary/5'
-                          : selectedFile
-                            ? 'border-success/50 bg-success/5'
-                            : 'border-border hover:border-primary/50 hover:bg-accent/40'
-                      }`}
-                      onClick={() =>
-                        document.getElementById('kb-file-input')?.click()
-                      }
-                    >
-                      <input
-                        id="kb-file-input"
-                        type="file"
-                        accept=".txt,.pdf,.doc,.docx,.md"
-                        aria-label="Upload knowledge base file"
-                        className="sr-only"
-                        onChange={e =>
-                          setSelectedFile(e.target.files?.[0] || null)
+                      {/* Drag-and-drop zone */}
+                      <div
+                        onDragOver={e => {
+                          e.preventDefault();
+                          setDragOver(true);
+                        }}
+                        onDragLeave={() => setDragOver(false)}
+                        onDrop={handleDrop}
+                        className={`relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors cursor-pointer ${
+                          dragOver
+                            ? 'border-primary bg-primary/5'
+                            : selectedFile
+                              ? 'border-success/50 bg-success/5'
+                              : 'border-border hover:border-primary/50 hover:bg-accent/40'
+                        }`}
+                        onClick={() =>
+                          document.getElementById('kb-file-input')?.click()
                         }
-                      />
-                      <div
-                        className={`w-11 h-11 rounded-xl flex items-center justify-center ${
-                          selectedFile ? 'bg-success/10' : 'bg-primary/10'
-                        }`}
                       >
+                        <input
+                          id="kb-file-input"
+                          type="file"
+                          accept=".txt,.pdf,.doc,.docx,.md"
+                          aria-label="Upload knowledge base file"
+                          className="sr-only"
+                          onChange={e =>
+                            setSelectedFile(e.target.files?.[0] || null)
+                          }
+                        />
+                        <div
+                          className={`w-11 h-11 rounded-xl flex items-center justify-center ${
+                            selectedFile ? 'bg-success/10' : 'bg-primary/10'
+                          }`}
+                        >
+                          {selectedFile ? (
+                            <CheckCircle className="w-5 h-5 text-success" />
+                          ) : (
+                            <Upload className="w-5 h-5 text-primary" />
+                          )}
+                        </div>
                         {selectedFile ? (
-                          <CheckCircle className="w-5 h-5 text-success" />
+                          <div>
+                            <p className="text-sm font-medium text-foreground">
+                              {selectedFile.name}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {(selectedFile.size / 1024).toFixed(1)} KB
+                            </p>
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                setSelectedFile(null);
+                              }}
+                              className="mt-2 text-xs text-danger hover:underline"
+                            >
+                              Remove
+                            </button>
+                          </div>
                         ) : (
-                          <Upload className="w-5 h-5 text-primary" />
+                          <div>
+                            <p className="text-sm font-medium">
+                              Drop a file here or click to browse
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              TXT, PDF, DOCX, MD supported
+                            </p>
+                          </div>
                         )}
                       </div>
-                      {selectedFile ? (
-                        <div>
-                          <p className="text-sm font-medium text-foreground">
-                            {selectedFile.name}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {(selectedFile.size / 1024).toFixed(1)} KB
-                          </p>
-                          <button
-                            type="button"
-                            onClick={e => {
-                              e.stopPropagation();
-                              setSelectedFile(null);
-                            }}
-                            className="mt-2 text-xs text-danger hover:underline"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="text-sm font-medium">
-                            Drop a file here or click to browse
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            TXT, PDF, DOCX, MD supported
-                          </p>
-                        </div>
-                      )}
-                    </div>
 
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <div className="flex-1 h-px bg-border" />
-                      <span>or paste raw text</span>
-                      <div className="flex-1 h-px bg-border" />
-                    </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <div className="flex-1 h-px bg-border" />
+                        <span>or paste raw text</span>
+                        <div className="flex-1 h-px bg-border" />
+                      </div>
 
-                    <div className="space-y-3">
-                      <Textarea
-                        placeholder="Paste your text content here…"
-                        value={rawText}
-                        onChange={e => setRawText(e.target.value)}
-                        rows={5}
-                      />
-                      {rawText && (
-                        <div>
-                          <Label htmlFor="kb-filename" className="text-xs">
-                            Filename for this text
-                          </Label>
-                          <Input
-                            id="kb-filename"
-                            placeholder="e.g. refund-policy.txt"
-                            value={filename}
-                            onChange={e => setFilename(e.target.value)}
-                            className="mt-1"
-                          />
-                        </div>
-                      )}
-                    </div>
+                      <div className="space-y-3">
+                        <Textarea
+                          placeholder="Paste your text content here…"
+                          value={rawText}
+                          onChange={e => setRawText(e.target.value)}
+                          rows={5}
+                        />
+                        {rawText && (
+                          <div>
+                            <Label htmlFor="kb-filename" className="text-xs">
+                              Filename for this text
+                            </Label>
+                            <Input
+                              id="kb-filename"
+                              placeholder="e.g. refund-policy.txt"
+                              value={filename}
+                              onChange={e => setFilename(e.target.value)}
+                              className="mt-1"
+                            />
+                          </div>
+                        )}
+                      </div>
 
-                    <Button
-                      onClick={handleFileUpload}
-                      disabled={
-                        uploadLoading || (!selectedFile && !rawText.trim())
-                      }
-                      className="w-full"
-                    >
-                      {uploadLoading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          Ingesting…
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4 mr-2" />
-                          Ingest into Knowledge Base
-                        </>
-                      )}
-                    </Button>
-                  </CardContent>
-                </Card>
-              </m.div>
+                      <Button
+                        onClick={handleFileUpload}
+                        disabled={
+                          uploadLoading || (!selectedFile && !rawText.trim())
+                        }
+                        className="w-full"
+                      >
+                        {uploadLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            Ingesting…
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4 mr-2" />
+                            Ingest into Knowledge Base
+                          </>
+                        )}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </m.div>
               </FeatureGate>
             </TabsContent>
           )}
@@ -632,136 +659,154 @@ export default function KnowledgeBasePage() {
           {/* ── Manage tab ── */}
           {hasRepAccess && (
             <TabsContent value="manage">
-              <FeatureGate feature="kb" description="Knowledge Base document management requires Starter plan or above.">
-              <m.div {...v.scaleIn}>
-                <Card className="bg-surface border">
-                  <CardHeader className="pb-3 flex flex-row items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-primary" />
-                        All Documents
-                      </CardTitle>
-                      <CardDescription>
-                        {documents.length} document
-                        {documents.length !== 1 ? 's' : ''} in your knowledge
-                        base
-                      </CardDescription>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={loadDocuments}
-                      disabled={documentsLoading}
-                    >
-                      {documentsLoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      )}
-                      <span className="ml-1.5">Refresh</span>
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <Input
-                      placeholder="Filter by title…"
-                      value={documentsFilter}
-                      onChange={e => setDocumentsFilter(e.target.value)}
-                    />
+              <FeatureGate
+                feature="kb"
+                description="Knowledge Base document management requires Starter plan or above."
+              >
+                <m.div {...v.scaleIn}>
+                  <Card className="bg-surface border">
+                    <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                      <div>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-primary" />
+                          All Documents
+                        </CardTitle>
+                        <CardDescription>
+                          {documents.length} document
+                          {documents.length !== 1 ? 's' : ''} in your knowledge
+                          base
+                        </CardDescription>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={loadDocuments}
+                        disabled={documentsLoading}
+                      >
+                        {documentsLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        <span className="ml-1.5">Refresh</span>
+                      </Button>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <Input
+                        placeholder="Filter by title…"
+                        value={documentsFilter}
+                        onChange={e => setDocumentsFilter(e.target.value)}
+                      />
 
-                    {documentsLoading ? (
-                      <div className="flex justify-center py-10">
-                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                      </div>
-                    ) : documents.length === 0 ? (
-                      <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
-                        <FileText className="h-10 w-10 opacity-20" />
-                        <p className="text-sm font-medium">No documents yet</p>
-                        <p className="text-xs text-center max-w-xs">
-                          Upload your first document in the Upload tab and it
-                          will appear here.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border overflow-hidden">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="bg-muted/40 border-b">
-                              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                                Title
-                              </th>
-                              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">
-                                Type
-                              </th>
-                              <th className="text-center px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                                Chunks
-                              </th>
-                              <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">
-                                Added
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {documents
-                              .filter(
-                                doc =>
-                                  documentsFilter === '' ||
-                                  doc.title
-                                    .toLowerCase()
-                                    .includes(documentsFilter.toLowerCase())
-                              )
-                              .map((doc, i) => (
-                                <tr
-                                  key={doc.id}
-                                  className={`border-b last:border-0 hover:bg-accent/40 transition-colors ${
-                                    i % 2 === 0 ? '' : 'bg-muted/20'
-                                  }`}
-                                >
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center gap-2">
-                                      <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                                        <FileText className="w-3.5 h-3.5 text-primary" />
+                      {documentsLoading ? (
+                        <div className="flex justify-center py-10">
+                          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                        </div>
+                      ) : documents.length === 0 ? (
+                        <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
+                          <FileText className="h-10 w-10 opacity-20" />
+                          <p className="text-sm font-medium">
+                            No documents yet
+                          </p>
+                          <p className="text-xs text-center max-w-xs">
+                            Upload your first document in the Upload tab and it
+                            will appear here.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-muted/40 border-b">
+                                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                  Title
+                                </th>
+                                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">
+                                  Type
+                                </th>
+                                <th className="text-center px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                  Chunks
+                                </th>
+                                <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hidden md:table-cell">
+                                  Added
+                                </th>
+                                <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                  Actions
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {documents
+                                .filter(
+                                  doc =>
+                                    documentsFilter === '' ||
+                                    doc.title
+                                      .toLowerCase()
+                                      .includes(documentsFilter.toLowerCase())
+                                )
+                                .map((doc, i) => (
+                                  <tr
+                                    key={doc.id}
+                                    className={`border-b last:border-0 hover:bg-accent/40 transition-colors ${
+                                      i % 2 === 0 ? '' : 'bg-muted/20'
+                                    }`}
+                                  >
+                                    <td className="px-4 py-3">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                                          <FileText className="w-3.5 h-3.5 text-primary" />
+                                        </div>
+                                        <div>
+                                          <p className="font-medium truncate max-w-[180px]">
+                                            {doc.title}
+                                          </p>
+                                          <p className="text-[10px] text-muted-foreground font-mono">
+                                            {doc.id.slice(0, 8)}
+                                          </p>
+                                        </div>
                                       </div>
-                                      <div>
-                                        <p className="font-medium truncate max-w-[180px]">
-                                          {doc.title}
-                                        </p>
-                                        <p className="text-[10px] text-muted-foreground font-mono">
-                                          {doc.id.slice(0, 8)}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-3 hidden sm:table-cell">
-                                    <Badge
-                                      variant="outline"
-                                      className="text-xs"
-                                    >
-                                      {doc.source_type}
-                                    </Badge>
-                                  </td>
-                                  <td className="px-4 py-3 text-center">
-                                    <span className="inline-flex items-center justify-center w-8 h-6 rounded-md bg-primary/10 text-primary text-xs font-semibold">
-                                      {doc.chunk_count}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
-                                    {new Date(
-                                      doc.created_at
-                                    ).toLocaleDateString(undefined, {
-                                      month: 'short',
-                                      day: 'numeric',
-                                      year: 'numeric',
-                                    })}
-                                  </td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </m.div>
+                                    </td>
+                                    <td className="px-4 py-3 hidden sm:table-cell">
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs"
+                                      >
+                                        {doc.source_type}
+                                      </Badge>
+                                    </td>
+                                    <td className="px-4 py-3 text-center">
+                                      <span className="inline-flex items-center justify-center w-8 h-6 rounded-md bg-primary/10 text-primary text-xs font-semibold">
+                                        {doc.chunk_count}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
+                                      {new Date(
+                                        doc.created_at
+                                      ).toLocaleDateString(undefined, {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: 'numeric',
+                                      })}
+                                    </td>
+                                    <td className="px-4 py-3 text-right">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-destructive hover:text-destructive"
+                                        onClick={() => deleteDocument(doc.id)}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </m.div>
               </FeatureGate>
             </TabsContent>
           )}

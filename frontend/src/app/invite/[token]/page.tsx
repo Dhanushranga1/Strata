@@ -28,6 +28,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
+import type { Session } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -75,7 +76,7 @@ export default function InviteAcceptPage({
 
   const [invite, setInvite] = useState<InviteInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [accepting, setAccepting] = useState(false);
   const [accepted, setAccepted] = useState(false);
@@ -135,8 +136,12 @@ export default function InviteAcceptPage({
 
       // Give user a moment to see the success state then redirect
       setTimeout(() => router.replace('/dashboard'), 2000);
-    } catch (err: any) {
-      setAcceptError(err.message || 'Something went wrong. Please try again.');
+    } catch (err) {
+      setAcceptError(
+        err instanceof Error
+          ? err.message
+          : 'Something went wrong. Please try again.'
+      );
     } finally {
       setAccepting(false);
     }

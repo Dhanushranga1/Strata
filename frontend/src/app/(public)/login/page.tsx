@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { supabase } from '@/lib/supabaseClient';
+import { sanitizeRedirect } from '@/lib/sanitize-redirect';
 import {
   Mail,
   Lock,
@@ -45,7 +46,7 @@ const highlights = [
 function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get('redirect') || '/dashboard';
+  const redirectTo = sanitizeRedirect(searchParams.get('redirect'));
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -88,7 +89,7 @@ function LoginPageInner() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback${next}`,
+        emailRedirectTo: `${window.location.origin}/auth/confirm${next}`,
       },
     });
     setMagicLoading(false);

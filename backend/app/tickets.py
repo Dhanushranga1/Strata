@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import time
 import uuid
@@ -7,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
+from .ai_settings import gen_model
 from .auth import User, get_current_user
 from .db_sync import get_db_connection
 from .email import (
@@ -17,9 +19,9 @@ from .email import (
     send_ticket_created_for_customer_email,
     send_ticket_resolved_email,
 )
+from .entitlements import requires_feature
 from .observability import get_observer, log_rag_metrics
 from .org_middleware import require_org_context
-from .entitlements import requires_feature
 from .rag_scoring import casper_route, profile_ticket
 from .schemas import (
     BulkTicketRequest,
@@ -37,7 +39,9 @@ from .schemas import (
     TicketSummary,
     TicketWithMessages,
 )
-)
+from .security import limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["tickets"])
 
@@ -101,6 +105,7 @@ def is_rep_in_org(user: User, request: Request) -> bool:
 @router.post(
     "/tickets", response_model=TicketDetail, status_code=status.HTTP_201_CREATED
 )
+@limiter.limit("20/minute")
 def create_ticket(
     payload: TicketCreate, request: Request, user: User = Depends(get_current_user)
 ):
@@ -292,9 +297,12 @@ def create_ticket(
         # Audit log (fire-and-forget)
         try:
             from .admin import log_audit_sync
+
             log_audit_sync(
-                "ticket.created", user,
-                resource_type="ticket", resource_id=str(ticket_id),
+                "ticket.created",
+                user,
+                resource_type="ticket",
+                resource_id=str(ticket_id),
                 org_id=org_id,
                 metadata={"title": payload.title, "priority": payload.priority},
             )
@@ -833,6 +841,75 @@ CHAT_COOLDOWN_SECONDS = int(os.getenv("CHAT_COOLDOWN_SECONDS", "8"))
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.55"))
 CONFIDENCE_MIN_CHUNKS = int(os.getenv("CONFIDENCE_MIN_CHUNKS", "2"))
 
+# Answer cache — key: f"{org_id}:{prompt_hash}" → (payload, monotonic_ts)
+_answer_cache: Dict[str, Tuple[dict, float]] = {}
+ANSWER_CACHE_TTL = float(os.getenv("ANSWER_CACHE_TTL_SECONDS", "600"))
+ANSWER_CACHE_MAX = int(os.getenv("ANSWER_CACHE_MAX_ENTRIES", "500"))
+
+
+def invalidate_answer_cache(org_id: str) -> None:
+    """Drop cached answers for an org (KB changed)."""
+    prefix = f"{org_id}:"
+    for key in [k for k in _answer_cache if k.startswith(prefix)]:
+        _answer_cache.pop(key, None)
+
+
+@router.post("/tickets/{ticket_id}/ai-kb-draft")
+def ai_kb_draft(
+    ticket_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+    _gate: None = requires_feature("ai_rag"),
+):
+    """Agent action: draft a KB article from a resolved ticket's conversation."""
+    org_id = require_org_context(request)
+    if not is_rep_in_org(user, request):
+        raise HTTPException(status_code=403, detail="Rep access required")
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT t.id, t.title, t.status, t.description
+            FROM app.tickets t
+            WHERE t.id = %s AND t.organization_id = %s
+        """,
+            (ticket_id, org_id),
+        )
+        ticket_row = cursor.fetchone()
+        if not ticket_row:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        cursor.execute(
+            """
+            SELECT sender_role, body, created_at
+            FROM app.messages
+            WHERE ticket_id = %s AND organization_id = %s AND is_internal = false
+            ORDER BY created_at ASC
+            LIMIT 50
+        """,
+            (ticket_id, org_id),
+        )
+        message_rows = cursor.fetchall()
+
+    conversation_parts = [f"Ticket: {ticket_row['title']}"]
+    if ticket_row.get("description"):
+        conversation_parts.append(f"Initial description: {ticket_row['description']}")
+    for m in message_rows:
+        role = m["sender_role"]
+        conversation_parts.append(f"{role.upper()}: {m['body']}")
+    conversation = "\n\n".join(conversation_parts)
+
+    from .ai import generate_kb_draft
+
+    try:
+        title, content = generate_kb_draft(conversation)
+    except Exception as e:
+        logger.error("KB draft generation failed for ticket %s: %s", ticket_id, e)
+        raise HTTPException(status_code=502, detail="AI generation failed")
+
+    return {"ticket_id": ticket_id, "title": title, "content": content}
+
 
 def fetch_chunks_by_faiss_ids(faiss_ids: List[int], org_id: str) -> List[dict]:
     """Fetch chunk details from database by FAISS IDs."""
@@ -854,7 +931,93 @@ def fetch_chunks_by_faiss_ids(faiss_ids: List[int], org_id: str) -> List[dict]:
         return cursor.fetchall()
 
 
+# ── Chat conversation context ────────────────────────────────────────────────
+
+CHAT_HISTORY_MAX_CHARS = int(os.getenv("CHAT_HISTORY_MAX_CHARS", "2000"))
+CHAT_HISTORY_MAX_MESSAGES = 10
+_TICKET_DESC_MAX_CHARS = 500
+_HISTORY_MSG_MAX_CHARS = 400
+
+_ROLE_LABELS = {"customer": "CUSTOMER", "rep": "SUPPORT", "ai": "AI"}
+
+
+def _get_conversation_context(
+    ticket_id: str,
+) -> Tuple[str, str, str]:
+    """Fetch ticket summary + recent non-internal messages for AI chat.
+
+    Returns (ticket_context, history_text, prev_customer_msg).
+    history_text is oldest-first, most recent messages win when the char
+    budget (CHAT_HISTORY_MAX_CHARS) is exceeded. Internal rep notes and
+    system messages are excluded. prev_customer_msg is the customer's
+    message immediately before the current turn ('' if none) — used to
+    give follow-up queries their referents during retrieval.
+    """
+    ticket_context = ""
+    prev_customer_msg = ""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT title, description FROM app.tickets WHERE id = %s",
+                    (ticket_id,),
+                )
+                row = cur.fetchone()
+                if row:
+                    desc = (row["description"] or "").strip()
+                    if len(desc) > _TICKET_DESC_MAX_CHARS:
+                        desc = desc[:_TICKET_DESC_MAX_CHARS] + "…"
+                    ticket_context = f"Title: {row['title']}" + (
+                        f"\nDescription: {desc}" if desc else ""
+                    )
+                cur.execute(
+                    """
+                    SELECT sender_role, body
+                    FROM app.messages
+                    WHERE ticket_id = %s
+                      AND is_internal = false
+                      AND sender_role IN ('customer', 'rep', 'ai')
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (ticket_id, CHAT_HISTORY_MAX_MESSAGES),
+                )
+                # DESC fetch → reverse to chronological order; when over
+                # budget drop OLDEST lines (head of the list)
+                messages = list(reversed(cur.fetchall() or []))
+    except Exception as e:
+        logger.warning("Conversation context fetch failed: %s", e)
+        return ticket_context, "", ""
+
+    budget = CHAT_HISTORY_MAX_CHARS
+    kept: list[str] = []
+    # Newest first — when over budget, drop the OLDEST turns (most recent
+    # context matters most for the current question)
+    for m in reversed(messages):
+        role = _ROLE_LABELS.get(m["sender_role"], m["sender_role"].upper())
+        body = (m["body"] or "").strip()
+        if len(body) > _HISTORY_MSG_MAX_CHARS:
+            body = body[:_HISTORY_MSG_MAX_CHARS] + "…"
+        line = f"{role}: {body}"
+        if len(line) > budget:
+            break
+        kept.append(line)
+        budget -= len(line) + 1
+
+    history_text = "\n".join(reversed(kept))
+
+    # Last CUSTOMER message in the fetched window (the current turn is not
+    # yet persisted, so this is the previous turn)
+    for m in reversed(messages):
+        if m["sender_role"] == "customer":
+            prev_customer_msg = (m["body"] or "").strip()
+            break
+
+    return ticket_context, history_text, prev_customer_msg
+
+
 @router.post("/tickets/{ticket_id}/chat", response_model=ChatResponse)
+@limiter.limit("10/minute")
 def chat_with_ai(
     ticket_id: str,
     payload: ChatRequest,
@@ -878,41 +1041,65 @@ def chat_with_ai(
     from .rag import compute_confidence, retrieve, should_escalate
     from .redact import scrub
 
-    # 1) Verify ticket exists and user has access
+    # 1) Verify ticket exists and user has access (BEFORE quota — failed
+    # access checks must not consume AI queries)
     with get_db_connection() as conn:
-        cursor = conn.cursor()
+        with conn.cursor() as cursor:
+            # Check ticket access (same rules as viewing ticket)
+            if is_rep_in_org(user, request):
+                cursor.execute(
+                    "SELECT id FROM app.tickets WHERE id = %s AND organization_id = %s",
+                    (ticket_id, org_id),
+                )
+            else:
+                cursor.execute(
+                    "SELECT id FROM app.tickets WHERE id = %s AND created_by = %s AND organization_id = %s",
+                    (ticket_id, user.id, org_id),
+                )
+            # fetch INSIDE the block — after __exit__ the connection is
+            # back in the pool and the cursor may read another request's data
+            access_row = cursor.fetchone()
 
-        # Check ticket access (same rules as viewing ticket)
-        if is_rep_in_org(user, request):
-            cursor.execute(
-                "SELECT id FROM app.tickets WHERE id = %s AND organization_id = %s",
-                (ticket_id, org_id),
-            )
-        else:
-            cursor.execute(
-                "SELECT id FROM app.tickets WHERE id = %s AND created_by = %s AND organization_id = %s",
-                (ticket_id, user.id, org_id),
-            )
+    if not access_row:
+        raise HTTPException(status_code=404, detail="Ticket not found")
 
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Ticket not found")
+    # 1b) Fetch conversation context: ticket summary + prior messages.
+    # Gives the model ticket awareness and multi-turn memory. Internal rep
+    # notes are excluded — the AI may be answering the customer.
+    ticket_context, history_text, prev_customer_msg = _get_conversation_context(
+        ticket_id
+    )
 
-    # 2) Rate limiting per ticket
+    # 1c) Rate limiting per ticket — checked BEFORE quota so 429s don't
+    # consume AI queries
     now = time.time()
     last_chat = chat_cooldown.get(ticket_id, 0)
     if now - last_chat < CHAT_COOLDOWN_SECONDS:
         raise HTTPException(status_code=429, detail="Please wait before asking again")
     chat_cooldown[ticket_id] = now
 
+    # 1d) Enforce AI query quota (after access + rate checks so failed
+    # requests never consume queries)
+    from .entitlements import increment_ai_query
+
+    increment_ai_query(org_id)
+
     # 3) PII scrub the query
     clean_query = scrub(payload.query)
     observer.record_embedding_metrics(clean_query, 0)  # Will update with actual timing
 
-    # 4) Retrieve relevant chunks using enhanced RAG with metrics
+    # 3b) Follow-up queries ("that didn't work either") lose their referent
+    # when embedded bare — combine the previous customer message with the
+    # current query so retrieval sees what "it" means
+    retrieval_query = clean_query
+    if prev_customer_msg and prev_customer_msg != payload.query.strip():
+        combined = scrub(prev_customer_msg)[-1000:] + "\n" + clean_query
+        retrieval_query = combined[:1200]
+
+    # 4) Retrieve relevant chunks using pgvector search
     retrieval_start = time.time()
     retrieval_result = retrieve(
-        clean_query,
-        lambda faiss_ids: fetch_chunks_by_faiss_ids(faiss_ids, org_id),
+        retrieval_query,
         org_id=org_id,
     )
     retrieval_latency = int((time.time() - retrieval_start) * 1000)
@@ -933,6 +1120,34 @@ def chat_with_ai(
         len(chunks), scores, retrieval_metrics, retrieval_latency
     )
 
+    # 4b) Similar resolved tickets (J.3) — helps for issues solved before
+    similar_tickets: list = []
+    if chunks:
+        try:
+            from .rag import search_similar_tickets
+
+            _qvec = None
+            # Reuse the query embedding by asking retrieve's caller — cheapest
+            # is one extra embed; acceptable (cached by provider at no extra
+            # cost compared to expansion batch, but kept lazy to avoid re-embed)
+            from .embeddings import embed_texts
+
+            _qvec = embed_texts([clean_query])[0]
+            similar_tickets = search_similar_tickets(org_id, clean_query, _qvec, k=3)
+            if similar_tickets:
+                _ticket_lines = "\n".join(
+                    f"- [{i+1}] Similar past ticket: {t['title']}"
+                    for i, t in enumerate(similar_tickets)
+                )
+                context = (
+                    context
+                    + "\n\nSIMILAR PAST TICKETS (may indicate known solutions):\n"
+                    + _ticket_lines
+                )
+        except Exception as e:
+            logger.warning("Similar-ticket search failed: %s", e)
+            similar_tickets = []
+
     if not chunks:
         # No relevant context found - enhanced escalation handling
         observer.add_warning("No relevant chunks found in knowledge base")
@@ -948,7 +1163,7 @@ def chat_with_ai(
                 response=no_context_response,
                 confidence=0.0,
                 citations_count=0,
-                model=os.getenv("GENAI_MODEL", "gemini-1.5-pro"),
+                model=gen_model(),
                 latency_ms=0,
                 escalation_triggered=True,
             )
@@ -981,7 +1196,7 @@ def chat_with_ai(
                         {
                             "citations": [],
                             "confidence": 0.0,
-                            "model": os.getenv("GENAI_MODEL", "gemini-1.5-pro"),
+                            "model": gen_model(),
                             "suggest_escalation": True,
                             "escalation_info": escalation_info,
                             "retrieval_metrics": {"no_chunks": 1.0},
@@ -1061,30 +1276,70 @@ def chat_with_ai(
 
     # 5) Generate AI response with enhanced structured generation
     generation_start = time.time()
-    try:
-        # Try structured generation first
+
+    # Answer cache — identical prompt (history+context+query) replays the
+    # LLM result without a generation call (J.4). Message rows persist fresh.
+    prompt_hash = compute_prompt_hash(context, clean_query, history_text)
+    cache_key = f"{org_id}:{prompt_hash}"
+    cached = _answer_cache.get(cache_key)
+    if cached and (time.monotonic() - cached[1]) < ANSWER_CACHE_TTL:
+        observer.add_warning("answer_cache_hit")
+        ai_response = cached[0]["ai_response"]
+        confidence_breakdown = cached[0]["confidence_breakdown"]
+        base_confidence = cached[0]["base_confidence"]
+        latency_ms = 0
+    else:
         try:
-            structured_response, latency_ms = generate_structured_completion(
-                context, clean_query, sources
+            # Try structured generation first
+            try:
+                structured_response, latency_ms = generate_structured_completion(
+                    context,
+                    clean_query,
+                    sources,
+                    ticket_context=ticket_context,
+                    conversation_history=history_text,
+                )
+                ai_response = structured_response.response
+
+                # Extract confidence from structured response
+                confidence_breakdown = structured_response.confidence_indicators
+                base_confidence = sum(confidence_breakdown.values()) / len(
+                    confidence_breakdown
+                )
+
+            except Exception as structured_error:
+                observer.add_warning(
+                    f"Structured generation failed: {structured_error}"
+                )
+                # Fallback to basic generation
+                ai_response, latency_ms = generate_completion(
+                    context,
+                    clean_query,
+                    sources,
+                    ticket_context=ticket_context,
+                    conversation_history=history_text,
+                )
+                confidence_breakdown = {}
+                base_confidence = 0.5  # Neutral confidence for fallback
+
+        except Exception as e:
+            observer.add_error(f"AI generation failed: {e}")
+            raise HTTPException(
+                status_code=502, detail=f"AI generation failed: {str(e)}"
             )
-            ai_response = structured_response.response
 
-            # Extract confidence from structured response
-            confidence_breakdown = structured_response.confidence_indicators
-            base_confidence = sum(confidence_breakdown.values()) / len(
-                confidence_breakdown
-            )
-
-        except Exception as structured_error:
-            observer.add_warning(f"Structured generation failed: {structured_error}")
-            # Fallback to basic generation
-            ai_response, latency_ms = generate_completion(context, clean_query, sources)
-            confidence_breakdown = {}
-            base_confidence = 0.5  # Neutral confidence for fallback
-
-    except Exception as e:
-        observer.add_error(f"AI generation failed: {e}")
-        raise HTTPException(status_code=502, detail=f"AI generation failed: {str(e)}")
+        # Store in cache (bounded LRU-ish: evict oldest on overflow)
+        if len(_answer_cache) >= ANSWER_CACHE_MAX:
+            oldest_key = min(_answer_cache, key=lambda k: _answer_cache[k][1])
+            _answer_cache.pop(oldest_key, None)
+        _answer_cache[cache_key] = (
+            {
+                "ai_response": ai_response,
+                "confidence_breakdown": confidence_breakdown,
+                "base_confidence": base_confidence,
+            },
+            time.monotonic(),
+        )
 
     generation_latency = int((time.time() - generation_start) * 1000)
 
@@ -1137,7 +1392,7 @@ def chat_with_ai(
         response=ai_response,
         confidence=confidence,
         citations_count=citations_count,
-        model=os.getenv("GENAI_MODEL", "gemini-1.5-pro"),
+        model=gen_model(),
         latency_ms=generation_latency,
         escalation_triggered=should_escalate_flag,
     )
@@ -1152,7 +1407,8 @@ def chat_with_ai(
             label=sources[i] if i < len(sources) else f"[{i+1}] Unknown",
             doc_id=str(chunk.get("doc_id", "")),
             chunk_id=str(chunk.get("chunk_id", "")),
-            faiss_id=chunk.get("faiss_id", -1),
+            # pgvector-era chunks have no faiss_id (legacy FAISS column)
+            faiss_id=chunk.get("faiss_id") or -1,
             score=citation_confidence,
         )
         citations.append(citation)
@@ -1166,12 +1422,13 @@ def chat_with_ai(
             "citations": [c.dict() for c in citations],
             "confidence": confidence,
             "confidence_breakdown": confidence_components,
-            "model": os.getenv("GENAI_MODEL", "gemini-1.5-pro"),
+            "model": gen_model(),
             "suggest_escalation": should_escalate_flag,
             "escalation_details": escalation_details,
             "retrieval_metrics": retrieval_metrics,
             "generation_latency_ms": latency_ms,
             "conversation_length": conversation_length,
+            "similar_tickets": similar_tickets,
         }
 
         cursor.execute(
@@ -1247,7 +1504,7 @@ def chat_with_ai(
 
         # Enhanced ai_runs logging with comprehensive metrics
         try:
-            prompt_hash = compute_prompt_hash(context, clean_query)
+            prompt_hash = compute_prompt_hash(context, clean_query, history_text)
             cursor.execute(
                 """
                 INSERT INTO app.ai_runs (
@@ -1259,7 +1516,7 @@ def chat_with_ai(
                 (
                     ticket_id,
                     user.id,
-                    os.getenv("GENAI_MODEL", "gemini-1.5-pro"),
+                    gen_model(),
                     prompt_hash,
                     len(chunks),
                     confidence,
@@ -1339,6 +1596,7 @@ def chat_with_ai(
         citations=citations,
         confidence=confidence,
         suggest_escalation=should_escalate_flag,
+        similar_tickets=similar_tickets,
     )
 
 
@@ -1426,6 +1684,45 @@ def resolve_ticket(
     _title = row["title"]
     _created_by = str(row["created_by"]) if row.get("created_by") else None
     _note = payload.resolution_note
+
+    # Embed resolved ticket for similar-ticket retrieval (J.3, fire-and-forget)
+    def _embed_resolved():
+        try:
+            with get_db_connection() as ec:
+                ec_cur = ec.cursor()
+                ec_cur.execute(
+                    "SELECT title, description, resolution_note FROM app.tickets WHERE id = %s",
+                    (_tid,),
+                )
+                trow = ec_cur.fetchone()
+            if not trow:
+                return
+            text = " ".join(
+                filter(
+                    None,
+                    [
+                        trow.get("title"),
+                        trow.get("description"),
+                        trow.get("resolution_note"),
+                    ],
+                )
+            )[:4000]
+            if not text.strip():
+                return
+            from .embeddings import embed_texts
+
+            vec = embed_texts([text])[0]
+            with get_db_connection() as uc:
+                uc_cur = uc.cursor()
+                uc_cur.execute(
+                    "UPDATE app.tickets SET title_embedding = %s::vector WHERE id = %s",
+                    (str(list(vec)), _tid),
+                )
+                uc.commit()
+        except Exception as e:
+            logger.warning("Resolved-ticket embedding failed for %s: %s", _tid, e)
+
+    threading.Thread(target=_embed_resolved, daemon=True).start()
 
     def _notify_resolved():
         try:
@@ -1544,6 +1841,20 @@ def bulk_ticket_action(
             )
         elif action == "assign":
             assignee = payload.assignee_id or user.id
+            # Assignee must be a member of THIS org — otherwise tickets can
+            # be handed to arbitrary platform users (spam + metric pollution)
+            cursor.execute(
+                """
+                SELECT 1 FROM app.organization_members
+                WHERE user_id = %s::uuid AND organization_id = %s
+                """,
+                (assignee, org_id),
+            )
+            if not cursor.fetchone():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Assignee is not a member of this organization",
+                )
             cursor.execute(
                 """
                 UPDATE app.tickets

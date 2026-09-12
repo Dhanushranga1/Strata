@@ -239,9 +239,12 @@ def create_invite(
     # Audit log
     try:
         from .admin import log_audit_sync
+
         log_audit_sync(
-            "invite.sent", user,
-            resource_type="invite", resource_id=str(invite["id"]),
+            "invite.sent",
+            user,
+            resource_type="invite",
+            resource_id=str(invite["id"]),
             org_id=org_id,
             metadata={"email": invite_data.email, "role": invite_data.role},
         )
@@ -386,6 +389,11 @@ def accept_invite(token: str, user: User = Depends(get_current_user)):
                 role=role,
             )
 
+        # --- Plan seat cap (community=10, paid=unlimited) ----------------
+        from .entitlements import enforce_agent_seat
+
+        enforce_agent_seat(org_id)
+
         # --- Add user to organization_members ----------------------------
         cursor.execute(
             """
@@ -399,9 +407,11 @@ def accept_invite(token: str, user: User = Depends(get_current_user)):
             (org_id, user.id, role, invite["id"]),
         )
 
-        # --- Upsert global user_roles (rep / admin / customer) ----------
-        # Map org role → global role: admin→admin, rep→rep, member→customer
-        global_role_map = {"admin": "admin", "rep": "rep", "member": "customer"}
+        # --- Upsert global user_roles (rep / customer) -------------------
+        # Global 'admin' = PLATFORM admin (cross-org) — NEVER granted via
+        # org invites. Org role lives in app.organization_members; global
+        # 'rep' here only serves as the no-org-context fallback.
+        global_role_map = {"admin": "rep", "rep": "rep", "member": "customer"}
         global_role = global_role_map.get(role, "customer")
 
         cursor.execute(
@@ -428,9 +438,12 @@ def accept_invite(token: str, user: User = Depends(get_current_user)):
     # Audit log
     try:
         from .admin import log_audit_sync
+
         log_audit_sync(
-            "invite.accepted", user,
-            resource_type="invite", resource_id=str(invite["id"]),
+            "invite.accepted",
+            user,
+            resource_type="invite",
+            resource_id=str(invite["id"]),
             org_id=org_id,
             metadata={"org_name": invite.get("organization_name", ""), "role": role},
         )

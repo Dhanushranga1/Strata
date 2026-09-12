@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import time
+from typing import cast
 
 import asyncpg
 
@@ -61,6 +62,10 @@ async def _circuit_failure():
 
 
 def _ssl_mode(database_url: str) -> str:
+    # Supabase requires SSL. Local dev (docker postgres) needs disable/prefer.
+    explicit = os.getenv("DB_SSL_MODE", "").strip().lower()
+    if explicit in ("require", "prefer", "disable", "allow", "verify-full"):
+        return explicit
     return "require"
 
 
@@ -76,7 +81,7 @@ async def init_pool() -> None:
         _pool = await asyncpg.create_pool(
             database_url,
             password=db_password,
-            min_size=0,
+            min_size=1,  # keep 1 warm conn — min_size=0 made every idle request pay full connect latency
             max_size=3,
             max_inactive_connection_lifetime=300.0,
             command_timeout=8,
@@ -88,7 +93,12 @@ async def init_pool() -> None:
                 "statement_timeout": "8000",
             },
         )
-        logger.info("[db] asyncpg pool ready (min=0, max=3, ssl=%s)", ssl)
+        logger.info(
+            "[db] asyncpg pool ready (min_size=%d, max_size=%d, ssl=%s)",
+            1,
+            3,
+            ssl,
+        )
         await _circuit_success()
     except Exception as exc:
         logger.error(
@@ -114,6 +124,30 @@ async def close_pool() -> None:
         logger.info("[db] asyncpg pool closed")
 
 
+class _ReleaseOnClose:
+    """Pooled asyncpg connection whose close() releases instead of destroying.
+
+    Delegates everything else to the underlying connection.
+    """
+
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn: asyncpg.Connection) -> None:
+        self._conn = conn
+
+    async def close(self) -> None:
+        if _pool is None:
+            await self._conn.close()
+            return
+        try:
+            await _pool.release(self._conn)
+        except Exception:
+            await self._conn.close()
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+
 async def get_connection() -> asyncpg.Connection:
     """
     Return a connection from the pool (or a direct connection as fallback).
@@ -129,7 +163,11 @@ async def get_connection() -> asyncpg.Connection:
         try:
             conn = await _pool.acquire(timeout=5)
             await _circuit_success()
-            return conn
+            # asyncpg pooled proxies DESTROY the real connection on close()
+            # (asyncpg/pool.py PoolConnectionProxy.close -> _con.close()).
+            # 70 call sites use close() as "done with it" — without this
+            # wrapper every request paid a full reconnect (~1 RTT).
+            return cast(asyncpg.Connection, _ReleaseOnClose(conn))
         except Exception as exc:
             logger.warning(
                 "[db] Pool acquire failed (%s) — falling back to direct connect",

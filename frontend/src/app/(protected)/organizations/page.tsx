@@ -60,6 +60,11 @@ interface Organization {
   updated_at: string;
 }
 
+interface InviteResponse {
+  invite_url: string;
+  email_sent: boolean;
+}
+
 // Role badge component
 function RoleBadge({ role }: { role: string }) {
   const variants: Record<
@@ -152,7 +157,7 @@ function InviteModal({ orgId, orgName, open, onClose }: InviteModalProps) {
 
     setLoading(true);
     try {
-      const data = await api.post(
+      const data = await api.post<InviteResponse>(
         `/api/organizations/${orgId}/invites`,
         { email, role },
         orgId
@@ -162,8 +167,10 @@ function InviteModal({ orgId, orgName, open, onClose }: InviteModalProps) {
       if (data.email_sent) {
         toast.success(`Invite email sent to ${email}`);
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to create invite');
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to create invite'
+      );
       setLoading(false);
     } finally {
       setLoading(false);
@@ -362,8 +369,8 @@ export default function OrganizationsPage() {
       if (!isReady) return;
 
       try {
-        const data = await api.get('/api/organizations');
-        const items: Organization[] = (data as any[]).map((org: any) => ({
+        const data = await api.get<Organization[]>('/api/organizations');
+        const items: Organization[] = data.map(org => ({
           ...org,
           role: org.your_role || org.role || 'member',
         }));
@@ -379,7 +386,7 @@ export default function OrganizationsPage() {
               domain: null,
               role: (org.your_role as Organization['role']) || 'member',
               your_role: org.your_role as Organization['role'],
-              is_default: (org as any).is_default ?? false,
+              is_default: (org as { is_default?: boolean }).is_default ?? false,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             }))

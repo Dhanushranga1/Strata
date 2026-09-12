@@ -16,7 +16,7 @@ const config: Config = {
         surface2: 'rgb(var(--surface2))',
         text: 'rgb(var(--text))',
         muted: {
-          DEFAULT: 'rgb(var(--muted))',
+          DEFAULT: 'hsl(var(--muted))',
           foreground: 'hsl(var(--muted-foreground))',
         },
         primary: {

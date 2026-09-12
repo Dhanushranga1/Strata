@@ -1,0 +1,47 @@
+name: 🗄️ Nightly DB Backup
+
+# Supabase free tier has NO automatic backups. This cron dumps the
+# database nightly and keeps 90 days of artifacts. Restores are manual:
+# download artifact, then pg_restore against a fresh Supabase project.
+#
+# Connection: Supabase SESSION POOLER (port 5432, IPv4) — GitHub runners
+# have no IPv6, so the direct db.<ref>.supabase.co:5432 host is
+# unreachable from Actions. Session mode is required for pg_dump
+# (the 6543 transaction pooler is not).
+#
+# Required repo secret:
+#   DATABASE_URL = postgresql://postgres.<ref>:PASSWORD@aws-<n>-<region>.pooler.supabase.com:5432/postgres
+# When prod Supabase differs, update this one secret — nothing else changes.
+
+on:
+  schedule:
+    - cron: '30 2 * * *' # 02:30 UTC daily
+  workflow_dispatch: {} # manual trigger for on-demand backups
+
+jobs:
+  backup:
+    name: 💾 Dump database
+    runs-on: ubuntu-latest
+    steps:
+      # Supabase server is 17.x — pg_dump must be >= server version
+      - name: 🗄️ Dump database (postgres 17 client)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          docker run --rm \
+            -e DATABASE_URL \
+            -v "$PWD":/backup \
+            --entrypoint /bin/sh \
+            postgres:17-alpine \
+            -c 'pg_dump "$DATABASE_URL" \
+                  --no-owner --no-privileges \
+                  --format=custom \
+                  --file /backup/strata-backup-$(date -u +%Y-%m-%d).dump'
+          ls -lh strata-backup-*.dump
+      - name: ⬆️ Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: strata-backup-${{ github.run_id }}
+          path: strata-backup-*.dump
+          retention-days: 90
+          if-no-files-found: error

@@ -1,4 +1,5 @@
 import hashlib
+import os
 import re
 from typing import Tuple
 
@@ -31,20 +32,40 @@ def read_md_bytes(b: bytes) -> str:
 
 
 def read_pdf_bytes(b: bytes) -> str:
-    """Extract text from PDF bytes."""
+    """Extract text from PDF bytes. Page/text caps bound decompression bombs."""
     from io import BytesIO
 
+    MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "500"))
+    MAX_EXTRACT_CHARS = int(os.getenv("MAX_EXTRACT_CHARS", "2_000_000"))
+
     reader = PdfReader(BytesIO(b))
-    parts = [p.extract_text() or "" for p in reader.pages]
+    pages = reader.pages[:MAX_PDF_PAGES]
+    parts: list[str] = []
+    total = 0
+    for p in pages:
+        t = p.extract_text() or ""
+        total += len(t)
+        if total > MAX_EXTRACT_CHARS:
+            break
+        parts.append(t)
     return "\n".join(parts)
 
 
 def read_docx_bytes(b: bytes) -> str:
-    """Extract text from DOCX bytes."""
+    """Extract text from DOCX bytes, with a total-char cap."""
     from io import BytesIO
 
+    MAX_EXTRACT_CHARS = int(os.getenv("MAX_EXTRACT_CHARS", "2_000_000"))
+
     doc = DocxDocument(BytesIO(b))
-    parts = [p.text for p in doc.paragraphs]
+    parts = []
+    total = 0
+    for para in doc.paragraphs:
+        t = para.text
+        total += len(t)
+        if total > MAX_EXTRACT_CHARS:
+            break
+        parts.append(t)
     return "\n".join(parts)
 
 

@@ -49,6 +49,19 @@ const PRIORITY_DEFAULTS: Record<
   7: { first_response: 1, resolution: 4 },
 };
 
+// ─── Organization API shape ──────────────────────────────────────────────────
+type OrgSettingsShape = {
+  overdue_threshold_hours?: number;
+  overdue_reminder_hours?: number;
+  default_etr_hours?: number | null;
+};
+
+type OrgDetail = {
+  name?: string;
+  domain?: string | null;
+  settings?: OrgSettingsShape;
+};
+
 export default function OrgSettingsPage() {
   const router = useRouter();
   const { currentOrganization } = useOrganization();
@@ -132,7 +145,7 @@ export default function OrgSettingsPage() {
       return;
 
     api
-      .get<any>(`/api/organizations/${orgId}`, orgId)
+      .get<OrgDetail>(`/api/organizations/${orgId}`, orgId)
       .then(data => {
         setOrgName(data.name ?? '');
         setOrgDomain(data.domain ?? '');
@@ -194,7 +207,10 @@ export default function OrgSettingsPage() {
 
   // ─── Merge-safe PATCH helper ──────────────────────────────────────────────
   const patchOrgSettings = async (patch: Record<string, unknown>) => {
-    const current = await api.get<any>(`/api/organizations/${orgId}`, orgId);
+    const current = await api.get<OrgDetail>(
+      `/api/organizations/${orgId}`,
+      orgId
+    );
     await api.patch(
       `/api/organizations/${orgId}`,
       {

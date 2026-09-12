@@ -53,6 +53,16 @@ interface Member {
   last_sign_in_at: string | null;
 }
 
+interface CurrentUser {
+  id: string;
+  role: string;
+}
+
+interface InviteResponse {
+  invite_url: string;
+  email_sent: boolean;
+}
+
 const ROLE_ORDER = ['owner', 'admin', 'rep', 'member'];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -93,7 +103,7 @@ export default function AdminUsersPage() {
   const orgId = currentOrganization?.id;
   const orgName = currentOrganization?.name ?? 'your organisation';
 
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<Member[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -124,7 +134,7 @@ export default function AdminUsersPage() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const userData = await api.get('/api/me');
+        const userData = await api.get<CurrentUser>('/api/me');
         if (userData.role !== 'admin') {
           router.replace('/dashboard');
           return;
@@ -154,8 +164,8 @@ export default function AdminUsersPage() {
             (a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)
           )
         );
-      } catch (e: any) {
-        toast.error(e.message || 'Failed to load members');
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Failed to load members');
       } finally {
         setMembersLoading(false);
       }
@@ -196,8 +206,8 @@ export default function AdminUsersPage() {
           )
       );
       toast.success(`${member.user_email} is now ${newRole}`);
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to update role');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update role');
     } finally {
       setRoleChanging(null);
     }
@@ -215,8 +225,8 @@ export default function AdminUsersPage() {
       setMembers(prev => prev.filter(m => m.user_id !== member.user_id));
       toast.success(`${member.user_email} removed from ${orgName}`);
       setRemoveDialog({ open: false, member: null });
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to remove member');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to remove member');
     } finally {
       setRemoving(false);
     }
@@ -227,7 +237,7 @@ export default function AdminUsersPage() {
     if (!inviteEmail.trim() || !orgId) return;
     try {
       setInviting(true);
-      const data = await api.post(
+      const data = await api.post<InviteResponse>(
         `/api/organizations/${orgId}/invites`,
         { email: inviteEmail.trim(), role: inviteRole },
         orgId
@@ -236,8 +246,8 @@ export default function AdminUsersPage() {
       if (data.email_sent) {
         toast.success(`Invite sent to ${inviteEmail}`);
       }
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to create invite');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to create invite');
     } finally {
       setInviting(false);
     }

@@ -23,7 +23,7 @@ jobs:
       - name: ⚡ Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -37,10 +37,10 @@ jobs:
           echo "🔒 Running npm audit..."
           npm audit --audit-level=moderate --json > audit-results.json || true
           
-          # Parse and display results
+          # Parse and display results (vulnerabilities is an object keyed by name)
           if [ -f audit-results.json ]; then
-            vulnerabilities=$(cat audit-results.json | grep -o '"vulnerabilities":[0-9]*' | cut -d':' -f2)
-            echo "Found $vulnerabilities vulnerabilities"
+            vulnerabilities=$(python3 -c "import json;d=json.load(open('audit-results.json'));v=d.get('vulnerabilities',{});print(sum(1 for x in v.values() if not x.get('dev')))" 2>/dev/null || echo 0)
+            echo "Found $vulnerabilities production vulnerabilities"
             
             if [ "$vulnerabilities" -gt 0 ]; then
               echo "⚠️ Security vulnerabilities found!"
@@ -60,7 +60,7 @@ jobs:
         continue-on-error: true
 
       - name: 📊 Upload Security Results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: frontend-security-results
@@ -111,7 +111,7 @@ jobs:
           pip-audit --format=text
 
       - name: 📊 Upload Security Results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: backend-security-results
@@ -129,7 +129,7 @@ jobs:
     
     steps:
       - name: 📥 Download Security Results
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: security-results
 

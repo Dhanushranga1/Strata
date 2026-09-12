@@ -214,9 +214,12 @@ class RAGValidator:
 
 if __name__ == "__main__":
     # Get JWT token from our generator script
+    import os
     import subprocess
+
+    jwt_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "create_supabase_jwt.py")
     try:
-        token_output = subprocess.check_output(["python", "create_supabase_jwt.py"], stderr=subprocess.DEVNULL)
+        token_output = subprocess.check_output(["python", jwt_script], stderr=subprocess.DEVNULL)
         token = token_output.decode().strip().split("Token: ")[1]
         
         validator = RAGValidator(token=token)

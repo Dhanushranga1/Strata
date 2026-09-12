@@ -140,7 +140,7 @@ export default function NewOrganizationPage() {
     setCreating(true);
 
     try {
-      const newOrg = await api.post('/api/organizations', {
+      const newOrg = await api.post<{ name: string }>('/api/organizations', {
         name: name.trim(),
         slug: slug.trim(),
         domain: domain.trim() || null,
@@ -153,9 +153,9 @@ export default function NewOrganizationPage() {
 
       await refreshOrganizations();
       router.push('/organizations');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error creating organization:', error);
-      const message: string = error?.message || '';
+      const message = error instanceof Error ? error.message : '';
       if (
         message.includes('409') ||
         message.toLowerCase().includes('already exists')

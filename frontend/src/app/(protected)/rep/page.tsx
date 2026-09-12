@@ -36,6 +36,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { RepActionBar } from '@/components/ui/RepActionBar';
 import { AIMessage } from '@/components/ui/AIMessage';
 import { AIResponseModal } from '@/components/rep/AIResponseModal';
+import type { AIResponse } from '@/components/rep/AIResponseModal';
 import { KBIngestModal } from '@/components/ui/KBIngestModal';
 import { RepQueueSkeleton } from '@/components/skeletons/RepQueueSkeleton';
 import { buildAISuggestionQuery, prepareTicketContext } from '@/lib/ai/prompt';
@@ -56,6 +57,8 @@ import {
   Mail,
   Bot,
   CheckCheck,
+  FileText,
+  Loader2,
 } from 'lucide-react';
 import { m } from 'framer-motion';
 import { v } from '@/ui/motion/variants';
@@ -88,6 +91,32 @@ interface QueueCounts {
   escalated: number;
   all: number;
   resolved_today: number;
+}
+
+interface AISuggestionResponse extends AIResponse {
+  message_id?: string;
+}
+
+interface RepActionPayload {
+  status?: string;
+  priority?: string;
+  reason?: string | null;
+  escalated_to_user_id?: string | null;
+  expected_resolve_at?: string;
+}
+
+interface KBIngestSource {
+  type: string;
+  name?: string;
+  content?: string;
+  url?: string;
+  file?: File;
+}
+
+interface KBDraft {
+  ticket_id: string;
+  title: string;
+  content: string;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000';
@@ -167,7 +196,9 @@ export default function RepConsolePage() {
 
   // AI-related state
   const [aiModalOpen, setAiModalOpen] = useState(false);
-  const [aiResponse, setAiResponse] = useState<any>(null);
+  const [aiResponse, setAiResponse] = useState<AISuggestionResponse | null>(
+    null
+  );
   const [aiCooldowns, setAiCooldowns] = useState<Record<string, number>>({});
   const [currentAiTicket, setCurrentAiTicket] = useState<string | null>(null);
 
@@ -272,7 +303,10 @@ export default function RepConsolePage() {
       if (searchQuery) params.append('q', searchQuery);
       if (mineOnly) params.append('mine', 'true');
 
-      const data = await api.get(`/api/rep/queue?${params}`, orgId);
+      const data = await api.get<{ items: QueueItem[]; total: number }>(
+        `/api/rep/queue?${params}`,
+        orgId
+      );
       setTickets(data.items);
       setTotal(data.total);
     } catch (error) {
@@ -291,7 +325,7 @@ export default function RepConsolePage() {
     try {
       if (!silent) setCountsLoading(true);
 
-      const data = await api.get(`/api/rep/counts`, orgId);
+      const data = await api.get<QueueCounts>(`/api/rep/counts`, orgId);
       setCounts(data);
     } catch (error) {
       console.error('Failed to load counts:', error);
@@ -444,11 +478,14 @@ export default function RepConsolePage() {
 
       // Fetch detailed ticket information including messages
       let ticketDetails = ticket;
-      let messages: any[] = [];
+      let messages: Record<string, unknown>[] = [];
 
       try {
         // Get full ticket details
-        ticketDetails = await api.get(`/api/tickets/${ticket.id}`, orgId);
+        ticketDetails = await api.get<QueueItem>(
+          `/api/tickets/${ticket.id}`,
+          orgId
+        );
 
         // Get recent messages (last 5)
         const messagesResponse = await api.get(
@@ -478,7 +515,7 @@ export default function RepConsolePage() {
       }
 
       // Make AI request using api client
-      const aiResponseData = await api.post(
+      const aiResponseData = await api.post<AISuggestionResponse>(
         `/api/tickets/${ticket.id}/chat`,
         {
           query: query,
@@ -492,11 +529,13 @@ export default function RepConsolePage() {
       setAiResponse(aiResponseData);
       setCurrentAiTicket(ticket.id);
       setAiModalOpen(true);
-    } catch (error: any) {
+    } catch (error) {
       console.error('AI suggestion failed:', error);
+      const message =
+        error instanceof Error ? error.message : String(error ?? '');
 
       // Handle rate limiting
-      if (error.message && error.message.includes('429')) {
+      if (message.includes('429')) {
         const cooldownSeconds = 8;
         setAiCooldowns(prev => ({
           ...prev,
@@ -505,12 +544,12 @@ export default function RepConsolePage() {
         toast.error(`Rate limited. Please wait ${cooldownSeconds} seconds.`, {
           id: 'ai-' + ticket.id,
         });
-      } else if (error.message && error.message.includes('401')) {
+      } else if (message.includes('401')) {
         toast.error('Authentication required. Please log in again.', {
           id: 'ai-' + ticket.id,
         });
         router.push('/login');
-      } else if (error.message && error.message.includes('404')) {
+      } else if (message.includes('404')) {
         toast.error('Ticket not found', { id: 'ai-' + ticket.id });
       } else if (
         error instanceof TypeError &&
@@ -520,7 +559,7 @@ export default function RepConsolePage() {
           id: 'ai-' + ticket.id,
         });
       } else {
-        toast.error(`AI request failed: ${error.message || 'Unknown error'}`, {
+        toast.error(`AI request failed: ${message || 'Unknown error'}`, {
           id: 'ai-' + ticket.id,
         });
       }
@@ -530,26 +569,27 @@ export default function RepConsolePage() {
   };
 
   // AI Modal Handlers
-  const handleAiInsert = (content: string) => {
-    // For now, copy to clipboard and show notification
-    // In a full implementation, this would insert into a reply composition area
-    navigator.clipboard
-      .writeText(content)
-      .then(() => {
-        toast.success(
-          'AI suggestion copied to clipboard - paste it into your reply'
-        );
-      })
-      .catch(() => {
-        toast.error('Failed to copy suggestion');
-      });
-
-    // Add audit trail
-    if (currentAiTicket) {
+  const handleAiInsert = async (content: string) => {
+    if (!currentAiTicket || !orgId) {
+      toast.error('No ticket context');
+      return;
+    }
+    try {
+      await api.post(
+        `/api/tickets/${currentAiTicket}/messages`,
+        { body: content },
+        orgId
+      );
+      toast.success('Reply sent to customer');
+      setAiModalOpen(false);
       addAuditMessage(
         currentAiTicket,
-        `AI suggestion applied (confidence ${Math.round((aiResponse?.confidence || 0) * 100)}%, model ${aiResponse?.model || 'unknown'})`
+        `AI drafted reply sent (confidence ${Math.round((aiResponse?.confidence || 0) * 100)}%)`
       );
+      await loadTickets();
+    } catch (error) {
+      console.error('Failed to send draft:', error);
+      toast.error('Failed to send reply');
     }
   };
 
@@ -572,8 +612,22 @@ export default function RepConsolePage() {
     }
   };
 
-  const handleAiFeedback = (_positive: boolean) => {
-    // TODO: send feedback to analytics endpoint
+  const handleAiFeedback = async (positive: boolean) => {
+    const messageId = aiResponse?.message_id;
+    if (!messageId || !orgId) return;
+    try {
+      await api.post(
+        '/api/ai/feedback',
+        {
+          message_id: messageId,
+          feedback_type: positive ? 'positive' : 'negative',
+        },
+        orgId
+      );
+      toast.success('Thanks for the feedback!');
+    } catch {
+      toast.error('Failed to submit feedback');
+    }
   };
 
   const addAuditMessage = async (ticketId: string, message: string) => {
@@ -620,7 +674,7 @@ export default function RepConsolePage() {
   const performAction = async (
     ticketId: string,
     action: string,
-    payload: any = {}
+    payload: RepActionPayload = {}
   ) => {
     if (!orgId) {
       toast.error('Organization context not loaded', {
@@ -753,7 +807,7 @@ export default function RepConsolePage() {
     performAction(ticketId, 'priority', { priority });
   };
 
-  const handleKBIngest = async (sources: any[]) => {
+  const handleKBIngest = async (sources: KBIngestSource[]) => {
     if (!orgId) {
       setShowKBModal(false);
       return;
@@ -805,6 +859,74 @@ export default function RepConsolePage() {
     setShowKBModal(false);
   };
 
+  // ── KB Draft from resolved ticket (agent action) ──
+  const [kbDraftOpen, setKbDraftOpen] = useState(false);
+  const [kbDraftLoading, setKbDraftLoading] = useState(false);
+  const [kbDraftSaving, setKbDraftSaving] = useState(false);
+  const [kbDraft, setKbDraft] = useState<KBDraft | null>(null);
+
+  const handleKBDraft = async (ticket: QueueItem) => {
+    if (!orgId) return;
+    setKbDraftLoading(true);
+    setKbDraft(null);
+    setKbDraftOpen(true);
+    try {
+      const draft = await api.post<KBDraft>(
+        `/api/tickets/${ticket.id}/ai-kb-draft`,
+        {},
+        orgId
+      );
+      setKbDraft(draft);
+    } catch (error) {
+      const msg =
+        error instanceof Error && error.message.includes('402')
+          ? 'AI features require Starter plan or above'
+          : 'Failed to generate KB draft';
+      toast.error(msg);
+      setKbDraftOpen(false);
+    } finally {
+      setKbDraftLoading(false);
+    }
+  };
+
+  const handleKBCreateFromDraft = async () => {
+    if (!kbDraft || !orgId) return;
+    setKbDraftSaving(true);
+    try {
+      const formData = new FormData();
+      formData.append('raw_text', kbDraft.content);
+      formData.append('filename', `${kbDraft.title}.md`);
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/kb/ingest`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Organization-ID': orgId,
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`KB ingest failed: ${errorText}`);
+      }
+
+      toast.success('KB document created from ticket');
+      setKbDraftOpen(false);
+      setKbDraft(null);
+    } catch {
+      toast.error('Failed to create KB document');
+    } finally {
+      setKbDraftSaving(false);
+    }
+  };
+
   const formatTimeAgo = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -824,10 +946,13 @@ export default function RepConsolePage() {
       open: 'bg-blue-900/40 text-blue-300',
       in_progress: 'bg-yellow-900/40 text-yellow-300',
       resolved: 'bg-green-900/40 text-green-300',
-      closed: 'bg-zinc-800 text-zinc-400',
+      closed: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
       escalated: 'bg-red-900/40 text-red-300',
     };
-    return colors[status] || 'bg-zinc-800 text-zinc-400';
+    return (
+      colors[status] ||
+      'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+    );
   };
 
   const getPriorityBadge = (priority: string) => {
@@ -837,7 +962,10 @@ export default function RepConsolePage() {
       high: 'bg-red-900/40 text-red-300',
       urgent: 'bg-red-900/60 text-red-200 font-semibold',
     };
-    return colors[priority] || 'bg-zinc-800 text-zinc-400';
+    return (
+      colors[priority] ||
+      'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+    );
   };
 
   const getPriorityLevelBadge = (
@@ -870,13 +998,15 @@ export default function RepConsolePage() {
       },
       7: {
         label: 'P7',
-        className: 'bg-zinc-800 text-zinc-400 border border-zinc-700',
+        className:
+          'bg-zinc-200 text-zinc-600 border border-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700',
       },
     };
     return (
       map[level] ?? {
         label: `P${level}`,
-        className: 'bg-zinc-800 text-zinc-400',
+        className:
+          'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
       }
     );
   };
@@ -911,8 +1041,10 @@ export default function RepConsolePage() {
         )
       );
       await loadCounts(true);
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to accept ticket');
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to accept ticket'
+      );
     } finally {
       setActionLoading(null);
     }
@@ -1006,6 +1138,62 @@ export default function RepConsolePage() {
                 onEscalate={handleAiEscalate}
                 onFeedback={handleAiFeedback}
               />
+
+              {/* KB draft from resolved ticket */}
+              <Dialog open={kbDraftOpen} onOpenChange={setKbDraftOpen}>
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-indigo-500" />
+                      KB Article Draft
+                    </DialogTitle>
+                  </DialogHeader>
+                  {kbDraftLoading ? (
+                    <div className="flex justify-center py-12">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    </div>
+                  ) : kbDraft ? (
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <Label>Title</Label>
+                        <Input
+                          value={kbDraft.title}
+                          onChange={e =>
+                            setKbDraft({ ...kbDraft, title: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Content</Label>
+                        <Textarea
+                          value={kbDraft.content}
+                          onChange={e =>
+                            setKbDraft({ ...kbDraft, content: e.target.value })
+                          }
+                          className="min-h-[240px] font-mono text-xs"
+                        />
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setKbDraftOpen(false);
+                            setKbDraft(null);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleKBCreateFromDraft}
+                          disabled={kbDraftSaving || !kbDraft.content.trim()}
+                        >
+                          {kbDraftSaving ? 'Creating…' : 'Create KB Document'}
+                        </Button>
+                      </DialogFooter>
+                    </div>
+                  ) : null}
+                </DialogContent>
+              </Dialog>
 
               {/* Escalation dialog */}
               <Dialog
@@ -1545,46 +1733,77 @@ export default function RepConsolePage() {
                               color: 'text-purple-500',
                               onClick: () => handleQuickEmail(ticket),
                             },
-                            {
-                              id: 'ai-assist',
-                              label: (() => {
-                                const cooldownEnd = aiCooldowns[ticket.id];
-                                if (cooldownEnd && cooldownEnd > Date.now()) {
-                                  const remainingSeconds = Math.ceil(
-                                    (cooldownEnd - Date.now()) / 1000
-                                  );
-                                  return `AI (${remainingSeconds}s)`;
-                                }
-                                return 'Get AI Suggestion';
-                              })(),
-                              description: (() => {
-                                const cooldownEnd = aiCooldowns[ticket.id];
-                                if (cooldownEnd && cooldownEnd > Date.now()) {
-                                  return 'Rate limited - please wait';
-                                }
-                                return 'AI will analyze this ticket and suggest a response';
-                              })(),
-                              icon: Bot,
-                              color:
-                                aiCooldowns[ticket.id] &&
-                                aiCooldowns[ticket.id] > Date.now()
-                                  ? 'text-muted-foreground'
-                                  : 'text-primary',
-                              onClick: () => {
-                                const cooldownEnd = aiCooldowns[ticket.id];
-                                if (cooldownEnd && cooldownEnd > Date.now()) {
-                                  const remainingSeconds = Math.ceil(
-                                    (cooldownEnd - Date.now()) / 1000
-                                  );
-                                  toast.error(
-                                    `Please wait ${remainingSeconds} seconds`,
-                                    { id: 'ai-cooldown-' + ticket.id }
-                                  );
-                                  return;
-                                }
-                                handleQuickAI(ticket);
-                              },
-                            },
+                            ...(can('ai_rag')
+                              ? [
+                                  {
+                                    id: 'ai-assist',
+                                    label: (() => {
+                                      const cooldownEnd =
+                                        aiCooldowns[ticket.id];
+                                      if (
+                                        cooldownEnd &&
+                                        cooldownEnd > Date.now()
+                                      ) {
+                                        const remainingSeconds = Math.ceil(
+                                          (cooldownEnd - Date.now()) / 1000
+                                        );
+                                        return `AI (${remainingSeconds}s)`;
+                                      }
+                                      return 'Get AI Suggestion';
+                                    })(),
+                                    description: (() => {
+                                      const cooldownEnd =
+                                        aiCooldowns[ticket.id];
+                                      if (
+                                        cooldownEnd &&
+                                        cooldownEnd > Date.now()
+                                      ) {
+                                        return 'Rate limited - please wait';
+                                      }
+                                      return 'AI will analyze this ticket and suggest a response';
+                                    })(),
+                                    icon: Bot,
+                                    color:
+                                      aiCooldowns[ticket.id] &&
+                                      aiCooldowns[ticket.id] > Date.now()
+                                        ? 'text-muted-foreground'
+                                        : 'text-primary',
+                                    onClick: () => {
+                                      const cooldownEnd =
+                                        aiCooldowns[ticket.id];
+                                      if (
+                                        cooldownEnd &&
+                                        cooldownEnd > Date.now()
+                                      ) {
+                                        const remainingSeconds = Math.ceil(
+                                          (cooldownEnd - Date.now()) / 1000
+                                        );
+                                        toast.error(
+                                          `Please wait ${remainingSeconds} seconds`,
+                                          { id: 'ai-cooldown-' + ticket.id }
+                                        );
+                                        return;
+                                      }
+                                      handleQuickAI(ticket);
+                                    },
+                                  },
+                                ]
+                              : []),
+                            ...(can('ai_rag') &&
+                            can('kb') &&
+                            ['resolved', 'closed'].includes(ticket.status)
+                              ? [
+                                  {
+                                    id: 'kb-draft',
+                                    label: 'Draft KB Article',
+                                    description:
+                                      'AI summarises this ticket into a knowledge base article',
+                                    icon: FileText,
+                                    color: 'text-indigo-500',
+                                    onClick: () => handleKBDraft(ticket),
+                                  },
+                                ]
+                              : []),
                           ]}
                           primaryActions={[
                             ...(['open', 'escalated'].includes(ticket.status)
@@ -1666,11 +1885,9 @@ export default function RepConsolePage() {
 
         {/* AI Assistant */}
         <AIMessage
-          content="I'm here to help you manage your ticket queue efficiently. I can suggest prioritizations, provide insights on customer sentiment, and help draft responses."
+          content="I'm here to help you manage your ticket queue efficiently. Use 'AI Suggestion' on any ticket to get a draft reply."
           type="suggestion"
-          onCopy={() => {}}
-          onFeedback={() => {}}
-          showActions={true}
+          showActions={false}
         />
 
         {/* Pagination */}

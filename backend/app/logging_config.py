@@ -144,6 +144,12 @@ def setup_logging(
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, log_level.upper()))
 
+    # httpx request-line logs ("HTTP Request: POST https://...?key=SECRET")
+    # can leak provider API keys passed as URL params — request lines are
+    # noise at INFO anyway
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     # Remove existing handlers to avoid duplicates
     root_logger.handlers = []
 

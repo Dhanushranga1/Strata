@@ -6,9 +6,9 @@ import uuid as uuid_lib
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from .auth import User, get_current_user
-from .org_middleware import require_org_context, require_org_role
-from .schemas import SLAPolicyItem, SLAPolicyUpsert, SLAPolicyResponse
 from .entitlements import requires_feature
+from .org_middleware import require_org_context, require_org_role
+from .schemas import SLAPolicyItem, SLAPolicyResponse, SLAPolicyUpsert
 
 logger = logging.getLogger(__name__)
 

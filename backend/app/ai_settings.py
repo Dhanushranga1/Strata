@@ -57,7 +57,7 @@ def _resolve(key: str, env_fallback: str | None = None, default: Any = "") -> An
 
 
 def gen_model() -> str:
-    return _resolve("gen_model", "GENAI_MODEL", "gemini-2.0-flash")
+    return _resolve("gen_model", "GENAI_MODEL", "gemini-3.5-flash")
 
 
 def gen_api_key() -> str:
@@ -95,13 +95,25 @@ def embed_dim() -> int:
     explicit = _resolve("embed_dim", "EMBEDDING_DIM", "")
     if explicit:
         return int(explicit)
-    # Auto-detect from model
+    # Auto-detect from model. DB column is vector(1536) — models are
+    # configured to emit 1536 (gemini via output_dimensionality, OpenAI
+    # small natively). 3072 models are NOT usable without a migration.
     _DIM_MAP = {
-        "gemini-embedding-001": 3072,
-        "text-embedding-3-small": 512,
+        "gemini-embedding-001": 1536,
+        "text-embedding-3-small": 1536,
         "text-embedding-3-large": 3072,
     }
-    return _DIM_MAP.get(embed_model(), 768)
+    return embed_dim_for_model(embed_model())
+
+
+def embed_dim_for_model(model: str) -> int:
+    """Auto-detected vector dim for a given embedding model name."""
+    _DIM_MAP = {
+        "gemini-embedding-001": 1536,
+        "text-embedding-3-small": 1536,
+        "text-embedding-3-large": 3072,
+    }
+    return _DIM_MAP.get(model, 1536)
 
 
 def temperature() -> float:
@@ -109,7 +121,7 @@ def temperature() -> float:
 
 
 def max_tokens() -> int:
-    return int(_resolve("max_tokens", "GENAI_MAX_OUTPUT_TOKENS", "1024"))
+    return int(_resolve("max_tokens", "GENAI_MAX_OUTPUT_TOKENS", "4096"))
 
 
 def invalidate_cache():

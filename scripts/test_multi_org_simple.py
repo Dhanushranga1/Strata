@@ -22,8 +22,8 @@ from datetime import datetime
 
 # Configuration
 BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://vnubozvpqpdnqgwfqngx.supabase.co")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZudWJvenZwcXBkbnFnd2Zxbmd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzMxNDgxNzgsImV4cCI6MjA0ODcyNDE3OH0.tIexIq7eF2t90j6r4Zy9u7hAzlQY_GiJX87wOq0s7ps")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
 # Colors
 GREEN = "\033[92m"

@@ -14,10 +14,15 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 def _rate_limit_key(request: Request) -> str:
-    """Key rate limits on the real client IP, accounting for reverse proxies."""
+    """Key rate limits on the real client IP, accounting for reverse proxies.
+
+    Uses the LAST X-Forwarded-For entry — the client controls the first
+    entries (spoofable); our own proxy APPENDS the real IP, so the last
+    value is the trustworthy one.
+    """
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return forwarded.split(",")[-1].strip()
     if request.client:
         return request.client.host or "unknown"
     return "unknown"

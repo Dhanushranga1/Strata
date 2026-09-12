@@ -49,6 +49,7 @@ interface OrgRow {
   created_at: string;
   member_count: number;
   ticket_count: number;
+  plan_id?: string;
 }
 
 interface OrgMember {
@@ -127,10 +128,11 @@ export default function AdminOrganizationsPage() {
   const loadOrgs = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get('/api/admin/organizations');
+      const data = await api.get<OrgRow[]>('/api/admin/organizations');
       setOrgs(data);
-    } catch (e: any) {
-      if (e?.message?.includes('403') || e?.message?.includes('Admin')) {
+    } catch (e) {
+      const message = e instanceof Error ? e.message : '';
+      if (message.includes('403') || message.includes('Admin')) {
         router.replace('/dashboard');
       } else {
         toast.error('Failed to load organisations');
@@ -148,7 +150,9 @@ export default function AdminOrganizationsPage() {
     if (membersMap[orgId]) return;
     setMembersLoading(orgId);
     try {
-      const data = await api.get(`/api/admin/organizations/${orgId}/members`);
+      const data = await api.get<OrgMember[]>(
+        `/api/admin/organizations/${orgId}/members`
+      );
       setMembersMap(prev => ({ ...prev, [orgId]: data }));
     } catch {
       toast.error('Failed to load members');
@@ -176,8 +180,10 @@ export default function AdminOrganizationsPage() {
       setCreateDialog(false);
       setCreateName('');
       await loadOrgs();
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to create organisation');
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : 'Failed to create organisation'
+      );
     } finally {
       setCreateLoading(false);
     }
@@ -199,8 +205,10 @@ export default function AdminOrganizationsPage() {
       toast.success('Organisation renamed');
       setEditDialog({ open: false, org: null });
       await loadOrgs();
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to rename organisation');
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : 'Failed to rename organisation'
+      );
     } finally {
       setEditLoading(false);
     }
@@ -216,8 +224,23 @@ export default function AdminOrganizationsPage() {
         org.is_active ? 'Organisation deactivated' : 'Organisation reactivated'
       );
       await loadOrgs();
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to update organisation');
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : 'Failed to update organisation'
+      );
+    }
+  };
+
+  // ── Plan assignment ────────────────────────────────────────────────────────
+  const updatePlan = async (org: OrgRow, planId: string) => {
+    try {
+      await api.patch(`/api/admin/organizations/${org.id}/plan`, {
+        plan_id: planId,
+      });
+      toast.success(`Plan set to ${planId} for ${org.name}`);
+      await loadOrgs();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update plan');
     }
   };
 
@@ -249,8 +272,8 @@ export default function AdminOrganizationsPage() {
         return next;
       });
       loadMembers(orgId);
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to add member');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to add member');
     } finally {
       setAddLoading(false);
     }
@@ -273,8 +296,8 @@ export default function AdminOrganizationsPage() {
         ),
       }));
       toast.success('Role updated');
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to update role');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update role');
     }
   };
 
@@ -300,8 +323,8 @@ export default function AdminOrganizationsPage() {
         ),
       }));
       setRemoveDialog({ open: false, orgId: '', member: null });
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to remove member');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to remove member');
     }
   };
 
@@ -396,6 +419,20 @@ export default function AdminOrganizationsPage() {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
+                      <Select
+                        value={org.plan_id || 'community'}
+                        onValueChange={v => updatePlan(org, v)}
+                      >
+                        <SelectTrigger className="h-8 w-[110px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="community">Community</SelectItem>
+                          <SelectItem value="starter">Starter</SelectItem>
+                          <SelectItem value="business">Business</SelectItem>
+                          <SelectItem value="enterprise">Enterprise</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <Button
                         size="sm"
                         variant="ghost"

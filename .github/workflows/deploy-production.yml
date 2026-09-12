@@ -230,28 +230,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🗃️ Run Database Migrations
+      - name: 🗃️ Verify Migration Readiness
+        # Actual migrations apply automatically on backend startup via
+        # app.migration_runner (advisory-locked, fail-fast). This job only
+        # verifies the backend can reach the DB and the runner imports.
         working-directory: ./backend
         run: |
-          echo "🗃️ Running database migrations for ${{ github.event.inputs.environment }}..."
+          echo "🗃️ Verifying migration runner for ${{ github.event.inputs.environment }}..."
           python -c "
           import asyncio
-          from app.database import get_database_connection
-          
-          async def run_migrations():
-              conn = await get_database_connection()
-              try:
-                  # Add your migration logic here
-                  result = await conn.fetchval('SELECT 1')
-                  print(f'✅ Database connection successful: {result}')
-              finally:
-                  await conn.close()
-          
+          from app.migration_runner import run_migrations
+
           asyncio.run(run_migrations())
+          print('✅ Migrations applied/verified')
           "
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
 
       - name: ✅ Migration Success
         run: |

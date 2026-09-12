@@ -43,7 +43,7 @@ function invalidatePrefix(endpoint: string) {
 
 interface ApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
-  body?: any;
+  body?: unknown;
   orgId?: string | null;
   headers?: Record<string, string>;
 }
@@ -51,7 +51,7 @@ interface ApiOptions {
 /**
  * Make an API call with automatic authentication and organization context
  */
-export async function apiCall<T = any>(
+export async function apiCall<T = unknown>(
   endpoint: string,
   options: ApiOptions = {}
 ): Promise<T> {
@@ -143,7 +143,16 @@ export async function apiCall<T = any>(
   }
 
   const text = await response.text();
-  const responseData = text ? JSON.parse(text) : {};
+  let responseData: unknown = {};
+  if (text) {
+    try {
+      responseData = JSON.parse(text);
+    } catch {
+      // Non-JSON body (proxy HTML error page, gateway 200-with-HTML) —
+      // preserve the raw text instead of throwing a confusing SyntaxError
+      responseData = { message: text.slice(0, 500) };
+    }
+  }
 
   if (method === 'GET') {
     cacheSet(cacheKey(endpoint, orgId), responseData);
@@ -158,21 +167,30 @@ export async function apiCall<T = any>(
  * Convenience methods
  */
 export const api = {
-  get: <T = any>(endpoint: string, orgId?: string | null) =>
+  get: <T = unknown>(endpoint: string, orgId?: string | null) =>
     apiCall<T>(endpoint, { method: 'GET', orgId }),
 
-  post: <T = any>(endpoint: string, body: any, orgId?: string | null) =>
+  post: <T = unknown>(endpoint: string, body: unknown, orgId?: string | null) =>
     apiCall<T>(endpoint, { method: 'POST', body, orgId }),
 
-  put: <T = any>(endpoint: string, body: any, orgId?: string | null) =>
+  put: <T = unknown>(endpoint: string, body: unknown, orgId?: string | null) =>
     apiCall<T>(endpoint, { method: 'PUT', body, orgId }),
 
-  delete: <T = any>(endpoint: string, orgId?: string | null) =>
+  delete: <T = unknown>(endpoint: string, orgId?: string | null) =>
     apiCall<T>(endpoint, { method: 'DELETE', orgId }),
 
-  patch: <T = any>(endpoint: string, body: any, orgId?: string | null) =>
-    apiCall<T>(endpoint, { method: 'PATCH', body, orgId }),
+  patch: <T = unknown>(
+    endpoint: string,
+    body: unknown,
+    orgId?: string | null
+  ) => apiCall<T>(endpoint, { method: 'PATCH', body, orgId }),
 };
+
+/** Drop every cached GET response — call on sign-out / user switch so a
+ * different user on the same SPA session never sees the prior user's data. */
+export function clearApiCache() {
+  getCache.clear();
+}
 
 /**
  * Get auth token without making an API call
