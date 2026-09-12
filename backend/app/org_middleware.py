@@ -16,6 +16,7 @@ from typing import Optional, Set
 
 from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 from .exceptions import ForbiddenError, NotFoundError
 
@@ -75,7 +76,7 @@ class OrganizationContextMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Extract user_id from JWT token (since middleware runs before get_current_user dependency)
-        user_id = self._extract_user_id_from_token(request)
+        user_id = await self._extract_user_id_from_token(request)
 
         if user_id:
             try:
@@ -91,9 +92,16 @@ class OrganizationContextMiddleware(BaseHTTPMiddleware):
                             "path": request.url.path,
                         },
                     )
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="You are not a member of this organization",
+                    # Raise inside BaseHTTPMiddleware.dispatch bypasses
+                    # FastAPI's exception handlers → raw 500. Return a
+                    # proper 403 response instead.
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "error": "HTTPException",
+                            "message": "You are not a member of this organization",
+                            "status_code": 403,
+                        },
                     )
 
                 # Store in request state
@@ -154,12 +162,13 @@ class OrganizationContextMiddleware(BaseHTTPMiddleware):
 
         return False
 
-    def _extract_user_id_from_token(self, request: Request) -> Optional[str]:
+    async def _extract_user_id_from_token(self, request: Request) -> Optional[str]:
         """
         Extract user_id from JWT token in Authorization header.
 
-        Verifies the JWT signature — supports ES256 (modern Supabase via JWKS)
-        and HS256 (legacy Supabase via SUPABASE_JWT_SECRET).
+        Delegates to auth.verify_supabase_jwt (shared single implementation
+        for both ES256/JWKS and HS256) — returns None on any failure so the
+        middleware can 403 downstream.
         """
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
@@ -168,54 +177,9 @@ class OrganizationContextMiddleware(BaseHTTPMiddleware):
         token = auth_header.split(" ", 1)[1]
 
         try:
-            import base64
-            import os
+            from .auth import verify_supabase_jwt
 
-            import jwt
-
-            header = jwt.get_unverified_header(token)
-            alg = header.get("alg", "")
-            kid = header.get("kid", "")
-
-            if alg == "ES256":
-                from .auth import _build_ec_key, _fetch_jwks
-
-                keys = _fetch_jwks()
-                matching = [k for k in keys if k.get("kid") == kid]
-                if not matching:
-                    return None
-                public_key = _build_ec_key(matching[0])
-                payload = jwt.decode(
-                    token,
-                    public_key,
-                    algorithms=["ES256"],
-                    options={"verify_aud": False},
-                )
-            elif alg == "HS256":
-                secret_raw = (
-                    (os.getenv("SUPABASE_JWT_SECRET") or "")
-                    .strip()
-                    .strip('"')
-                    .strip("'")
-                )
-                if not secret_raw:
-                    return None
-                secret: str | bytes = secret_raw
-                try:
-                    decoded = base64.b64decode(secret_raw)
-                    if len(decoded) >= 32:
-                        secret = decoded
-                except Exception:
-                    pass
-                payload = jwt.decode(
-                    token,
-                    secret,
-                    algorithms=["HS256"],
-                    options={"verify_aud": False},
-                )
-            else:
-                return None
-
+            payload = await verify_supabase_jwt(token)
             return payload.get("sub")
         except Exception:
             return None

@@ -48,7 +48,7 @@ export default function EditArticlePage() {
 
   const key = isReady && orgId ? `/api/knowbase/articles/${id}` : null;
   const { data: article, isLoading } = useSWR<ArticleOut>(key, () =>
-    api.get(`/api/knowbase/articles/${id}`, orgId)
+    api.get<ArticleOut>(`/api/knowbase/articles/${id}`, orgId)
   );
 
   useEffect(() => {

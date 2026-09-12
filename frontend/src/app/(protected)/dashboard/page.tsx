@@ -97,6 +97,29 @@ interface TicketsResponse {
   limit: number;
 }
 
+interface CategoryStat {
+  status: string;
+  count: number;
+}
+
+interface PriorityStat {
+  priority: string;
+  count: number;
+}
+
+interface CategoryStats {
+  status_counts?: CategoryStat[];
+  priority_counts?: PriorityStat[];
+}
+
+interface ActivityRaw {
+  id: string;
+  ticket_id: string;
+  type: string;
+  detail?: string;
+  ts: string;
+}
+
 function formatRelativeTime(ts: string): string {
   const diff = Date.now() - new Date(ts).getTime();
   const mins = Math.floor(diff / 60000);
@@ -269,20 +292,20 @@ export default function DashboardPage() {
         const [analytics, categorystats] = await Promise.all([
           api.get<AdminAnalytics>('/api/admin/analytics/summary', orgId),
           api
-            .get<any>('/api/admin/analytics/by-category', orgId)
+            .get<CategoryStats>('/api/admin/analytics/by-category', orgId)
             .catch(() => ({ status_counts: [], priority_counts: [] })),
         ]);
 
         const statusCounts = categorystats.status_counts || [];
         const priorityCounts = categorystats.priority_counts || [];
         const openCount =
-          statusCounts.find((s: any) => s.status === 'open')?.count || 0;
+          statusCounts.find(s => s.status === 'open')?.count || 0;
         const resolvedCount =
-          statusCounts.find((s: any) => s.status === 'resolved')?.count || 0;
+          statusCounts.find(s => s.status === 'resolved')?.count || 0;
         const inProgressCount =
-          statusCounts.find((s: any) => s.status === 'in_progress')?.count || 0;
+          statusCounts.find(s => s.status === 'in_progress')?.count || 0;
         const urgentCount =
-          priorityCounts.find((p: any) => p.priority === 'urgent')?.count || 0;
+          priorityCounts.find(p => p.priority === 'urgent')?.count || 0;
         const satisfaction =
           analytics.avg_customer_rating != null
             ? parseFloat(analytics.avg_customer_rating.toFixed(1))
@@ -399,10 +422,10 @@ export default function DashboardPage() {
         // Load recent activity per role (non-blocking — don't fail the whole page)
         if (role === 'admin') {
           api
-            .get<any[]>(`/api/admin/activity?limit=5`, orgId)
+            .get<ActivityRaw[]>(`/api/admin/activity?limit=5`, orgId)
             .then(items => {
               setRecentActivity(
-                (items || []).map((item: any) => ({
+                (items || []).map(item => ({
                   id: item.id,
                   ticketId: item.ticket_id,
                   action: activityLabelFromType(item.type),
@@ -812,7 +835,7 @@ export default function DashboardPage() {
                       variant="default"
                       size="sm"
                       className="w-full justify-start"
-                      onClick={() => router.push('/tickets/new')}
+                      onClick={() => router.push('/tickets?new=1')}
                     >
                       <TicketIcon className="h-4 w-4 mr-2" />
                       New Ticket

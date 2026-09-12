@@ -151,7 +151,7 @@ export default function RequestRepPage() {
       case 'denied':
         return 'text-red-400 bg-red-950/30 border-red-800';
       default:
-        return 'text-zinc-400 bg-zinc-800/50 border-zinc-700';
+        return 'text-zinc-600 bg-zinc-100 border-zinc-200 dark:text-zinc-400 dark:bg-zinc-800/50 dark:border-zinc-700';
     }
   };
 

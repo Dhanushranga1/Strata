@@ -1,8 +1,8 @@
-export type PlanId = 'community' | 'starter' | 'business' | 'enterprise'
+export type PlanId = 'community' | 'starter' | 'business' | 'enterprise';
 
 interface PlanDef {
-  features: Record<string, boolean>
-  limits: Record<string, number>  // -1 = unlimited
+  features: Record<string, boolean>;
+  limits: Record<string, number>; // -1 = unlimited
 }
 
 export const PLANS: Record<PlanId, PlanDef> = {
@@ -31,7 +31,8 @@ export const PLANS: Record<PlanId, PlanDef> = {
       people_sync:     false,
       billing:         false,
     },
-    limits: { agents: 5, ai_queries: 0 },
+    // agents=10 for community (was 5 — phase-H team seat cap fix on main)
+    limits: { agents: 10, ai_queries: 0 },
   },
   starter: {
     features: {
@@ -108,7 +109,7 @@ export const PLANS: Record<PlanId, PlanDef> = {
     },
     limits: { agents: -1, ai_queries: -1 },
   },
-}
+};
 
 // Minimum plan required to unlock each feature (for upgrade messaging)
 export const FEATURE_MIN_PLAN: Record<string, PlanId> = {
@@ -132,4 +133,4 @@ export const FEATURE_MIN_PLAN: Record<string, PlanId> = {
   status_cast:     'business',
   people_sync:     'enterprise',
   billing:         'starter',
-}
+};

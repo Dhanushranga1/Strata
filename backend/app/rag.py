@@ -1,20 +1,353 @@
 """
 RAG retrieval module.
-Handles embedding queries, FAISS search, context building, and advanced confidence scoring.
-Enhanced with MMR re-ranking, semantic coherence analysis, and CASPER adaptive scoring.
+Hybrid retrieval: pgvector cosine + tsvector full-text + pg_trgm fuzzy, fused
+with Reciprocal Rank Fusion. MMR re-ranking + CASPER adaptive confidence on top.
 """
 
+import logging
 import os
 import re
-import logging
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Dict, Tuple, Optional, Any
+
+from .ai_settings import embed_dim as _embed_dim
 from .embeddings import embed_texts
-from .store import search_org_vectors, search_org_bm25
-from .redact import scrub
 from .rag_scoring import casper_confidence, classify_query_intent
+from .redact import scrub
 
 logger = logging.getLogger(__name__)
+
+EMBEDDING_DIM = _embed_dim()
+
+RRF_K = 60  # reciprocal-rank fusion constant
+
+
+def _row_to_chunk(row: Dict) -> Dict:
+    return {
+        "chunk_id": str(row["chunk_id"]),
+        "doc_id": str(row["doc_id"]),
+        "text": row["text"],
+        "faiss_id": row["faiss_id"],
+        "title": row["title"],
+        "_emb": np.array(row["embedding_array"], dtype=np.float32),
+        "score": 0.0,
+    }
+
+
+def _add_ranks(acc: Dict[str, float], ids: List[str]) -> None:
+    for rank, chunk_id in enumerate(ids):
+        acc[chunk_id] = acc.get(chunk_id, 0.0) + 1.0 / (RRF_K + rank + 1)
+
+
+def hybrid_search_chunks(
+    org_id: str, query: str, query_vector: List[float], k: int = 20
+) -> List[Dict]:
+    """
+    Hybrid retrieval — RRF fusion of:
+      1. pgvector cosine (semantic)
+      2. tsvector websearch full-text (lexical — acronyms, error codes, product names)
+      3. pg_trgm similarity (fuzzy — typo tolerance)
+
+    Returns chunk dicts ranked by fused score; `score` recomputed as cosine
+    similarity so downstream MIN_SCORE filtering behaves uniformly.
+    Falls back to vector-only search when lexical indexes are unavailable.
+    """
+    from .db_sync import get_db_connection
+
+    if not org_id or not query:
+        return []
+
+    if query_vector:
+        return _hybrid_search_with_vectors(org_id, query, query_vector, k)
+    return search_chunks_pgvector(org_id, query_vector or [], k)
+
+
+def _hybrid_search_with_vectors(
+    org_id: str, query: str, query_vector: List[float], k: int
+) -> List[Dict]:
+    from .db_sync import get_db_connection
+
+    rrf: Dict[str, float] = {}
+    rows_by_id: Dict[str, Dict] = {}
+
+    _SELECT = """
+        SELECT c.id as chunk_id, c.doc_id, c.text, c.faiss_id, d.title,
+               c.embedding_vec::float4[] as embedding_array
+        FROM app.chunks c
+        JOIN app.documents d ON d.id = c.doc_id
+        WHERE c.organization_id = %s
+    """
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # 1) Semantic
+        try:
+            cursor.execute(
+                _SELECT
+                + " AND c.embedding_vec IS NOT NULL"
+                + " ORDER BY c.embedding_vec <=> %s::vector LIMIT %s",
+                (org_id, str(query_vector), k),
+            )
+            vec_rows = cursor.fetchall()
+            for row in vec_rows:
+                rows_by_id[str(row["chunk_id"])] = row
+            _add_ranks(rrf, [str(r["chunk_id"]) for r in vec_rows])
+        except Exception as e:
+            logger.warning("[hybrid] vector search failed: %s", e)
+
+        # 2) Lexical (full-text)
+        try:
+            cursor.execute(
+                _SELECT
+                + " AND c.text_search @@ websearch_to_tsquery('english', %s)"
+                + " ORDER BY ts_rank(c.text_search, websearch_to_tsquery('english', %s)) DESC"
+                + " LIMIT %s",
+                (org_id, query, query, k),
+            )
+            lex_rows = cursor.fetchall()
+            for row in lex_rows:
+                rows_by_id.setdefault(str(row["chunk_id"]), row)
+            _add_ranks(rrf, [str(r["chunk_id"]) for r in lex_rows])
+        except Exception as e:
+            logger.debug("[hybrid] lexical search skipped: %s", e)
+
+        # 3) Fuzzy (trigram)
+        try:
+            cursor.execute(
+                _SELECT
+                + " AND c.text %% %s"
+                + " ORDER BY similarity(c.text, %s) DESC LIMIT %s",
+                (org_id, query, query, k),
+            )
+            tri_rows = cursor.fetchall()
+            for row in tri_rows:
+                rows_by_id.setdefault(str(row["chunk_id"]), row)
+            _add_ranks(rrf, [str(r["chunk_id"]) for r in tri_rows])
+        except Exception as e:
+            logger.debug("[hybrid] trigram search skipped: %s", e)
+
+    if not rrf:
+        return []
+
+    ranked_ids = sorted(rrf, key=lambda cid: rrf[cid], reverse=True)[:k]
+
+    # Recompute uniform cosine score from stored embeddings
+    q = np.array(query_vector, dtype=np.float32)
+    q_norm = np.linalg.norm(q)
+    results = []
+    for chunk_id in ranked_ids:
+        row = rows_by_id[chunk_id]
+        chunk = _row_to_chunk(row)
+        try:
+            emb = chunk["_emb"]
+            emb_norm = float(np.linalg.norm(emb))
+            if q_norm > 0 and emb_norm > 0:
+                chunk["score"] = float(np.dot(emb, q) / (emb_norm * q_norm))
+        except Exception:
+            chunk["score"] = 0.0
+        results.append(chunk)
+    return results
+
+
+def search_chunks_pgvector(
+    org_id: str, query_vector: List[float], k: int = 6
+) -> List[Dict]:
+    """
+    Vector-only search (pgvector cosine). Fallback path — prefer
+    hybrid_search_chunks(). Falls back to in-memory numpy search if pgvector
+    is unavailable.
+    """
+    from .db_sync import get_db_connection
+
+    if not query_vector or not org_id:
+        return []
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT c.id as chunk_id, c.doc_id, c.text, c.faiss_id, d.title,
+                       c.embedding_vec::float4[] as embedding_array,
+                       1.0 - (c.embedding_vec <=> %s::vector) as score
+                FROM app.chunks c
+                JOIN app.documents d ON d.id = c.doc_id
+                WHERE c.organization_id = %s
+                  AND c.embedding_vec IS NOT NULL
+                ORDER BY c.embedding_vec <=> %s::vector
+                LIMIT %s
+                """,
+                (str(query_vector), org_id, str(query_vector), k),
+            )
+            rows = cursor.fetchall()
+
+        results = []
+        for row in rows:
+            results.append(
+                {
+                    "chunk_id": str(row["chunk_id"]),
+                    "doc_id": str(row["doc_id"]),
+                    "text": row["text"],
+                    "faiss_id": row["faiss_id"],
+                    "title": row["title"],
+                    "_emb": np.array(row["embedding_array"], dtype=np.float32),
+                    "score": float(row["score"]),
+                }
+            )
+        return results
+
+    except Exception as e:
+        logger.warning("pgvector search failed (%s), trying in-memory fallback", e)
+        return _search_chunks_in_memory(org_id, query_vector, k)
+
+
+def _search_chunks_in_memory(
+    org_id: str, query_vector: List[float], k: int = 6
+) -> List[Dict]:
+    """Fallback: load all org embeddings from DB and do numpy cosine search."""
+    from .db_sync import get_db_connection
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT c.id as chunk_id, c.doc_id, c.text, c.faiss_id, d.title,
+                       c.embedding as embedding_array
+                FROM app.chunks c
+                JOIN app.documents d ON d.id = c.doc_id
+                WHERE c.organization_id = %s
+                  AND c.embedding IS NOT NULL
+                """,
+                (org_id,),
+            )
+            rows = cursor.fetchall()
+
+        if not rows:
+            return []
+
+        q = np.array(query_vector, dtype=np.float32)
+        q_norm = np.linalg.norm(q)
+        if q_norm == 0:
+            return []
+        q_unit = q / q_norm
+
+        scored = []
+        for row in rows:
+            emb = np.array(row["embedding_array"], dtype=np.float32)
+            emb_norm = np.linalg.norm(emb)
+            if emb_norm == 0:
+                continue
+            score = float(np.dot(emb / emb_norm, q_unit))
+            scored.append((score, row, emb))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        results = []
+        for score, row, emb in scored[:k]:
+            results.append(
+                {
+                    "chunk_id": str(row["chunk_id"]),
+                    "doc_id": str(row["doc_id"]),
+                    "text": row["text"],
+                    "faiss_id": row["faiss_id"],
+                    "title": row["title"],
+                    "_emb": emb,
+                    "score": score,
+                }
+            )
+        return results
+
+    except Exception as e:
+        logger.error("In-memory fallback search also failed: %s", e)
+        return []
+
+
+def get_org_chunk_count(org_id: str) -> int:
+    """Return total chunk count for an org (used for MMR skip decision)."""
+    from .db_sync import get_db_connection
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM app.chunks WHERE organization_id = %s AND embedding_vec IS NOT NULL",
+                (org_id,),
+            )
+            return cursor.fetchone()["count"]
+    except Exception:
+        return 0
+
+
+def search_similar_tickets(
+    org_id: str, query: str, query_vector: List[float], k: int = 3
+) -> List[Dict]:
+    """
+    Search resolved/closed tickets for similar past issues (J.3).
+    RRF fusion of title_embedding cosine + tsvector full-text.
+    Returns [{"id", "title", "score", "match"}...] — best first.
+    """
+    from .db_sync import get_db_connection
+
+    if not org_id or not query:
+        return []
+
+    rrf: Dict[str, float] = {}
+    meta: Dict[str, Dict] = {}
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # Semantic on resolved-ticket embeddings
+        try:
+            cursor.execute(
+                """
+                SELECT id::text, title, 1.0 - (title_embedding <=> %s::vector) AS score
+                FROM app.tickets
+                WHERE organization_id = %s
+                  AND status IN ('resolved','closed')
+                  AND title_embedding IS NOT NULL
+                ORDER BY title_embedding <=> %s::vector
+                LIMIT %s
+                """,
+                (str(query_vector), org_id, str(query_vector), k * 3),
+            )
+            for rank, row in enumerate(cursor.fetchall()):
+                tid = row["id"]
+                meta[tid] = {
+                    "id": tid,
+                    "title": row["title"],
+                    "score": float(row["score"]),
+                }
+                rrf[tid] = rrf.get(tid, 0.0) + 1.0 / (RRF_K + rank + 1)
+        except Exception as e:
+            logger.debug("[similar-tickets] vector search skipped: %s", e)
+
+        # Lexical on title+description full-text
+        try:
+            cursor.execute(
+                """
+                SELECT id::text, title
+                FROM app.tickets
+                WHERE organization_id = %s
+                  AND status IN ('resolved','closed')
+                  AND text_search @@ websearch_to_tsquery('english', %s)
+                ORDER BY ts_rank(text_search, websearch_to_tsquery('english', %s)) DESC
+                LIMIT %s
+                """,
+                (org_id, query, query, k * 3),
+            )
+            for rank, row in enumerate(cursor.fetchall()):
+                tid = row["id"]
+                meta.setdefault(tid, {"id": tid, "title": row["title"], "score": 0.0})
+                rrf[tid] = rrf.get(tid, 0.0) + 1.0 / (RRF_K + rank + 1)
+        except Exception as e:
+            logger.debug("[similar-tickets] lexical search skipped: %s", e)
+
+    ranked = sorted(rrf, key=lambda tid: rrf[tid], reverse=True)[:k]
+    return [meta[tid] for tid in ranked]
+
 
 # Configuration from environment
 TOP_K = int(os.getenv("RAG_TOP_K", "6"))
@@ -24,19 +357,20 @@ MMR_LAMBDA = float(os.getenv("MMR_LAMBDA", "0.7"))  # Balance relevance vs diver
 DIVERSITY_PENALTY = float(os.getenv("DIVERSITY_PENALTY", "0.3"))
 
 # Intent-adaptive MMR lambda — controls relevance vs diversity trade-off per query type
+# (Only used when KB has 50+ chunks — small KBs skip MMR entirely)
 _INTENT_MMR_LAMBDA: Dict[str, float] = {
-    "factual":         0.82,  # precision-first; conflicting sources reduce reliability
-    "procedural":      0.70,  # balanced; steps need coverage but not duplication
+    "factual": 0.82,  # precision-first; conflicting sources reduce reliability
+    "procedural": 0.70,  # balanced; steps need coverage but not duplication
     "troubleshooting": 0.55,  # diversity-first; multiple root-cause paths needed
-    "comparison":      0.48,  # maximum diversity; one source per entity being compared
+    "comparison": 0.48,  # maximum diversity; one source per entity being compared
 }
 
-# Intent-adaptive FAISS search headroom (multiplier on TOP_K before re-ranking)
+# Intent-adaptive search headroom (multiplier on TOP_K before re-ranking)
 _INTENT_SEARCH_HEADROOM: Dict[str, int] = {
-    "factual":         2,  # tight pool — precision over recall
-    "procedural":      3,  # moderate — enough steps coverage
+    "factual": 2,  # tight pool — precision over recall
+    "procedural": 3,  # moderate — enough steps coverage
     "troubleshooting": 4,  # wide net — diverse root-cause candidates
-    "comparison":      4,  # wide net — need representatives from each side
+    "comparison": 4,  # wide net — need representatives from each side
 }
 
 
@@ -46,37 +380,43 @@ def _ensure_embeddings(chunks: List[Dict]) -> List:
     Caches computed embeddings on the chunk dict under '_emb' to avoid re-computing
     across multiple callers (MMR, coherence, diversity) in the same retrieve() pass.
     """
-    missing_indices = [i for i, c in enumerate(chunks) if '_emb' not in c]
+    missing_indices = [i for i, c in enumerate(chunks) if "_emb" not in c]
     if missing_indices:
-        texts = [chunks[i].get('text', '') for i in missing_indices]
+        texts = [chunks[i].get("text", "") for i in missing_indices]
         try:
             computed = embed_texts(texts)
             for i, emb in zip(missing_indices, computed):
-                chunks[i]['_emb'] = emb
+                chunks[i]["_emb"] = emb
         except Exception as e:
             logger.warning("Batch chunk embedding failed: %s", e)
             for i in missing_indices:
-                chunks[i]['_emb'] = np.zeros(len(chunks[0].get('_emb', [1])))
-    return [c['_emb'] for c in chunks]
+                chunks[i]["_emb"] = np.zeros(EMBEDDING_DIM)
+    return [c["_emb"] for c in chunks]
 
 
-def compute_semantic_coherence(chunks: List[Dict], query_embedding: List[float]) -> float:
+def compute_semantic_coherence(
+    chunks: List[Dict], query_embedding: List[float]
+) -> float:
     """Compute semantic coherence between retrieved chunks and query (vectorized)."""
     if not chunks:
         return 0.0
     try:
-        embs = np.array(_ensure_embeddings(chunks))   # (N, D)
+        embs = np.array(_ensure_embeddings(chunks))  # (N, D)
         q = np.array(query_embedding)
         q_norm = np.linalg.norm(q)
         if q_norm == 0:
             return 0.0
         q_unit = q / q_norm
-        norms = np.linalg.norm(embs, axis=1)          # (N,)
+        norms = np.linalg.norm(embs, axis=1)  # (N,)
         valid = norms > 0
         if not valid.any():
             return 0.0
-        embs_unit = np.where(valid[:, None], embs / np.where(norms[:, None] > 0, norms[:, None], 1.0), 0.0)
-        sims = embs_unit @ q_unit                      # (N,) — single matmul
+        embs_unit = np.where(
+            valid[:, None],
+            embs / np.where(norms[:, None] > 0, norms[:, None], 1.0),
+            0.0,
+        )
+        sims = embs_unit @ q_unit  # (N,) — single matmul
         return float(np.mean(sims[valid]))
     except Exception as e:
         logger.warning("Semantic coherence error: %s", e)
@@ -88,14 +428,14 @@ def compute_diversity_score(chunks: List[Dict]) -> float:
     if len(chunks) < 2:
         return 1.0
     try:
-        embs = np.array(_ensure_embeddings(chunks))   # (N, D)
-        norms = np.linalg.norm(embs, axis=1)           # (N,)
+        embs = np.array(_ensure_embeddings(chunks))  # (N, D)
+        norms = np.linalg.norm(embs, axis=1)  # (N,)
         valid = norms > 0
         norm_safe = np.where(norms[:, None] > 0, norms[:, None], 1.0)
-        normalized = embs / norm_safe                  # (N, D)
-        sim_matrix = normalized @ normalized.T         # (N, N) — full cosine sim matrix
+        normalized = embs / norm_safe  # (N, D)
+        sim_matrix = normalized @ normalized.T  # (N, N) — full cosine sim matrix
         n = len(chunks)
-        rows, cols = np.triu_indices(n, k=1)           # upper-triangle indices
+        rows, cols = np.triu_indices(n, k=1)  # upper-triangle indices
         pair_valid = valid[rows] & valid[cols]
         if not pair_valid.any():
             return 0.5
@@ -132,10 +472,10 @@ def mmr_rerank(
 
         while remaining_indices and len(selected_indices) < len(chunks):
             rem = np.array(remaining_indices)
-            rem_unit = unit_embs[rem]                           # (|R|, D)
-            sel_unit = unit_embs[selected_indices]              # (|S|, D)
-            sim_matrix = rem_unit @ sel_unit.T                  # (|R|, |S|)
-            max_sims = sim_matrix.max(axis=1)                   # (|R|,)
+            rem_unit = unit_embs[rem]  # (|R|, D)
+            sel_unit = unit_embs[selected_indices]  # (|S|, D)
+            sim_matrix = rem_unit @ sel_unit.T  # (|R|, |S|)
+            max_sims = sim_matrix.max(axis=1)  # (|R|,)
 
             relevances = np.array([scores[i] for i in remaining_indices])
             mmr_scores = lambda_param * relevances - (1.0 - lambda_param) * max_sims
@@ -145,37 +485,48 @@ def mmr_rerank(
             selected_indices.append(best_idx)
             remaining_indices.pop(best_local)
 
-        return [chunks[i] for i in selected_indices], [scores[i] for i in selected_indices]
+        return [chunks[i] for i in selected_indices], [
+            scores[i] for i in selected_indices
+        ]
     except Exception as e:
         logger.warning("MMR re-ranking error: %s", e)
         return chunks, scores
 
 
 def retrieve(
-    query: str,
-    fetch_chunk_fn,
-    org_id: str = "",
-    query_vector: Optional[List[float]] = None,
+    query: str, fetch_chunk_fn=None, org_id: str = ""
 ) -> Tuple[List[Dict], List[str], str, List[float], List[int], Dict[str, float]]:
     """
-    Retrieve relevant chunks for a query using FAISS + BM25 with RRF and MMR re-ranking.
-    Chunk embeddings are computed exactly once per call and shared across
-    MMR, semantic coherence, and diversity scoring.
-
-    query_vector: optional pre-computed query embedding (skips embedding step when provided).
+    Hybrid retrieve: query expansion + RRF fusion of semantic/lexical/fuzzy
+    search + MMR re-ranking.
 
     Returns:
         (chunks, sources, context, scores, faiss_ids, retrieval_metrics)
     """
-    # 1) Embed the query — skipped when caller provides a pre-computed vector
-    if query_vector is None:
-        try:
-            query_vector = embed_texts([query], task_type="retrieval_query")[0]
-        except Exception as e:
-            logger.error("Query embedding failed: %s", e)
-            return [], [], "", [], [], {"error": 1.0}
+    retrieval_metrics: Dict[str, float] = {}
 
-    # 2) Classify query intent — drives adaptive MMR lambda and search headroom
+    # 1) Query expansion — rewrite into alternate search queries (J.2)
+    queries = [query]
+    if os.getenv("RAG_QUERY_EXPANSION", "1") != "0":
+        try:
+            from .ai import expand_query
+
+            queries = expand_query(query)
+        except Exception as e:
+            # Degraded, not fatal — flag it so the UI can tell the user
+            logger.warning("Query expansion degraded: %s", e)
+            queries = [query]
+            retrieval_metrics["query_expansion_degraded"] = 1.0
+
+    # 2) Embed all queries in one batch
+    try:
+        vectors = embed_texts(queries)
+    except Exception as e:
+        logger.error("Query embedding failed: %s", e)
+        return [], [], "", [], [], {"error": 1.0}
+    query_vector = vectors[0]
+
+    # 3) Classify query intent — drives adaptive MMR lambda and search headroom
     try:
         _intent, _intent_scores = classify_query_intent(query)
         _intent_key = _intent.value if hasattr(_intent, "value") else str(_intent)
@@ -185,78 +536,67 @@ def retrieve(
     headroom = _INTENT_SEARCH_HEADROOM.get(_intent_key, 2)
     search_k = min(TOP_K * headroom, 20)
 
-    # 3a) FAISS dense search with intent-adaptive K
-    try:
-        faiss_scores_raw, faiss_ids_raw = search_org_vectors(org_id, query_vector, k=search_k)
-    except Exception as e:
-        logger.error("FAISS search failed: %s", e)
-        return [], [], "", [], [], {"error": 1.0}
+    # 4) Hybrid search per query; RRF-merge across queries + methods (J.1)
+    fused: Dict[str, Dict] = {}
+    fusion_scores: Dict[str, float] = {}
+    for i, (q, qv) in enumerate(zip(queries, vectors)):
+        try:
+            hits = hybrid_search_chunks(org_id, q, qv, k=search_k)
+        except Exception as e:
+            logger.error("Hybrid search failed for query %d: %s", i, e)
+            continue
+        # Cross-query RRF: rank within each query's result list
+        for rank, chunk in enumerate(hits):
+            cid = chunk["chunk_id"]
+            fusion_scores[cid] = fusion_scores.get(cid, 0.0) + 1.0 / (RRF_K + rank + 1)
+            if cid not in fused:
+                fused[cid] = chunk
 
-    # Keep only FAISS hits above MIN_SCORE; preserve original rank for RRF
-    faiss_candidates = [
-        (rank, int(fid), float(score))
-        for rank, (score, fid) in enumerate(zip(faiss_scores_raw, faiss_ids_raw))
-        if score >= MIN_SCORE and fid >= 0
-    ]
-
-    # 3b) BM25 sparse search — surfaces keyword matches FAISS may miss
-    bm25_candidates: List[Tuple[int, float]] = []
-    try:
-        bm25_candidates = search_org_bm25(org_id, query, k=search_k)
-    except Exception as e:
-        logger.warning("BM25 search failed, FAISS-only fallback: %s", e)
-
-    # 3c) Reciprocal Rank Fusion — score = Σ 1/(60 + rank_i) across lists
-    _K_RRF = 60
-    faiss_rank_map = {fid: rank for rank, fid, _ in faiss_candidates}
-    bm25_rank_map  = {fid: rank for rank, (fid, _) in enumerate(bm25_candidates)}
-
-    all_fids = set(faiss_rank_map) | set(bm25_rank_map)
-    if not all_fids:
+    if not fused:
         return [], [], "", [], [], {"no_results": 1.0}
 
-    rrf_scores = {
-        fid: (
-            (1.0 / (_K_RRF + faiss_rank_map[fid]) if fid in faiss_rank_map else 0.0) +
-            (1.0 / (_K_RRF + bm25_rank_map[fid])  if fid in bm25_rank_map  else 0.0)
-        )
-        for fid in all_fids
-    }
+    ranked_ids = sorted(fused, key=lambda cid: fusion_scores[cid], reverse=True)
+    chunks = [fused[cid] for cid in ranked_ids]
 
-    sorted_rrf = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:search_k]
-    filtered_faiss_ids = [fid for fid, _ in sorted_rrf]
-    filtered_scores    = [score for _, score in sorted_rrf]
+    # 5) Filter by minimum cosine score (computed in hybrid search)
+    valid_chunks = [c for c in chunks if c.get("score", 0) >= MIN_SCORE]
+    if not valid_chunks:
+        return [], [], "", [], [], {"no_results": 1.0}
 
-    # 4) Fetch chunk details from database
+    filtered_scores = [c["score"] for c in valid_chunks]
+    filtered_faiss_ids = [c.get("faiss_id", -1) for c in valid_chunks]
+
+    # 6) MMR re-ranking — skip when KB is small
     try:
-        chunks = fetch_chunk_fn(filtered_faiss_ids)
-    except Exception as e:
-        logger.error("Database chunk fetch failed: %s", e)
-        return [], [], "", [], [], {"db_error": 1.0}
+        _total = get_org_chunk_count(org_id)
+    except Exception:
+        _total = 0
 
-    if not chunks:
-        return [], [], "", [], [], {"no_chunks": 1.0}
-
-    # 5) Compute chunk embeddings ONCE — reused by MMR, coherence, and diversity below
-    _ensure_embeddings(chunks)
-
-    # 6) Apply MMR re-ranking with intent-adaptive lambda (uses cached embeddings)
-    try:
-        reranked_chunks, reranked_scores = mmr_rerank(chunks, filtered_scores, query_vector, lambda_param=mmr_lambda)
-        final_chunks = reranked_chunks[:TOP_K]
-        final_scores = reranked_scores[:TOP_K]
-        final_faiss_ids = [c.get('faiss_id', -1) for c in final_chunks]
-    except Exception as e:
-        logger.warning("MMR re-ranking failed, using original order: %s", e)
-        final_chunks = chunks[:TOP_K]
+    if _total < 50 or len(filtered_scores) <= TOP_K:
+        final_chunks = valid_chunks[:TOP_K]
         final_scores = filtered_scores[:TOP_K]
         final_faiss_ids = filtered_faiss_ids[:TOP_K]
+        if _total:
+            logger.info("MMR disabled (%d chunks < 50) — using hybrid order", _total)
+    else:
+        try:
+            reranked_chunks, reranked_scores = mmr_rerank(
+                valid_chunks, filtered_scores, query_vector, lambda_param=mmr_lambda
+            )
+            final_chunks = reranked_chunks[:TOP_K]
+            final_scores = reranked_scores[:TOP_K]
+            final_faiss_ids = [c.get("faiss_id", -1) for c in final_chunks]
+        except Exception as e:
+            logger.warning("MMR re-ranking failed, using original order: %s", e)
+            final_chunks = valid_chunks[:TOP_K]
+            final_scores = filtered_scores[:TOP_K]
+            final_faiss_ids = filtered_faiss_ids[:TOP_K]
 
     # 7) Build context and sources with PII scrubbing
     context_parts = []
     sources = []
     for i, chunk in enumerate(final_chunks):
-        clean_text = scrub(chunk.get('text', ''))
+        clean_text = scrub(chunk.get("text", ""))
         context_parts.append(f"[{i+1}] {clean_text}")
         sources.append(f"[{i+1}] {chunk.get('title', 'Unknown Document')}")
 
@@ -264,27 +604,37 @@ def retrieve(
     if len(full_context) > MAX_CONTEXT_CHARS:
         full_context = full_context[:MAX_CONTEXT_CHARS] + "... [truncated]"
 
-    # 8) Compute retrieval quality metrics (all reuse cached chunk embeddings)
+    # 8) Compute retrieval quality metrics (reuse cached chunk embeddings)
     _top = final_scores[0] if final_scores else 0.0
     _second = final_scores[1] if len(final_scores) >= 2 else _top
-    retrieval_metrics = {
-        "context_relevance": compute_semantic_coherence(final_chunks, query_vector),
-        "source_diversity": compute_diversity_score(final_chunks),
-        "information_density": min(1.0, len(full_context) / MAX_CONTEXT_CHARS),
-        "top_score": _top,
-        "score_gap": _top - _second,  # large gap → single dominant source
-        "score_variance": float(np.var(final_scores)) if len(final_scores) > 1 else 0.0,
-        "chunks_returned": len(final_chunks),
-        "query_intent": _intent_key,  # forwarded to CASPER without re-classifying
-        "bm25_candidates": len(bm25_candidates),
-        "rrf_applied": len(bm25_candidates) > 0,
-    }
+    retrieval_metrics.update(
+        {
+            "context_relevance": compute_semantic_coherence(final_chunks, query_vector),
+            "source_diversity": compute_diversity_score(final_chunks),
+            "information_density": min(1.0, len(full_context) / MAX_CONTEXT_CHARS),
+            "top_score": _top,
+            "score_gap": _top - _second,
+            "score_variance": (
+                float(np.var(final_scores)) if len(final_scores) > 1 else 0.0
+            ),
+            "chunks_returned": len(final_chunks),
+            "query_intent": _intent_key,
+            "queries_used": len(queries),
+        },
+    )
 
     # Clean up temporary embedding cache from chunk dicts before returning
-    for c in chunks:
-        c.pop('_emb', None)
+    for c in final_chunks:
+        c.pop("_emb", None)
 
-    return final_chunks, sources, full_context, final_scores, final_faiss_ids, retrieval_metrics
+    return (
+        final_chunks,
+        sources,
+        full_context,
+        final_scores,
+        final_faiss_ids,
+        retrieval_metrics,
+    )
 
 
 def compute_confidence(
@@ -349,7 +699,9 @@ def should_escalate(
     # Factual queries can be fully answered by a single authoritative chunk;
     # troubleshooting/procedural need at least 2 to cover diverse root causes.
     _intent_key = (
-        (confidence_breakdown or retrieval_metrics or {}).get("query_intent", "procedural")
+        (confidence_breakdown or retrieval_metrics or {}).get(
+            "query_intent", "procedural"
+        )
         if confidence_breakdown
         else retrieval_metrics.get("query_intent", "procedural")
     )
@@ -358,21 +710,23 @@ def should_escalate(
     signals = {
         "low_confidence": confidence < threshold,
         "no_relevant_context": retrieval_metrics.get("context_relevance", 1.0) < 0.3,
-        "retrieval_failed": "error" in retrieval_metrics or "no_results" in retrieval_metrics,
-        "insufficient_chunks": retrieval_metrics.get("chunks_returned", 99) < _min_chunks,
+        "retrieval_failed": "error" in retrieval_metrics
+        or "no_results" in retrieval_metrics,
+        "insufficient_chunks": retrieval_metrics.get("chunks_returned", 99)
+        < _min_chunks,
         "high_uncertainty": "contact support" in lower_output,
         "long_conversation": conversation_length > 8,
     }
 
-    critical_signals = {"no_relevant_context", "retrieval_failed", "insufficient_chunks"}
+    critical_signals = {
+        "no_relevant_context",
+        "retrieval_failed",
+        "insufficient_chunks",
+    }
     triggered = [k for k, v in signals.items() if v]
     critical_triggered = [k for k in triggered if k in critical_signals]
 
-    escalate = (
-        critical_phrase_hit
-        or bool(critical_triggered)
-        or len(triggered) >= 2
-    )
+    escalate = critical_phrase_hit or bool(critical_triggered) or len(triggered) >= 2
 
     reasons = list(triggered)
     if critical_phrase_hit:
@@ -384,6 +738,12 @@ def should_escalate(
         "signal_count": len(reasons),
         "confidence_threshold": threshold,
         "adaptive_threshold": threshold != 0.55,
-        "query_intent": confidence_breakdown.get("query_intent") if confidence_breakdown else None,
-        "reasoning": f"Escalation triggered by: {', '.join(reasons)}" if reasons else "No escalation signals",
+        "query_intent": (
+            confidence_breakdown.get("query_intent") if confidence_breakdown else None
+        ),
+        "reasoning": (
+            f"Escalation triggered by: {', '.join(reasons)}"
+            if reasons
+            else "No escalation signals"
+        ),
     }

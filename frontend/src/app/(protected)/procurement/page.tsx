@@ -269,7 +269,7 @@ const FILTER_TABS = [
 export default function ProcureFlowPage() {
   const router = useRouter()
   const { currentOrganization } = useOrganization()
-  const { can, role } = useEntitlements()
+  const { can } = useEntitlements()
   const [requests, setRequests] = useState<PurchaseRequest[]>([])
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [total, setTotal] = useState(0)
@@ -277,7 +277,7 @@ export default function ProcureFlowPage() {
   const [statusTab, setStatusTab] = useState('')
   const [showNew, setShowNew] = useState(false)
   const orgId = currentOrganization?.id
-  const isAdmin = role === 'admin' || role === 'owner'
+  const isAdmin = currentOrganization?.your_role === 'admin' || currentOrganization?.your_role === 'owner'
 
   function load() {
     if (!orgId) return

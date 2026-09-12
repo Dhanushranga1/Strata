@@ -100,4 +100,113 @@ def requires_feature(feature_name: str) -> Callable:
     return Depends(dependency)
 
 
-__all__ = ["get_entitlements", "requires_feature", "OrgEntitlements"]
+def increment_ai_query(org_id: str) -> None:
+    """Increment ai_queries_used for the current month. Raises HTTP 402 if quota exhausted.
+
+    Atomic: the UPDATE rejects the increment server-side when the limit is
+    already reached (no check-then-increment race under concurrency).
+    """
+    ent = get_entitlements(org_id)
+    limit = ent.limits.get("ai_queries", 0)
+
+    # -1 means unlimited (enterprise)
+    if limit == -1:
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO app.org_usage (organization_id, month_start, ai_queries_used)
+                        VALUES (%s, date_trunc('month', CURRENT_DATE)::date, 1)
+                        ON CONFLICT (organization_id, month_start)
+                        DO UPDATE SET ai_queries_used = app.org_usage.ai_queries_used + 1
+                        """,
+                        (org_id,),
+                    )
+                conn.commit()
+            _cache.pop(org_id, None)
+        except Exception:
+            logger.warning("Failed to increment AI query count for org %s", org_id)
+        return
+
+    if limit == 0:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "ai_quota_exhausted",
+                "message": "AI queries not available on your plan. Upgrade to use AI features.",
+                "upgrade_to": "starter",
+            },
+        )
+
+    # Single-statement quota check + increment — the UPDATE's WHERE clause
+    # is the source of truth, so concurrent requests cannot overrun.
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO app.org_usage (organization_id, month_start, ai_queries_used)
+                VALUES (%s, date_trunc('month', CURRENT_DATE)::date, 1)
+                ON CONFLICT (organization_id, month_start)
+                DO UPDATE SET ai_queries_used = app.org_usage.ai_queries_used + 1
+                WHERE app.org_usage.ai_queries_used < %s
+                """,
+                (org_id, limit),
+            )
+            incremented = cur.rowcount == 1
+        conn.commit()
+    _cache.pop(org_id, None)
+
+    if not incremented:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "ai_quota_exhausted",
+                "message": f"Monthly AI query limit reached ({limit}). Resets next month or upgrade.",
+                "used": limit,
+                "limit": limit,
+                "upgrade_to": "business",
+            },
+        )
+
+
+def enforce_agent_seat(org_id: str) -> None:
+    """Raise HTTP 402 if the org is at its plan's team-member cap.
+
+    Call BEFORE inserting into app.organization_members (non-founder
+    paths: add member, invite accept, admin add). -1 = unlimited.
+    """
+    ent = get_entitlements(org_id)
+    limit = ent.limits.get("agents", -1)
+    if limit == -1:
+        return
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM app.organization_members WHERE organization_id = %s",
+                (org_id,),
+            )
+            current = cur.fetchone()["n"]
+    if current >= limit:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "agent_seat_limit",
+                "message": (
+                    f"Team member limit reached ({limit} on the "
+                    f"{ent.plan_id} plan). Upgrade to add more members."
+                ),
+                "used": current,
+                "limit": limit,
+                "upgrade_to": "business",
+            },
+        )
+
+
+__all__ = [
+    "get_entitlements",
+    "requires_feature",
+    "increment_ai_query",
+    "enforce_agent_seat",
+    "OrgEntitlements",
+]

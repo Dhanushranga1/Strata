@@ -72,7 +72,7 @@ export default function ArticleDetailPage() {
     isLoading,
     error,
     mutate,
-  } = useSWR<ArticleOut>(key, () => api.get(`/api/knowbase/articles/${id}`, orgId));
+  } = useSWR<ArticleOut>(key, () => api.get<ArticleOut>(`/api/knowbase/articles/${id}`, orgId));
 
   async function handleHelpful() {
     if (voted) return;

@@ -32,6 +32,27 @@ WEB_ORIGIN = os.getenv("WEB_ORIGIN", "http://localhost:3000")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
+# Sentry error tracking — active only when SENTRY_DSN is set. Free
+# developer tier (5k errors/mo) is ample for a pilot. Without the DSN
+# the app runs exactly as before (sentry-sdk optional at runtime).
+_sentry_dsn = os.getenv("SENTRY_DSN", "").strip()
+if _sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            environment=ENVIRONMENT,
+            traces_sample_rate=0.1,
+            send_default_pii=False,
+            integrations=[FastApiIntegration()],
+        )
+        logger = logging.getLogger(__name__)
+        logger.info("Sentry error tracking enabled (%s)", ENVIRONMENT)
+    except ImportError:
+        print("⚠️  WARNING: SENTRY_DSN set but sentry-sdk not installed.")
+
 # Initialize logging system
 setup_logging(
     app_name="ticketpilot",
@@ -46,44 +67,6 @@ logger.info("Starting TicketPilot API", extra={
     "version": API_VERSION,
     "security_enabled": SECURITY_ENABLED
 })
-
-
-def _check_faiss_indices():
-    """
-    Warn if the FAISS data directory is empty.
-
-    FAISS indices live under data/faiss/<org_id>/ and are NOT committed to git.
-    On ephemeral cloud deployments (Render, Railway, etc.) the filesystem is wiped
-    on every deploy, so all indices are lost. When this warning fires, admins must
-    re-upload KB documents to rebuild the indices before the AI assistant returns
-    useful answers.
-    """
-    index_dir = os.getenv("VECTOR_INDEX_DIR", "./data/faiss")
-    if not os.path.isdir(index_dir):
-        logger.warning(
-            "FAISS data directory '%s' does not exist — no KB indices loaded. "
-            "AI responses will have low confidence until documents are re-uploaded. "
-            "On ephemeral deployments KB documents must be re-uploaded after every deploy.",
-            index_dir,
-        )
-        return
-
-    org_dirs = [
-        d for d in os.listdir(index_dir)
-        if os.path.isdir(os.path.join(index_dir, d))
-    ]
-    if not org_dirs:
-        logger.warning(
-            "FAISS data directory '%s' exists but contains no org indices — "
-            "AI responses will have low confidence until documents are re-uploaded.",
-            index_dir,
-        )
-    else:
-        logger.info(
-            "FAISS: found indices for %d organisation(s): %s",
-            len(org_dirs),
-            org_dirs,
-        )
 
 
 _PRIORITY_DEFAULT_HOURS = {1: 168, 2: 72, 3: 48, 4: 24, 5: 12, 6: 6, 7: 7}
@@ -343,52 +326,31 @@ async def _casper_agent_scan_loop():
         await asyncio.sleep(60 * 60)   # re-scan every hour
 
 
-async def _rebuild_one_org(org_id: str, load_snapshot_fn, rebuild_fn) -> None:
-    """Try snapshot load first; fall back to full per-vector rebuild for one org."""
-    try:
-        count = await load_snapshot_fn(org_id)
-        if count is not None:
-            logger.info("[startup] org %s loaded from snapshot (%d vectors)", org_id, count)
-            return
-        count = await rebuild_fn(org_id)
-        if count:
-            logger.info("[startup] org %s rebuilt from embeddings (%d vectors)", org_id, count)
-        else:
-            logger.info("[startup] org %s has no embeddings yet", org_id)
-    except Exception as exc:
-        logger.warning("[startup] org %s rebuild failed: %s", org_id, exc)
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     from .db import init_pool, close_pool
     await init_pool()
 
-    # Rebuild per-org FAISS indexes on cold start (Render free-tier spin-up / redeploy).
-    # Strategy: discover every org that has stored embeddings, try snapshot first,
-    # fall back to full rebuild from individual vectors.
-    _check_faiss_indices()
-    try:
-        from .store import load_org_snapshot, rebuild_org_from_db
-        from .db import get_connection
+    # Run pending database migrations on every startup.
+    # Idempotent — only applies .sql files not yet recorded in app.schema_migrations.
+    from .migration_runner import run_migrations
 
-        conn = await get_connection()
-        try:
-            org_rows = await conn.fetch(
-                "SELECT DISTINCT organization_id FROM app.chunks WHERE embedding IS NOT NULL"
-            )
-        finally:
-            await conn.close()
+    await run_migrations()
 
-        org_ids = [str(r["organization_id"]) for r in org_rows if r["organization_id"]]
-        if org_ids:
-            logger.info("[startup] Rebuilding FAISS for %d org(s): %s", len(org_ids), org_ids)
-            rebuild_tasks = [_rebuild_one_org(org_id, load_org_snapshot, rebuild_org_from_db) for org_id in org_ids]
-            await asyncio.gather(*rebuild_tasks)
-        else:
-            logger.info("[startup] No stored embeddings in DB yet — FAISS indexes will be built on first ingest")
-    except Exception as exc:
-        logger.error("[startup] Per-org FAISS rebuild failed: %s", exc)
+    # ── Safety: guard against dev→prod misconfiguration ───────────────────
+    _env = os.getenv("ENVIRONMENT", "development")
+    _origin = os.getenv("WEB_ORIGIN", "")
+    if _env == "production" and "localhost" in _origin:
+        logger.warning(
+            "ENVIRONMENT=production but WEB_ORIGIN contains localhost — check config!"
+        )
+    if _env == "development" and "localhost" not in _origin and _origin:
+        logger.warning(
+            "ENVIRONMENT=development but WEB_ORIGIN is a remote URL — check config!"
+        )
+
+    # pgvector indices live in the database — no cold-start rebuild needed.
+    # (FAISS on-disk indices were wiped on every deploy; pgvector persists with the table.)
 
     # Initialise CASPER Foundation Layer — tool registry + entity namespaces
     try:
@@ -550,8 +512,22 @@ app.include_router(api_keys_router)
 
 
 @app.get("/api/health")
-def health():
-    return {"ok": True, "api": "ticketpilot", "version": API_VERSION}
+async def health():
+    """Health check with DB pool and background task status."""
+    import time as _time
+
+    from .db import _pool as _asyncpg_pool
+
+    pool_ok = _asyncpg_pool is not None and not _asyncpg_pool._closed
+
+    return {
+        "ok": True,
+        "api": "ticketpilot",
+        "version": API_VERSION,
+        "vector_store": "pgvector",
+        "db_pool_connected": pool_ok,
+        "timestamp": _time.time(),
+    }
 
 
 @app.get("/api/wake")

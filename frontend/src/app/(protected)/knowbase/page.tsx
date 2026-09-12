@@ -53,7 +53,7 @@ export default function KnowBasePage() {
 
   const statsKey = isReady && orgId ? `/api/knowbase/stats?_org=${orgId}` : null;
   const { data: stats } = useSWR<KnowBaseStats>(statsKey, () =>
-    api.get("/api/knowbase/stats", orgId)
+    api.get<KnowBaseStats>("/api/knowbase/stats", orgId)
   );
 
   const articlesKey =
@@ -68,7 +68,7 @@ export default function KnowBasePage() {
     const params = new URLSearchParams({ limit: "100" });
     if (search) params.set("q", search);
     if (category) params.set("category", category);
-    return api.get(`/api/knowbase/articles?${params}`, orgId);
+    return api.get<ArticleSummary[]>(`/api/knowbase/articles?${params}`, orgId);
   });
 
   function formatDate(iso: string) {

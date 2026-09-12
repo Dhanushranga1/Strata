@@ -90,7 +90,14 @@ html {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   scroll-behavior: smooth;
-  color-scheme: dark; /* tells browser to use dark scrollbars/inputs by default */
+}
+
+html.dark {
+  color-scheme: dark; /* dark native controls only when dark theme active */
+}
+
+html:not(.dark) {
+  color-scheme: light;
 }
 
 html,

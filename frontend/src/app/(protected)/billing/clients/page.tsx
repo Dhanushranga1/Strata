@@ -28,7 +28,7 @@ export default function ClientsPage() {
   const { data: clients, isLoading, error } = useSWR<Client[]>(key, () => {
     const params = new URLSearchParams({ limit: "200" });
     if (search) params.set("q", search);
-    return api.get(`/api/billing/clients?${params}`, orgId);
+    return api.get<Client[]>(`/api/billing/clients?${params}`, orgId);
   });
 
   return (

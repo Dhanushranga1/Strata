@@ -61,7 +61,7 @@ export default function InvoiceDetailPage() {
 
   const { data: invoice, isLoading, error, mutate } = useSWR<Invoice>(
     orgId ? `/api/billing/invoices/${id}?_org=${orgId}` : null,
-    () => api.get(`/api/billing/invoices/${id}`, orgId)
+    () => api.get<Invoice>(`/api/billing/invoices/${id}`, orgId)
   );
 
   const [sending, setSending] = useState(false);

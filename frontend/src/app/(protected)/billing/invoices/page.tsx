@@ -49,7 +49,7 @@ export default function InvoicesPage() {
     const params = new URLSearchParams({ limit: "100" });
     if (status !== "all") params.set("status", status);
     if (search) params.set("q", search);
-    return api.get(`/api/billing/invoices?${params}`, orgId);
+    return api.get<Invoice[]>(`/api/billing/invoices?${params}`, orgId);
   });
 
   const amountDue = (inv: Invoice) => Math.max(0, inv.total - (inv.amount_paid ?? 0));

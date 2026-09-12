@@ -33,11 +33,15 @@ def _generate_key() -> tuple[str, str, str]:
     return key, prefix, key_hash
 
 
-def _require_admin(user: User) -> None:
-    """Only org admins/owners may manage API keys."""
-    from .auth import get_user_role
-    role = get_user_role(user.id)
-    if role not in ("admin", "rep"):   # reps allowed to read; write restricted below
+def _require_admin(user: User, request: Request) -> None:
+    """Only org admins/owners may create or revoke API keys — org-scoped
+    first, global fallback (same convention as kb.require_rep)."""
+    org_role = getattr(request.state, "user_role_in_org", None)
+    if org_role is not None:
+        if org_role not in ("admin", "owner"):
+            raise HTTPException(status_code=403, detail="Admin role required")
+        return
+    if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
 
 
@@ -77,10 +81,7 @@ def create_key(
 ):
     """Create a new API key. Returns the full key ONCE — store it immediately."""
     org_id = require_org_context(request)
-
-    from .auth import get_user_role
-    if get_user_role(user.id) not in ("admin",):
-        raise HTTPException(status_code=403, detail="Only admins may create API keys")
+    _require_admin(user, request)
 
     name = payload.name.strip()
     if not name:
@@ -121,10 +122,7 @@ def revoke_key(
 ):
     """Revoke (soft-delete) an API key."""
     org_id = require_org_context(request)
-
-    from .auth import get_user_role
-    if get_user_role(user.id) not in ("admin",):
-        raise HTTPException(status_code=403, detail="Only admins may revoke API keys")
+    _require_admin(user, request)
 
     with get_db_connection() as conn:
         cur = conn.cursor()

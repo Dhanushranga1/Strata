@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils';
 interface AdminTicket {
   id: string;
   title: string;
-  status: string;
+  status: 'open' | 'in_progress' | 'resolved' | 'closed' | 'escalated';
   priority: string;
   priority_level: number | null;
   needs_attention: boolean;
@@ -47,7 +47,7 @@ const PRIORITY_COLORS: Record<number, string> = {
   4: 'bg-blue-950/40 text-blue-400 border border-blue-800',
   5: 'bg-indigo-950/40 text-indigo-400 border border-indigo-800',
   6: 'bg-violet-950/40 text-violet-400 border border-violet-800',
-  7: 'bg-zinc-800/60 text-zinc-400 border border-zinc-700',
+  7: 'bg-zinc-100 text-zinc-600 border border-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-400 dark:border-zinc-700',
 };
 
 function timeAgo(s: string) {
@@ -73,8 +73,8 @@ export default function AdminTicketsPage() {
 
   const loadOrgs = useCallback(async () => {
     try {
-      const data = await api.get('/api/admin/organizations');
-      setOrgs(data.map((o: any) => ({ id: o.id, name: o.name })));
+      const data = await api.get<OrgOption[]>('/api/admin/organizations');
+      setOrgs(data.map(o => ({ id: o.id, name: o.name })));
     } catch {
       // non-fatal
     }
@@ -90,11 +90,14 @@ export default function AdminTicketsPage() {
       if (selectedOrg !== 'all') params.set('org_id', selectedOrg);
       if (statusFilter !== 'all') params.set('status_filter', statusFilter);
       if (search) params.set('q', search);
-      const data = await api.get(`/api/admin/tickets?${params}`);
+      const data = await api.get<{ items: AdminTicket[]; total: number }>(
+        `/api/admin/tickets?${params}`
+      );
       setTickets(data.items);
       setTotal(data.total);
-    } catch (e: any) {
-      if (e?.message?.includes('403')) {
+    } catch (e) {
+      const message = e instanceof Error ? e.message : '';
+      if (message.includes('403')) {
         router.replace('/dashboard');
       } else {
         toast.error('Failed to load tickets');
@@ -231,7 +234,7 @@ export default function AdminTicketsPage() {
                           )}
                         </div>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <StatusBadge status={t.status as any} />
+                          <StatusBadge status={t.status} />
                           <Badge
                             variant="outline"
                             className="text-xs px-1.5 py-0"

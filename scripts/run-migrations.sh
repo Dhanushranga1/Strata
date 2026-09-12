@@ -13,11 +13,11 @@ echo -e "${GREEN}=== TicketPilot Database Migration Runner ===${NC}\n"
 if [ -z "$DATABASE_URL" ]; then
     echo -e "${RED}ERROR: DATABASE_URL environment variable is not set${NC}"
     echo "Please set it with your Supabase connection string:"
-    echo "export DATABASE_URL='postgresql://postgres:[YOUR-PASSWORD]@db.nvgmgvplfpukckfkjuso.supabase.co:5432/postgres'"
+    echo "export DATABASE_URL='postgresql://postgres.<ref>:YOUR-PASSWORD@aws-0-<region>.pooler.supabase.com:5432/postgres'"
     exit 1
 fi
 
-echo -e "${YELLOW}Database URL: ${DATABASE_URL:0:40}...${NC}\n"
+echo -e "${YELLOW}Database URL: (redacted)${NC}\n"
 
 # Get the migrations directory
 MIGRATIONS_DIR="./backend/migrations"

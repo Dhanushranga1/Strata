@@ -101,6 +101,8 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
 
       if (!response.ok) {
         if (response.status === 401) {
+          const { clearApiCache } = await import('@/lib/api-client');
+          clearApiCache();
           await supabase.auth.signOut();
           router.push('/login');
         }

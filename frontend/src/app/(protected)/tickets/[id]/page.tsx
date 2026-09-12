@@ -29,6 +29,34 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+type TicketStatus =
+  | 'open'
+  | 'in_progress'
+  | 'resolved'
+  | 'closed'
+  | 'escalated';
+
+interface Citation {
+  label: string;
+  doc_id: string;
+  chunk_id: string;
+  faiss_id: number;
+  score?: number;
+}
+
+interface MessageMeta {
+  confidence?: number;
+  suggest_escalation?: boolean;
+  citations?: Citation[];
+  retrieval_metrics?: Record<string, number>;
+}
+
+interface CurrentUser {
+  id: string;
+  email?: string;
+  role?: string;
+}
+
 interface MessageOut {
   id: string
   ticket_id: string
@@ -37,7 +65,7 @@ interface MessageOut {
   body: string
   created_at: string
   is_internal: boolean
-  meta?: any
+  meta?: MessageMeta
 }
 
 interface TicketDetail {
@@ -72,14 +100,6 @@ interface TicketDetail {
 interface TicketWithMessages {
   ticket: TicketDetail
   messages: MessageOut[]
-}
-
-interface Citation {
-  label: string
-  doc_id: string
-  chunk_id: string
-  faiss_id: number
-  score?: number
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -165,7 +185,7 @@ const PRIORITY_LEVEL_COLORS: Record<number, string> = {
   4: 'bg-blue-950/40 text-blue-400 border border-blue-800',
   5: 'bg-indigo-950/40 text-indigo-400 border border-indigo-800',
   6: 'bg-violet-950/40 text-violet-400 border border-violet-800',
-  7: 'bg-zinc-800/60 text-zinc-400 border border-zinc-700',
+  7: 'bg-zinc-100 text-zinc-600 border border-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-400 dark:border-zinc-700',
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
@@ -290,7 +310,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   const [ticketData, setTicketData] = useState<TicketWithMessages | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
 
   // Message composer
   const [newMessage, setNewMessage] = useState('')
@@ -353,12 +373,21 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   useEffect(() => {
     const getUser = async () => {
       try {
-        const u = await api.get('/api/me')
+        const u = await api.get<CurrentUser>('/api/me')
         setCurrentUser(u)
       } catch { /* ignore */ }
     }
     getUser()
   }, [])
+
+  useEffect(() => {
+    const userIsRep = currentUser?.role === 'rep' || currentUser?.role === 'admin'
+    if (isReady && orgId && userIsRep) {
+      api.get<{ reps: { user_id: string; email: string; open_tickets: number }[] }>('/api/rep/workload', orgId)
+        .then(d => setReps(d.reps))
+        .catch(() => {})
+    }
+  }, [isReady, orgId, currentUser])
 
   useEffect(() => {
     if (isReady && orgId) loadTicket()
@@ -579,10 +608,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
       }, orgId)
       toast.success('Ticket resolved')
       await loadTicket()
-    } catch (err: any) {
+    } catch (err) {
       setTicketData(prevData)
       setResolveOpen(true)
-      toast.error(err.message || 'Failed to resolve ticket')
+      toast.error(err instanceof Error ? err.message : 'Failed to resolve ticket')
     } finally {
       setResolving(false)
     }
@@ -711,7 +740,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <StatusBadge status={ticket.status as any} />
+            <StatusBadge status={ticket.status as TicketStatus} />
             {ticket.is_overdue && (
               <Badge variant="destructive" className="text-xs">OVERDUE</Badge>
             )}
@@ -847,7 +876,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                       'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
                       message.sender_role === 'ai' ? 'bg-violet-900/50 text-violet-300' :
                       message.sender_role === 'rep' || message.sender_role === 'admin' ? 'bg-blue-900/50 text-blue-300' :
-                      'bg-zinc-800 text-zinc-300',
+                      'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
                     )}>
                       {message.sender_role === 'ai' ? <Bot className="h-4 w-4" /> :
                        message.sender_role === 'rep' || message.sender_role === 'admin' ? 'R' : 'U'}
@@ -886,6 +915,18 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                         </div>
                       )}
 
+                      {/* Degraded retrieval notice — AI provider was busy,
+                          query expansion gave up after retries */}
+                      {message.sender_role === 'ai' &&
+                        message.meta?.retrieval_metrics
+                          ?.query_expansion_degraded === 1 && (
+                          <div className="mb-2 p-2 bg-amber-950/30 border border-amber-800/50 rounded text-xs text-amber-400 flex items-center gap-2">
+                            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                            AI provider busy — search ran without query
+                            expansion, results may be limited.
+                          </div>
+                        )}
+
                       {/* Body */}
                       <p className="text-sm whitespace-pre-wrap">{message.body}</p>
 
@@ -916,7 +957,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                       )}
 
                       {/* AI citations */}
-                      {message.sender_role === 'ai' && message.meta?.citations?.length > 0 && (
+                      {message.sender_role === 'ai' && !!message.meta?.citations?.length && (
                         <div className="mt-2">
                           {showCitationTip && (
                             <motion.div
@@ -981,7 +1022,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
 
           {/* AI Chat */}
           {canCompose && (
-            <FeatureGate feature="ai_rag" description="AI Assistant requires Starter plan or above.">
+            <FeatureGate
+              feature="ai_rag"
+              description="AI Assistant requires Starter plan or above."
+            >
               <div className="bg-violet-950/20 border border-violet-800/50 rounded-xl p-4">
                 <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-violet-300">
                   <Bot className="h-4 w-4" /> Ask AI Assistant
@@ -996,7 +1040,11 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
                     disabled={aiLoading}
                     className="flex-1 resize-none text-sm"
                   />
-                  <Button type="submit" disabled={aiLoading || !aiQuery.trim()} className="self-end">
+                  <Button
+                    type="submit"
+                    disabled={aiLoading || !aiQuery.trim()}
+                    className="self-end"
+                  >
                     {aiLoading ? '…' : 'Ask'}
                   </Button>
                 </form>
@@ -1115,7 +1163,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Status</span>
-                <StatusBadge status={ticket.status as any} />
+                <StatusBadge status={ticket.status as TicketStatus} />
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Priority</span>

@@ -28,8 +28,8 @@ from fastapi.responses import StreamingResponse
 
 from .auth import User, get_current_user
 from .db import get_connection
-from .org_middleware import require_org_context
 from .entitlements import requires_feature
+from .org_middleware import require_org_context
 
 router = APIRouter(prefix="/api/admin/reports", tags=["reports"])
 

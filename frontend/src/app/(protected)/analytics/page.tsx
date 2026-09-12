@@ -56,7 +56,7 @@ const STATUS_COLORS: Record<string, string> = {
   open: 'text-blue-400',
   in_progress: 'text-yellow-400',
   resolved: 'text-green-400',
-  closed: 'text-zinc-400',
+  closed: 'text-zinc-500 dark:text-zinc-400',
   escalated: 'text-red-400',
 };
 
@@ -64,7 +64,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   urgent: 'text-red-400',
   high: 'text-orange-400',
   normal: 'text-blue-400',
-  low: 'text-zinc-400',
+  low: 'text-zinc-500 dark:text-zinc-400',
 };
 
 export default function AnalyticsPage() {

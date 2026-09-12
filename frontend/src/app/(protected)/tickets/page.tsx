@@ -8,7 +8,7 @@ import Link from 'next/link'
 import { Plus, Search, Filter, Download, AlertCircle, Eye, Edit, CheckSquare, Square, CheckCheck, X as XIcon, UserCheck as AssignIcon, CheckCircle2, RotateCcw } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { DataTable } from '@/components/ui/DataTable'
+import { DataTable, type Column } from '@/components/ui/DataTable'
 import { MobileTicketCard } from '@/components/ui/mobile-ticket-card'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -79,7 +79,7 @@ const P_LEVEL_COLORS = [
   'bg-slate-400 text-white',    // P7
 ]
 
-const columns = [
+const columns: Column<TicketSummary>[] = [
   {
     id: 'title',
     accessorKey: 'title',
@@ -289,6 +289,15 @@ function TicketsPageInner() {
   // Debounce search input — avoids an API call on every keystroke
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300)
+
+    // Auto-open create dialog when arriving via ?new=1 (e.g. dashboard CTA)
+    if (
+      typeof window !== 'undefined' &&
+      window.location.search.includes('new=1')
+    ) {
+      setNewTicketOpen(true)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
     return () => clearTimeout(timer)
   }, [searchTerm])
 
@@ -705,7 +714,8 @@ function TicketsPageInner() {
                       <p className="text-sm text-red-500">{validationErrors.customer_email}</p>
                     )}
                     <p className="text-xs text-muted-foreground">
-                      The ticket will be owned by this customer and they'll receive an email notification.
+                      The ticket will be owned by this customer and they&apos;ll
+                      receive an email notification.
                     </p>
                   </div>
                 )}

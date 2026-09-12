@@ -113,6 +113,10 @@ const formatHours = (h: number): string => {
   return `${(h / 24).toFixed(1)}d`;
 };
 
+interface CurrentUser {
+  role: string;
+}
+
 const STATUS_COLOURS: Record<string, string> = {
   open: 'bg-blue-500',
   in_progress: 'bg-amber-500',
@@ -132,7 +136,7 @@ export default function AdminAnalyticsPage() {
   const { currentOrganization, isReady } = useOrganization();
   const orgId = currentOrganization?.id;
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [categoryData, setCategoryData] = useState<CategoryData | null>(null);
@@ -162,7 +166,7 @@ export default function AdminAnalyticsPage() {
         router.push('/login');
         return;
       }
-      const userData = await api.get('/api/me');
+      const userData = await api.get<CurrentUser>('/api/me');
       if (userData.role !== 'admin') {
         router.push('/dashboard');
         return;

@@ -67,7 +67,7 @@ export default function BillingPage() {
 
   const key = isReady && orgId ? `/api/billing/dashboard?_org=${orgId}` : null;
   const { data, isLoading } = useSWR<DashboardData>(key, () =>
-    api.get("/api/billing/dashboard", orgId)
+    api.get<DashboardData>("/api/billing/dashboard", orgId)
   );
 
   return (

@@ -474,6 +474,11 @@ def add_organization_member(
     """Add a new member to an organization (owners/admins only)."""
     verify_org_permission(user.id, org_id, ["owner", "admin"])
 
+    # Plan seat cap (community=10, business/enterprise unlimited)
+    from .entitlements import enforce_agent_seat
+
+    enforce_agent_seat(org_id)
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
 

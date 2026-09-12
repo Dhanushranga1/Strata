@@ -35,7 +35,7 @@ const PRIORITY_COLORS: Record<number, string> = {
   4: 'bg-blue-950/40 text-blue-400 border border-blue-800',
   5: 'bg-indigo-950/40 text-indigo-400 border border-indigo-800',
   6: 'bg-violet-950/40 text-violet-400 border border-violet-800',
-  7: 'bg-zinc-800/60 text-zinc-400 border border-zinc-700',
+  7: 'bg-zinc-100 text-zinc-600 border border-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-400 dark:border-zinc-700',
 };
 
 function timeAgo(s: string) {
@@ -64,7 +64,9 @@ export default function MyTicketsPage() {
       });
       if (search) params.set('q', search);
       // my-tickets is cross-org — pass no org header (api client omits it when undefined)
-      const data = await api.get(`/api/rep/my-tickets?${params}`);
+      const data = await api.get<{ items: MyTicket[]; total: number }>(
+        `/api/rep/my-tickets?${params}`
+      );
       setTickets(data.items);
       setTotal(data.total);
     } catch (e) {

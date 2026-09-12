@@ -53,11 +53,11 @@ export default function NewInvoicePage() {
 
   const { data: clients } = useSWR<Client[]>(
     orgId ? `/api/billing/clients-list?_org=${orgId}` : null,
-    () => api.get("/api/billing/clients?limit=500", orgId)
+    () => api.get<Client[]>("/api/billing/clients?limit=500", orgId)
   );
   const { data: profile } = useSWR<BillingProfile>(
     orgId ? `/api/billing/profile?_org=${orgId}` : null,
-    () => api.get("/api/billing/profile", orgId)
+    () => api.get<BillingProfile>("/api/billing/profile", orgId)
   );
 
   const [clientId, setClientId] = useState("");

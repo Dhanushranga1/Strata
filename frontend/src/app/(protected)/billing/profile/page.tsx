@@ -69,7 +69,7 @@ export default function BillingProfilePage() {
 
   const key = orgId ? `/api/billing/profile?_org=${orgId}` : null;
   const { data: profile, mutate } = useSWR<BillingProfile>(key, () =>
-    api.get("/api/billing/profile", orgId)
+    api.get<BillingProfile>("/api/billing/profile", orgId)
   );
 
   useEffect(() => {

@@ -3,7 +3,7 @@
 ## Architecture
 
 ```
-Frontend → Vercel (static export via next build)
+Frontend → Vercel (Next.js server via next build)
 Backend  → Render (Python web service)
 DB       → Supabase PostgreSQL (prod project)
 ```
@@ -41,12 +41,12 @@ Render auto-deploys from your `main` branch. Every deploy:
 1. Installs deps
 2. Starts the server
 3. `migration_runner.py` auto-applies any pending migrations
-4. FAISS indices are rebuilt from stored embeddings in the DB
+4. pgvector embeddings live in the DB — nothing to rebuild
 
-> **FAISS caveat**: On ephemeral filesystems (Render free tier), FAISS
-> index files are wiped on every deploy. The system rebuilds them from
-> DB- stored embeddings on cold start, but you may need to re-upload
-> KB documents if the DB embeddings are also stale.
+> **Note**: Vectors are stored in-database (pgvector, vector(1536)) and
+> survive deploys. Migrations apply automatically on startup — they run
+> fail-fast under an advisory lock, so a failed migration aborts the
+> deploy instead of serving a half-migrated schema.
 
 ## Frontend — Vercel
 
@@ -77,4 +77,4 @@ NEXT_PUBLIC_API_URL=https://your-backend.onrender.com
 - [ ] `WEB_ORIGIN` set to exact frontend URL, no trailing slash
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` set (required for invite emails)
 - [ ] `ENVIRONMENT=production`
-- [ ] FAISS indices will be rebuilt on first request after deploy
+- [ ] KB documents uploaded after the 0035 dim migration (768→1536 vectors were cleared)

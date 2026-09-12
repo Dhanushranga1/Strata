@@ -60,6 +60,10 @@ interface RoleRequest {
   decided_at?: string;
 }
 
+interface CurrentUser {
+  role: string;
+}
+
 export default function AdminPage() {
   const router = useRouter();
 
@@ -67,7 +71,7 @@ export default function AdminPage() {
   const { currentOrganization, isReady } = useOrganization();
   const orgId = currentOrganization?.id;
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<CurrentUser | null>(null);
   const [stats, setStats] = useState<AdminStats>({
     totalUsers: 0,
     pendingRoleRequests: 0,
@@ -121,7 +125,7 @@ export default function AdminPage() {
           return;
         }
 
-        const userData = await api.get('/api/me');
+        const userData = await api.get<CurrentUser>('/api/me');
         setUser(userData);
 
         if (userData.role !== 'admin') {
@@ -218,7 +222,7 @@ export default function AdminPage() {
           <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
           <p className="text-muted-foreground">
-            You don't have permission to access this page.
+            You don&apos;t have permission to access this page.
           </p>
           <Button className="mt-4" onClick={() => router.push('/dashboard')}>
             Go to Dashboard

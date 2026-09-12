@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { sanitizeRedirect } from '@/lib/sanitize-redirect';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -17,7 +18,7 @@ export default function AuthCallbackPage() {
         const token = searchParams.get('token');
         const type = searchParams.get('type');
         // ?next= carries a post-auth redirect (e.g. /invite/<token>)
-        const next = searchParams.get('next') || '/dashboard';
+        const next = sanitizeRedirect(searchParams.get('next'));
 
         // Also check hash fragment for OAuth/implicit flow
         const hashFragment = window.location.hash.substring(1);
@@ -91,7 +92,7 @@ export default function AuthCallbackPage() {
 
         // No auth callback detected
         setTimeout(() => router.replace('/login'), 1000);
-      } catch (err) {
+      } catch {
         setError('An unexpected error occurred');
         setLoading(false);
       }

@@ -58,7 +58,10 @@ export default function AccountPage() {
 
   const loadProfile = async () => {
     try {
-      const data = await api.get('/api/me/profile');
+      const data = await api.get<{
+        display_name?: string;
+        phone?: string;
+      }>('/api/me/profile');
       setDisplayName(data.display_name || '');
       setPhone(data.phone || '');
     } catch {
@@ -71,8 +74,8 @@ export default function AccountPage() {
     try {
       await api.patch('/api/me/profile', { display_name: displayName, phone });
       toast.success('Profile saved');
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to save profile');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save profile');
     } finally {
       setProfileSaving(false);
     }

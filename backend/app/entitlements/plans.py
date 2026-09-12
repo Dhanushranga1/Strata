@@ -57,7 +57,8 @@ _ENTERPRISE_FEATURES = {**_BUSINESS_FEATURES,
 }
 
 PLANS: dict[str, PlanDef] = {
-    "community":  {"features": _COMMUNITY_FEATURES,  "limits": {"agents": 5,  "ai_queries": 0}},
+    # agents=10 for community (was 5 — phase-H team seat cap fix on main)
+    "community":  {"features": _COMMUNITY_FEATURES,  "limits": {"agents": 10, "ai_queries": 0}},
     "starter":    {"features": _STARTER_FEATURES,    "limits": {"agents": -1, "ai_queries": 5_000}},
     "business":   {"features": _BUSINESS_FEATURES,   "limits": {"agents": -1, "ai_queries": 25_000}},
     "enterprise": {"features": _ENTERPRISE_FEATURES, "limits": {"agents": -1, "ai_queries": -1}},
