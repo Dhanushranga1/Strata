@@ -11,12 +11,18 @@
 alter table app.tickets
   add column if not exists organization_id uuid;
 
--- Add foreign key constraint
-alter table app.tickets
-  add constraint fk_tickets_organization
-  foreign key (organization_id)
-  references app.organizations(id)
-  on delete cascade;
+-- Add foreign key constraint (idempotent — dev/prod DBs seeded before
+-- schema_migrations tracking existed may already have this)
+do $$
+begin
+  alter table app.tickets
+    add constraint fk_tickets_organization
+    foreign key (organization_id)
+    references app.organizations(id)
+    on delete cascade;
+exception
+  when duplicate_object then null;
+end $$;
 
 -- Add index for performance (tickets are frequently queried by organization)
 create index if not exists idx_tickets_organization on app.tickets(organization_id);
@@ -33,12 +39,17 @@ create index if not exists idx_tickets_org_created on app.tickets(organization_i
 alter table app.messages
   add column if not exists organization_id uuid;
 
--- Add foreign key constraint
-alter table app.messages
-  add constraint fk_messages_organization
-  foreign key (organization_id)
-  references app.organizations(id)
-  on delete cascade;
+-- Add foreign key constraint (idempotent)
+do $$
+begin
+  alter table app.messages
+    add constraint fk_messages_organization
+    foreign key (organization_id)
+    references app.organizations(id)
+    on delete cascade;
+exception
+  when duplicate_object then null;
+end $$;
 
 -- Add index for performance
 create index if not exists idx_messages_organization on app.messages(organization_id);
@@ -54,12 +65,17 @@ create index if not exists idx_messages_org_ticket on app.messages(organization_
 alter table app.documents
   add column if not exists organization_id uuid;
 
--- Add foreign key constraint
-alter table app.documents
-  add constraint fk_documents_organization
-  foreign key (organization_id)
-  references app.organizations(id)
-  on delete cascade;
+-- Add foreign key constraint (idempotent)
+do $$
+begin
+  alter table app.documents
+    add constraint fk_documents_organization
+    foreign key (organization_id)
+    references app.organizations(id)
+    on delete cascade;
+exception
+  when duplicate_object then null;
+end $$;
 
 -- Add index for performance
 create index if not exists idx_documents_organization on app.documents(organization_id);
@@ -75,12 +91,17 @@ create index if not exists idx_documents_org_created on app.documents(organizati
 alter table app.chunks
   add column if not exists organization_id uuid;
 
--- Add foreign key constraint
-alter table app.chunks
-  add constraint fk_chunks_organization
-  foreign key (organization_id)
-  references app.organizations(id)
-  on delete cascade;
+-- Add foreign key constraint (idempotent)
+do $$
+begin
+  alter table app.chunks
+    add constraint fk_chunks_organization
+    foreign key (organization_id)
+    references app.organizations(id)
+    on delete cascade;
+exception
+  when duplicate_object then null;
+end $$;
 
 -- Add index for performance (chunks are searched frequently)
 create index if not exists idx_chunks_organization on app.chunks(organization_id);
@@ -114,6 +135,8 @@ begin
     
     create index if not exists idx_ai_chats_organization on app.ai_chats(organization_id);
   end if;
+exception
+  when duplicate_object then null;
 end $$;
 
 -- AI Chat Messages (if exists)
@@ -131,6 +154,8 @@ begin
     
     create index if not exists idx_ai_chat_messages_organization on app.ai_chat_messages(organization_id);
   end if;
+exception
+  when duplicate_object then null;
 end $$;
 
 -- AI Feedback (if exists from 0006_ai_feedback.sql)
@@ -148,6 +173,8 @@ begin
     
     create index if not exists idx_ai_feedback_organization on app.ai_feedback(organization_id);
   end if;
+exception
+  when duplicate_object then null;
 end $$;
 
 -- Rep Console Stats (if exists from 0005_rep_console.sql)
@@ -165,6 +192,8 @@ begin
     
     create index if not exists idx_rep_stats_organization on app.rep_stats(organization_id);
   end if;
+exception
+  when duplicate_object then null;
 end $$;
 
 -- ============================================================================

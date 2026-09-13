@@ -136,15 +136,15 @@ RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
 $$;
 
-CREATE TRIGGER trg_billing_profiles_updated
+CREATE OR REPLACE TRIGGER trg_billing_profiles_updated
   BEFORE UPDATE ON app.billing_profiles
   FOR EACH ROW EXECUTE FUNCTION app.touch_billing_updated();
 
-CREATE TRIGGER trg_billing_clients_updated
+CREATE OR REPLACE TRIGGER trg_billing_clients_updated
   BEFORE UPDATE ON app.billing_clients
   FOR EACH ROW EXECUTE FUNCTION app.touch_billing_updated();
 
-CREATE TRIGGER trg_invoices_updated
+CREATE OR REPLACE TRIGGER trg_invoices_updated
   BEFORE UPDATE ON app.invoices
   FOR EACH ROW EXECUTE FUNCTION app.touch_billing_updated();
 

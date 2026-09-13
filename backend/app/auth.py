@@ -438,6 +438,10 @@ async def get_auth_context(user: User = Depends(get_current_user)):
                     user.id, user.email or "user"
                 )
 
+                # The lookup above cached the empty result (even a miss is
+                # cached, for _ORG_LIST_TTL seconds) — bypass it here or
+                # this always re-reads the stale empty list and 500s.
+                _org_list_cache.pop(user.id, None)
                 organizations = await get_user_organizations(user.id)
 
                 if not organizations:

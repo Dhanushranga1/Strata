@@ -43,6 +43,6 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_tickets_text_search ON app.tickets;
-CREATE TRIGGER trg_tickets_text_search
+CREATE OR REPLACE TRIGGER trg_tickets_text_search
     BEFORE UPDATE OF title, description ON app.tickets
     FOR EACH ROW EXECUTE FUNCTION app.refresh_ticket_search();

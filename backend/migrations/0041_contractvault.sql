@@ -30,7 +30,7 @@ CREATE OR REPLACE FUNCTION app.trg_vendors_updated()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$;
 DROP TRIGGER IF EXISTS trg_vendors_updated ON app.vendors;
-CREATE TRIGGER trg_vendors_updated
+CREATE OR REPLACE TRIGGER trg_vendors_updated
     BEFORE UPDATE ON app.vendors
     FOR EACH ROW EXECUTE FUNCTION app.trg_vendors_updated();
 
@@ -87,7 +87,7 @@ CREATE OR REPLACE FUNCTION app.trg_contracts_updated()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$;
 DROP TRIGGER IF EXISTS trg_contracts_updated ON app.contracts;
-CREATE TRIGGER trg_contracts_updated
+CREATE OR REPLACE TRIGGER trg_contracts_updated
     BEFORE UPDATE ON app.contracts
     FOR EACH ROW EXECUTE FUNCTION app.trg_contracts_updated();
 

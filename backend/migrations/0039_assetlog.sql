@@ -229,13 +229,13 @@ BEGIN NEW.updated_at = now(); RETURN NEW; END;
 $$;
 
 DROP TRIGGER IF EXISTS trg_assets_updated ON app.assets;
-CREATE TRIGGER trg_assets_updated
+CREATE OR REPLACE TRIGGER trg_assets_updated
     BEFORE UPDATE ON app.assets
     FOR EACH ROW EXECUTE FUNCTION app.touch_asset_updated();
 
 -- updated_at on software_licenses
 DROP TRIGGER IF EXISTS trg_licenses_updated ON app.software_licenses;
-CREATE TRIGGER trg_licenses_updated
+CREATE OR REPLACE TRIGGER trg_licenses_updated
     BEFORE UPDATE ON app.software_licenses
     FOR EACH ROW EXECUTE FUNCTION app.touch_asset_updated();
 
@@ -257,7 +257,7 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS trg_sync_seats ON app.license_assignments;
-CREATE TRIGGER trg_sync_seats
+CREATE OR REPLACE TRIGGER trg_sync_seats
     AFTER INSERT OR UPDATE OR DELETE ON app.license_assignments
     FOR EACH ROW EXECUTE FUNCTION app.sync_license_seats();
 

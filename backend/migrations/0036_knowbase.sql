@@ -32,6 +32,6 @@ RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END;
 $$;
 
-CREATE TRIGGER trg_articles_updated_at
+CREATE OR REPLACE TRIGGER trg_articles_updated_at
   BEFORE UPDATE ON app.knowledge_articles
   FOR EACH ROW EXECUTE FUNCTION app.touch_updated_at();
