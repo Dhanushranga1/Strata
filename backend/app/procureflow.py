@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
@@ -25,18 +25,22 @@ router = APIRouter(prefix="/api/procurement", tags=["procurement"])
 
 # ── Permission helpers ─────────────────────────────────────────────────────────
 
+
 def _get_role(user_id: str) -> str:
     try:
         from .roles import get_user_role
+
         return get_user_role(user_id)
     except Exception:
         return "customer"
+
 
 def _require_rep(user: User):
     role = _get_role(user.id)
     if role not in ("rep", "admin", "owner"):
         raise HTTPException(403, "Rep or admin required")
     return role
+
 
 def _require_admin(user: User):
     role = _get_role(user.id)
@@ -46,6 +50,7 @@ def _require_admin(user: User):
 
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
+
 
 class PurchaseRequestIn(BaseModel):
     title: str
@@ -76,29 +81,35 @@ def _row_to_dict(r) -> dict:
     if r.get("quantity") and r.get("unit_price") is not None:
         total = round(r["quantity"] * float(r["unit_price"]), 2)
     return {
-        "id":              str(r["id"]),
+        "id": str(r["id"]),
         "organization_id": str(r["organization_id"]),
-        "requested_by":    str(r["requested_by"]),
+        "requested_by": str(r["requested_by"]),
         "requester_email": r.get("requester_email"),
-        "approved_by":     str(r["approved_by"]) if r.get("approved_by") else None,
-        "approver_email":  r.get("approver_email"),
-        "vendor_id":       str(r["vendor_id"]) if r.get("vendor_id") else None,
-        "vendor_name":     r.get("vendor_name"),
-        "title":           r["title"],
-        "description":     r.get("description"),
-        "quantity":        r["quantity"],
-        "unit_price":      float(r["unit_price"]) if r.get("unit_price") is not None else None,
-        "total_price":     total,
-        "department":      r.get("department"),
-        "justification":   r.get("justification"),
-        "status":          r["status"],
-        "po_number":       r.get("po_number"),
-        "ordered_at":      r["ordered_at"].isoformat() if r.get("ordered_at") else None,
-        "delivered_at":    r["delivered_at"].isoformat() if r.get("delivered_at") else None,
-        "linked_asset_id": str(r["linked_asset_id"]) if r.get("linked_asset_id") else None,
-        "notes":           r.get("notes"),
-        "created_at":      r["created_at"].isoformat() if r.get("created_at") else None,
-        "updated_at":      r["updated_at"].isoformat() if r.get("updated_at") else None,
+        "approved_by": str(r["approved_by"]) if r.get("approved_by") else None,
+        "approver_email": r.get("approver_email"),
+        "vendor_id": str(r["vendor_id"]) if r.get("vendor_id") else None,
+        "vendor_name": r.get("vendor_name"),
+        "title": r["title"],
+        "description": r.get("description"),
+        "quantity": r["quantity"],
+        "unit_price": (
+            float(r["unit_price"]) if r.get("unit_price") is not None else None
+        ),
+        "total_price": total,
+        "department": r.get("department"),
+        "justification": r.get("justification"),
+        "status": r["status"],
+        "po_number": r.get("po_number"),
+        "ordered_at": r["ordered_at"].isoformat() if r.get("ordered_at") else None,
+        "delivered_at": (
+            r["delivered_at"].isoformat() if r.get("delivered_at") else None
+        ),
+        "linked_asset_id": (
+            str(r["linked_asset_id"]) if r.get("linked_asset_id") else None
+        ),
+        "notes": r.get("notes"),
+        "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+        "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
     }
 
 
@@ -116,6 +127,7 @@ _SELECT = """
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+
 @router.get("/platform-stats")
 def procure_platform_stats(
     request: Request,
@@ -132,9 +144,9 @@ def procure_platform_stats(
         counts = {r["status"]: r["count"] for r in cur.fetchall()}
 
     pending = counts.get("pending", 0)
-    total   = sum(counts.values())
-    health  = "warning" if pending > 5 else "healthy" if total == 0 else "healthy"
-    stats   = [f"{total} requests"]
+    total = sum(counts.values())
+    health = "warning" if pending > 5 else "healthy" if total == 0 else "healthy"
+    stats = [f"{total} requests"]
     if pending:
         stats.append(f"{pending} pending approval")
     return {"stats": stats, "health": health}
@@ -149,12 +161,12 @@ def list_purchase_requests(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    org_id   = require_org_context(request)
-    is_rep   = _get_role(user.id) in ("rep", "admin", "owner")
+    org_id = require_org_context(request)
+    is_rep = _get_role(user.id) in ("rep", "admin", "owner")
 
     with get_db_connection() as conn:
         cur = conn.cursor()
-        conds  = ["pr.organization_id = %s"]
+        conds = ["pr.organization_id = %s"]
         params: list = [org_id]
         if not is_rep:
             conds.append("pr.requested_by = %s")
@@ -164,7 +176,9 @@ def list_purchase_requests(
             params.append(status_filter)
 
         where = " AND ".join(conds)
-        cur.execute(f"SELECT COUNT(*) FROM app.purchase_requests pr WHERE {where}", params)
+        cur.execute(
+            f"SELECT COUNT(*) FROM app.purchase_requests pr WHERE {where}", params
+        )
         total = cur.fetchone()[0]
 
         cur.execute(
@@ -195,10 +209,18 @@ def create_purchase_request(
                 quantity, unit_price, department, justification, notes)
                VALUES (%s, %s, %s::uuid, %s, %s, %s, %s, %s, %s, %s)
                RETURNING *""",
-            (org_id, user.id,
-             body.vendor_id or None, body.title.strip(),
-             body.description, body.quantity, body.unit_price,
-             body.department, body.justification, body.notes),
+            (
+                org_id,
+                user.id,
+                body.vendor_id or None,
+                body.title.strip(),
+                body.description,
+                body.quantity,
+                body.unit_price,
+                body.department,
+                body.justification,
+                body.notes,
+            ),
         )
         row = cur.fetchone()
         conn.commit()
@@ -309,7 +331,7 @@ def mark_delivered(
         if body.create_asset:
             # Auto-create asset in AssetLog
             asset_name = body.asset_name or pr["title"]
-            category   = body.asset_category or "other"
+            category = body.asset_category or "other"
             cur.execute(
                 "SELECT prefix, next_number FROM app.asset_tag_sequences WHERE organization_id = %s FOR UPDATE",
                 (org_id,),
@@ -331,8 +353,14 @@ def mark_delivered(
                    (organization_id, asset_tag, name, category, status, purchase_price, department)
                    VALUES (%s, %s, %s, %s, 'active', %s, %s)
                    RETURNING id""",
-                (org_id, asset_tag, asset_name, category,
-                 pr.get("unit_price"), pr.get("department")),
+                (
+                    org_id,
+                    asset_tag,
+                    asset_name,
+                    category,
+                    pr.get("unit_price"),
+                    pr.get("department"),
+                ),
             )
             asset_id = str(cur.fetchone()["id"])
 
@@ -351,8 +379,10 @@ def mark_delivered(
     if asset_id:
         try:
             from .casper import casper_engine
+
             casper_engine.embed_entity(
-                "asset", asset_id,
+                "asset",
+                asset_id,
                 f"[asset] {body.asset_name or pr['title']} {body.asset_category or 'other'}",
                 org_id,
             )
@@ -397,7 +427,9 @@ def cancel_request(
     return _row_to_dict(updated)
 
 
-def _transition(pr_id: str, org_id: str, approver_id: str, new_status: str, from_status: str) -> dict:
+def _transition(
+    pr_id: str, org_id: str, approver_id: str, new_status: str, from_status: str
+) -> dict:
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -409,6 +441,8 @@ def _transition(pr_id: str, org_id: str, approver_id: str, new_status: str, from
         )
         row = cur.fetchone()
         if not row:
-            raise HTTPException(400, f"Request not found or not in '{from_status}' state")
+            raise HTTPException(
+                400, f"Request not found or not in '{from_status}' state"
+            )
         conn.commit()
     return _row_to_dict(row)

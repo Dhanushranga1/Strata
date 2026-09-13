@@ -1,6 +1,7 @@
 """
 BillingVault — invoice generation, client management, payment tracking.
 """
+
 import base64
 import json
 import logging
@@ -9,15 +10,24 @@ import threading
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, File, Query
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import Response
 from pydantic import BaseModel
 
 from .auth import User, get_current_user
-from .org_middleware import require_org_context
+from .billing_pdf import generate_invoice_pdf
 from .db_sync import get_db_connection
 from .entitlements import requires_feature
-from .billing_pdf import generate_invoice_pdf
+from .org_middleware import require_org_context
 
 _log = logging.getLogger(__name__)
 
@@ -34,6 +44,7 @@ def _require_rep(user: User):
 
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
+
 
 class BillingProfileIn(BaseModel):
     company_name: str = ""
@@ -108,6 +119,7 @@ class PaymentIn(BaseModel):
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _row_dict(row) -> dict:
     """Convert a psycopg3 Row to a plain dict, serializing dates/datetimes."""
     if row is None:
@@ -119,7 +131,9 @@ def _row_dict(row) -> dict:
     return d
 
 
-def _calc_item_amount(quantity: float, unit_price: float, discount_rate: float) -> float:
+def _calc_item_amount(
+    quantity: float, unit_price: float, discount_rate: float
+) -> float:
     return round(quantity * unit_price * (1.0 - discount_rate / 100.0), 2)
 
 
@@ -127,8 +141,7 @@ def _calc_totals(items: list) -> tuple[float, float, float]:
     """Returns (subtotal, tax_total, total)."""
     subtotal = sum(i["amount"] for i in items)
     tax_total = sum(
-        round(i["amount"] * float(i.get("tax_rate", 0)) / 100.0, 2)
-        for i in items
+        round(i["amount"] * float(i.get("tax_rate", 0)) / 100.0, 2) for i in items
     )
     return round(subtotal, 2), round(tax_total, 2), round(subtotal + tax_total, 2)
 
@@ -164,6 +177,7 @@ def _next_invoice_number(cur, org_id: str) -> str:
 
 
 # ── Billing profile ────────────────────────────────────────────────────────────
+
 
 @router.get("/profile")
 def get_profile(
@@ -208,14 +222,28 @@ def update_profile(
             RETURNING *
             """,
             (
-                body.company_name, body.company_email, body.company_phone,
-                body.company_address, body.company_city, body.company_state,
-                body.company_zip, body.company_country, body.tax_id,
-                body.tax_label, body.currency_default, body.payment_terms_days,
-                body.bank_name, body.bank_account, body.bank_routing,
-                body.bank_swift, body.bank_iban, body.bank_beneficiary,
-                body.footer_text, body.invoice_prefix,
-                body.signature_name, body.signature_title,
+                body.company_name,
+                body.company_email,
+                body.company_phone,
+                body.company_address,
+                body.company_city,
+                body.company_state,
+                body.company_zip,
+                body.company_country,
+                body.tax_id,
+                body.tax_label,
+                body.currency_default,
+                body.payment_terms_days,
+                body.bank_name,
+                body.bank_account,
+                body.bank_routing,
+                body.bank_swift,
+                body.bank_iban,
+                body.bank_beneficiary,
+                body.footer_text,
+                body.invoice_prefix,
+                body.signature_name,
+                body.signature_title,
                 org_id,
             ),
         )
@@ -252,6 +280,7 @@ async def upload_logo(
 
 
 # ── Clients ────────────────────────────────────────────────────────────────────
+
 
 @router.get("/clients")
 def list_clients(
@@ -298,9 +327,23 @@ def create_client(
                state, zip, country, tax_id, tax_label, currency, payment_terms_days, notes)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
             """,
-            (org_id, body.name, body.email, body.phone, body.contact_person,
-             body.address, body.city, body.state, body.zip, body.country,
-             body.tax_id, body.tax_label, body.currency, body.payment_terms_days, body.notes),
+            (
+                org_id,
+                body.name,
+                body.email,
+                body.phone,
+                body.contact_person,
+                body.address,
+                body.city,
+                body.state,
+                body.zip,
+                body.country,
+                body.tax_id,
+                body.tax_label,
+                body.currency,
+                body.payment_terms_days,
+                body.notes,
+            ),
         )
         row = _row_dict(cur.fetchone())
         conn.commit()
@@ -347,9 +390,24 @@ def update_client(
               payment_terms_days=%s, notes=%s
             WHERE id=%s::uuid AND organization_id=%s RETURNING *
             """,
-            (body.name, body.email, body.phone, body.contact_person, body.address,
-             body.city, body.state, body.zip, body.country, body.tax_id, body.tax_label,
-             body.currency, body.payment_terms_days, body.notes, client_id, org_id),
+            (
+                body.name,
+                body.email,
+                body.phone,
+                body.contact_person,
+                body.address,
+                body.city,
+                body.state,
+                body.zip,
+                body.country,
+                body.tax_id,
+                body.tax_label,
+                body.currency,
+                body.payment_terms_days,
+                body.notes,
+                client_id,
+                org_id,
+            ),
         )
         row = cur.fetchone()
         if not row:
@@ -379,6 +437,7 @@ def delete_client(
 
 
 # ── Invoices ───────────────────────────────────────────────────────────────────
+
 
 @router.get("/invoices")
 def list_invoices(
@@ -450,10 +509,22 @@ def create_invoice(
 
         # Compute due date
         profile = _get_or_create_profile(cur, org_id)
-        terms_days = client["payment_terms_days"] or profile.get("payment_terms_days") or 30
-        issue_date = date.fromisoformat(body.issue_date) if body.issue_date else date.today()
-        due_date = date.fromisoformat(body.due_date) if body.due_date else issue_date + timedelta(days=terms_days)
-        currency = body.currency or client["currency"] or profile.get("currency_default", "USD")
+        terms_days = (
+            client["payment_terms_days"] or profile.get("payment_terms_days") or 30
+        )
+        issue_date = (
+            date.fromisoformat(body.issue_date) if body.issue_date else date.today()
+        )
+        due_date = (
+            date.fromisoformat(body.due_date)
+            if body.due_date
+            else issue_date + timedelta(days=terms_days)
+        )
+        currency = (
+            body.currency
+            or client["currency"]
+            or profile.get("currency_default", "USD")
+        )
 
         # Auto-generate invoice number
         inv_num = _next_invoice_number(cur, org_id)
@@ -462,15 +533,17 @@ def create_invoice(
         items = []
         for item in body.items:
             amt = _calc_item_amount(item.quantity, item.unit_price, item.discount_rate)
-            items.append({
-                "description": item.description,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "tax_rate": item.tax_rate,
-                "discount_rate": item.discount_rate,
-                "sort_order": item.sort_order,
-                "amount": amt,
-            })
+            items.append(
+                {
+                    "description": item.description,
+                    "quantity": item.quantity,
+                    "unit_price": item.unit_price,
+                    "tax_rate": item.tax_rate,
+                    "discount_rate": item.discount_rate,
+                    "sort_order": item.sort_order,
+                    "amount": amt,
+                }
+            )
 
         subtotal, tax_total, total = _calc_totals(items)
 
@@ -483,9 +556,22 @@ def create_invoice(
                po_number, created_by)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
             """,
-            (org_id, body.client_id, inv_num, issue_date, due_date, currency,
-             subtotal, tax_total, total, body.notes, body.internal_notes,
-             body.payment_terms, body.po_number, user.id),
+            (
+                org_id,
+                body.client_id,
+                inv_num,
+                issue_date,
+                due_date,
+                currency,
+                subtotal,
+                tax_total,
+                total,
+                body.notes,
+                body.internal_notes,
+                body.payment_terms,
+                body.po_number,
+                user.id,
+            ),
         )
         invoice = _row_dict(cur.fetchone())
         inv_id = invoice["id"]
@@ -499,8 +585,16 @@ def create_invoice(
                    tax_rate, discount_rate, amount)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
-                (inv_id, item["sort_order"], item["description"], item["quantity"],
-                 item["unit_price"], item["tax_rate"], item["discount_rate"], item["amount"]),
+                (
+                    inv_id,
+                    item["sort_order"],
+                    item["description"],
+                    item["quantity"],
+                    item["unit_price"],
+                    item["tax_rate"],
+                    item["discount_rate"],
+                    item["amount"],
+                ),
             )
         conn.commit()
 
@@ -578,21 +672,25 @@ def update_invoice(
         if inv["status"] not in ("draft",):
             raise HTTPException(400, "Only draft invoices can be edited")
 
-        issue_date = date.fromisoformat(body.issue_date) if body.issue_date else date.today()
+        issue_date = (
+            date.fromisoformat(body.issue_date) if body.issue_date else date.today()
+        )
         due_date = date.fromisoformat(body.due_date) if body.due_date else None
 
         items = []
         for item in body.items:
             amt = _calc_item_amount(item.quantity, item.unit_price, item.discount_rate)
-            items.append({
-                "description": item.description,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "tax_rate": item.tax_rate,
-                "discount_rate": item.discount_rate,
-                "sort_order": item.sort_order,
-                "amount": amt,
-            })
+            items.append(
+                {
+                    "description": item.description,
+                    "quantity": item.quantity,
+                    "unit_price": item.unit_price,
+                    "tax_rate": item.tax_rate,
+                    "discount_rate": item.discount_rate,
+                    "sort_order": item.sort_order,
+                    "amount": amt,
+                }
+            )
 
         subtotal, tax_total, total = _calc_totals(items)
 
@@ -604,14 +702,28 @@ def update_invoice(
               payment_terms=%s, po_number=%s
             WHERE id=%s::uuid AND organization_id=%s RETURNING *
             """,
-            (body.client_id, issue_date, due_date, body.currency,
-             subtotal, tax_total, total, body.notes, body.internal_notes,
-             body.payment_terms, body.po_number, invoice_id, org_id),
+            (
+                body.client_id,
+                issue_date,
+                due_date,
+                body.currency,
+                subtotal,
+                tax_total,
+                total,
+                body.notes,
+                body.internal_notes,
+                body.payment_terms,
+                body.po_number,
+                invoice_id,
+                org_id,
+            ),
         )
         invoice = _row_dict(cur.fetchone())
 
         # Replace line items
-        cur.execute("DELETE FROM app.invoice_items WHERE invoice_id = %s::uuid", (invoice_id,))
+        cur.execute(
+            "DELETE FROM app.invoice_items WHERE invoice_id = %s::uuid", (invoice_id,)
+        )
         for item in items:
             cur.execute(
                 """
@@ -620,8 +732,16 @@ def update_invoice(
                    tax_rate, discount_rate, amount)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
-                (invoice_id, item["sort_order"], item["description"], item["quantity"],
-                 item["unit_price"], item["tax_rate"], item["discount_rate"], item["amount"]),
+                (
+                    invoice_id,
+                    item["sort_order"],
+                    item["description"],
+                    item["quantity"],
+                    item["unit_price"],
+                    item["tax_rate"],
+                    item["discount_rate"],
+                    item["amount"],
+                ),
             )
         conn.commit()
 
@@ -648,7 +768,9 @@ def delete_invoice(
         if not row:
             raise HTTPException(404, "Invoice not found")
         if row["status"] not in ("draft", "void", "cancelled"):
-            raise HTTPException(400, "Only draft/void/cancelled invoices can be deleted")
+            raise HTTPException(
+                400, "Only draft/void/cancelled invoices can be deleted"
+            )
         cur.execute(
             "DELETE FROM app.invoices WHERE id=%s::uuid AND organization_id=%s",
             (invoice_id, org_id),
@@ -673,7 +795,9 @@ def void_invoice(
             (invoice_id, org_id),
         )
         if not cur.fetchone():
-            raise HTTPException(400, "Invoice cannot be voided (not found or already paid)")
+            raise HTTPException(
+                400, "Invoice cannot be voided (not found or already paid)"
+            )
         conn.commit()
 
 
@@ -705,8 +829,7 @@ def send_invoice(
             raise HTTPException(400, "Invoice already paid")
 
         cur.execute(
-            "UPDATE app.invoices SET status='sent', sent_at=now() "
-            "WHERE id=%s::uuid",
+            "UPDATE app.invoices SET status='sent', sent_at=now() " "WHERE id=%s::uuid",
             (invoice_id,),
         )
         conn.commit()
@@ -721,18 +844,24 @@ def _email_invoice_bg(invoice_id: str, org_id: str, to_email: str, inv: dict):
     try:
         with get_db_connection() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT * FROM app.billing_profiles WHERE organization_id = %s", (org_id,))
+            cur.execute(
+                "SELECT * FROM app.billing_profiles WHERE organization_id = %s",
+                (org_id,),
+            )
             profile = _row_dict(cur.fetchone() or {})
             cur.execute(
-                "SELECT * FROM app.billing_clients WHERE id = %s::uuid", (inv.get("client_id"),)
+                "SELECT * FROM app.billing_clients WHERE id = %s::uuid",
+                (inv.get("client_id"),),
             )
             client = _row_dict(cur.fetchone() or {})
             cur.execute(
-                "SELECT * FROM app.invoice_items WHERE invoice_id=%s::uuid ORDER BY sort_order", (invoice_id,)
+                "SELECT * FROM app.invoice_items WHERE invoice_id=%s::uuid ORDER BY sort_order",
+                (invoice_id,),
             )
             items = [_row_dict(r) for r in cur.fetchall()]
             cur.execute(
-                "SELECT * FROM app.invoice_payments WHERE invoice_id=%s::uuid ORDER BY payment_date", (invoice_id,)
+                "SELECT * FROM app.invoice_payments WHERE invoice_id=%s::uuid ORDER BY payment_date",
+                (invoice_id,),
             )
             payments = [_row_dict(r) for r in cur.fetchall()]
 
@@ -744,9 +873,9 @@ def _email_invoice_bg(invoice_id: str, org_id: str, to_email: str, inv: dict):
 
 def _send_invoice_email(to: str, inv: dict, pdf_bytes: bytes):
     """Send invoice PDF via SendGrid with attachment."""
+    import base64
     import json
     import urllib.request
-    import base64
 
     inv_num = inv.get("invoice_number", "Invoice")
     due = inv.get("due_date", "")
@@ -766,11 +895,13 @@ def _send_invoice_email(to: str, inv: dict, pdf_bytes: bytes):
         "from": {"email": EMAIL_FROM, "name": "Billing"},
         "subject": f"Invoice {inv_num}",
         "content": [{"type": "text/html", "value": html}],
-        "attachments": [{
-            "content": base64.b64encode(pdf_bytes).decode(),
-            "type": "application/pdf",
-            "filename": f"{inv_num}.pdf",
-        }],
+        "attachments": [
+            {
+                "content": base64.b64encode(pdf_bytes).decode(),
+                "type": "application/pdf",
+                "filename": f"{inv_num}.pdf",
+            }
+        ],
     }
 
     req = urllib.request.Request(
@@ -785,7 +916,9 @@ def _send_invoice_email(to: str, inv: dict, pdf_bytes: bytes):
     try:
         urllib.request.urlopen(req, timeout=15)
     except Exception:
-        _log.exception("SendGrid email failed for invoice %s", inv.get("invoice_number"))
+        _log.exception(
+            "SendGrid email failed for invoice %s", inv.get("invoice_number")
+        )
 
 
 @router.post("/invoices/{invoice_id}/payments", status_code=201)
@@ -812,15 +945,24 @@ def record_payment(
         if inv["status"] in ("void", "cancelled"):
             raise HTTPException(400, "Cannot record payment on void/cancelled invoice")
 
-        pay_date = date.fromisoformat(body.payment_date) if body.payment_date else date.today()
+        pay_date = (
+            date.fromisoformat(body.payment_date) if body.payment_date else date.today()
+        )
         cur.execute(
             """
             INSERT INTO app.invoice_payments
               (invoice_id, amount, payment_date, method, reference, notes, recorded_by)
             VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *
             """,
-            (invoice_id, body.amount, pay_date, body.method,
-             body.reference, body.notes, user.id),
+            (
+                invoice_id,
+                body.amount,
+                pay_date,
+                body.method,
+                body.reference,
+                body.notes,
+                user.id,
+            ),
         )
         payment = _row_dict(cur.fetchone())
 
@@ -875,23 +1017,39 @@ def download_pdf(
             raise HTTPException(404, "Invoice not found")
         invoice = _row_dict(row)
 
-        cur.execute("SELECT * FROM app.billing_profiles WHERE organization_id=%s", (org_id,))
+        cur.execute(
+            "SELECT * FROM app.billing_profiles WHERE organization_id=%s", (org_id,)
+        )
         profile = _row_dict(cur.fetchone() or {})
 
         cur.execute(
-            "SELECT * FROM app.invoice_items WHERE invoice_id=%s::uuid ORDER BY sort_order", (invoice_id,)
+            "SELECT * FROM app.invoice_items WHERE invoice_id=%s::uuid ORDER BY sort_order",
+            (invoice_id,),
         )
         items = [_row_dict(r) for r in cur.fetchall()]
 
         cur.execute(
-            "SELECT * FROM app.invoice_payments WHERE invoice_id=%s::uuid ORDER BY payment_date", (invoice_id,)
+            "SELECT * FROM app.invoice_payments WHERE invoice_id=%s::uuid ORDER BY payment_date",
+            (invoice_id,),
         )
         payments = [_row_dict(r) for r in cur.fetchall()]
 
     # Build client dict from prefixed columns
     client = {
-        k[len("client_"):]: invoice.pop(f"client_{k}", None)
-        for k in ["name","email","address","city","state","zip","country","phone","tax_id","tax_label","contact_person"]
+        k[len("client_") :]: invoice.pop(f"client_{k}", None)
+        for k in [
+            "name",
+            "email",
+            "address",
+            "city",
+            "state",
+            "zip",
+            "country",
+            "phone",
+            "tax_id",
+            "tax_label",
+            "contact_person",
+        ]
     }
     client["name"] = invoice.pop("client_name", "")
     client["email"] = invoice.pop("client_email", "")
@@ -907,6 +1065,7 @@ def download_pdf(
 
 
 # ── Dashboard + platform stats ─────────────────────────────────────────────────
+
 
 @router.get("/dashboard")
 def billing_dashboard(
@@ -979,7 +1138,9 @@ def billing_platform_stats(
     outstanding = int(row["outstanding"] or 0)
     overdue = int(row["overdue_count"] or 0)
     amount = float(row["outstanding_amount"] or 0)
-    cur_sym = {"USD": "$", "EUR": "€", "GBP": "£", "INR": "₹"}.get(str(row["currency"] or "USD"), "")
+    cur_sym = {"USD": "$", "EUR": "€", "GBP": "£", "INR": "₹"}.get(
+        str(row["currency"] or "USD"), ""
+    )
 
     stats = [f"{outstanding} outstanding"]
     if amount > 0:
@@ -987,5 +1148,7 @@ def billing_platform_stats(
     if overdue:
         stats.append(f"{overdue} overdue")
 
-    health = "critical" if overdue > 0 else ("warning" if outstanding > 0 else "healthy")
+    health = (
+        "critical" if overdue > 0 else ("warning" if outstanding > 0 else "healthy")
+    )
     return {"stats": stats, "health": health}

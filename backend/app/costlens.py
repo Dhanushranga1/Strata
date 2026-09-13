@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/costlens", tags=["costlens"])
 
 # ── Platform-stats endpoint (used by Strata hub) ──────────────────────────────
 
+
 @router.get("/platform-stats")
 def costlens_platform_stats(
     request: Request,
@@ -59,7 +60,11 @@ def costlens_platform_stats(
         )
         expiring_soon = cur.fetchone()[0] or 0
 
-    health = "critical" if unused_count > 5 else "warning" if unused_count > 0 or expiring_soon > 0 else "healthy"
+    health = (
+        "critical"
+        if unused_count > 5
+        else "warning" if unused_count > 0 or expiring_soon > 0 else "healthy"
+    )
     stats = [f"${annual_sw:,.0f}/yr SW spend"]
     if unused_count:
         stats.append(f"{unused_count} unused licenses")
@@ -71,6 +76,7 @@ def costlens_platform_stats(
 
 # ── Main summary endpoint ─────────────────────────────────────────────────────
 
+
 @router.get("/summary")
 def costlens_summary(
     request: Request,
@@ -79,7 +85,7 @@ def costlens_summary(
 ):
     """Full cost intelligence summary — all insight categories."""
     org_id = require_org_context(request)
-    today  = date.today()
+    today = date.today()
 
     with get_db_connection() as conn:
         cur = conn.cursor()
@@ -100,19 +106,23 @@ def costlens_summary(
             utilisation = round((r["seats_used"] or 0) / r["seat_count"] * 100, 1)
             wasted_seats = r["seat_count"] - (r["seats_used"] or 0)
             annual = float(r["cost_per_year"] or 0)
-            saving  = round(annual * (1 - utilisation / 100), 2) if annual else None
-            unused_licenses.append({
-                "id":           str(r["id"]),
-                "product":      r["product_name"],
-                "vendor":       r["vendor"],
-                "seat_count":   r["seat_count"],
-                "seats_used":   r["seats_used"] or 0,
-                "utilisation":  utilisation,
-                "wasted_seats": wasted_seats,
-                "cost_per_year":annual,
-                "potential_saving": saving,
-                "expiry_date":  str(r["expiry_date"]) if r.get("expiry_date") else None,
-            })
+            saving = round(annual * (1 - utilisation / 100), 2) if annual else None
+            unused_licenses.append(
+                {
+                    "id": str(r["id"]),
+                    "product": r["product_name"],
+                    "vendor": r["vendor"],
+                    "seat_count": r["seat_count"],
+                    "seats_used": r["seats_used"] or 0,
+                    "utilisation": utilisation,
+                    "wasted_seats": wasted_seats,
+                    "cost_per_year": annual,
+                    "potential_saving": saving,
+                    "expiry_date": (
+                        str(r["expiry_date"]) if r.get("expiry_date") else None
+                    ),
+                }
+            )
 
         # ── 2. Idle assets (no tickets linked in 90+ days, still assigned) ───
         cur.execute(
@@ -135,13 +145,15 @@ def costlens_summary(
         )
         idle_assets = [
             {
-                "id":             str(r["id"]),
-                "name":           r["name"],
-                "asset_tag":      r["asset_tag"],
-                "category":       r["category"],
-                "purchase_price": float(r["purchase_price"]) if r.get("purchase_price") else None,
-                "department":     r["department"],
-                "assigned_to":    r["assigned_email"],
+                "id": str(r["id"]),
+                "name": r["name"],
+                "asset_tag": r["asset_tag"],
+                "category": r["category"],
+                "purchase_price": (
+                    float(r["purchase_price"]) if r.get("purchase_price") else None
+                ),
+                "department": r["department"],
+                "assigned_to": r["assigned_email"],
             }
             for r in cur.fetchall()
         ]
@@ -159,14 +171,14 @@ def costlens_summary(
         )
         upcoming_renewals = [
             {
-                "id":                  str(r["id"]),
-                "title":               r["title"],
-                "vendor":              r["vendor_name"],
-                "end_date":            str(r["end_date"]),
-                "days_until_expiry":   (r["end_date"] - today).days,
-                "value":               float(r["value"]) if r.get("value") else None,
-                "auto_renews":         r["auto_renews"],
-                "notice_period_days":  r["notice_period_days"],
+                "id": str(r["id"]),
+                "title": r["title"],
+                "vendor": r["vendor_name"],
+                "end_date": str(r["end_date"]),
+                "days_until_expiry": (r["end_date"] - today).days,
+                "value": float(r["value"]) if r.get("value") else None,
+                "auto_renews": r["auto_renews"],
+                "notice_period_days": r["notice_period_days"],
             }
             for r in cur.fetchall()
         ]
@@ -184,7 +196,7 @@ def costlens_summary(
         )
         dept_spend = [
             {
-                "department":  r["department"],
+                "department": r["department"],
                 "asset_count": r["asset_count"],
                 "total_spend": float(r["total_spend"]),
             }
@@ -205,9 +217,9 @@ def costlens_summary(
         )
         vendor_spend = [
             {
-                "vendor":        r["vendor"],
+                "vendor": r["vendor"],
                 "license_count": r["license_count"],
-                "annual_spend":  float(r["annual_spend"]),
+                "annual_spend": float(r["annual_spend"]),
             }
             for r in cur.fetchall()
         ]
@@ -232,19 +244,21 @@ def costlens_summary(
         total_asset_value = float(cur.fetchone()[0] or 0)
 
     potential_savings = sum(
-        lic["potential_saving"] or 0 for lic in unused_licenses if lic.get("potential_saving")
+        lic["potential_saving"] or 0
+        for lic in unused_licenses
+        if lic.get("potential_saving")
     )
 
     return {
         "totals": {
             "software_spend_annual": total_sw_spend,
             "contract_value_active": total_contract_value,
-            "asset_book_value":      total_asset_value,
-            "potential_savings":     round(potential_savings, 2),
+            "asset_book_value": total_asset_value,
+            "potential_savings": round(potential_savings, 2),
         },
-        "unused_licenses":    unused_licenses,
-        "idle_assets":        idle_assets,
-        "upcoming_renewals":  upcoming_renewals,
-        "department_spend":   dept_spend,
-        "vendor_spend":       vendor_spend,
+        "unused_licenses": unused_licenses,
+        "idle_assets": idle_assets,
+        "upcoming_renewals": upcoming_renewals,
+        "department_spend": dept_spend,
+        "vendor_spend": vendor_spend,
     }

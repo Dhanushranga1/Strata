@@ -23,20 +23,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/changes", tags=["changes"])
 
 RISK_LEVELS = ("low", "standard", "high", "emergency")
-STATUSES    = ("draft", "pending_approval", "approved", "scheduled",
-               "in_progress", "completed", "failed", "cancelled")
+STATUSES = (
+    "draft",
+    "pending_approval",
+    "approved",
+    "scheduled",
+    "in_progress",
+    "completed",
+    "failed",
+    "cancelled",
+)
 
 
 def _get_role(user_id: str) -> str:
     try:
         from .roles import get_user_role
+
         return get_user_role(user_id)
     except Exception:
         return "customer"
 
+
 def _require_rep(user: User):
     if _get_role(user.id) not in ("rep", "admin", "owner"):
         raise HTTPException(403, "Rep or admin required")
+
 
 def _require_admin(user: User):
     if _get_role(user.id) not in ("admin", "owner"):
@@ -45,33 +56,41 @@ def _require_admin(user: User):
 
 def _row(r) -> dict:
     return {
-        "id":               str(r["id"]),
-        "organization_id":  str(r["organization_id"]),
-        "title":            r["title"],
-        "description":      r.get("description"),
-        "risk_level":       r["risk_level"],
-        "status":           r["status"],
-        "requested_by":     str(r["requested_by"]) if r.get("requested_by") else None,
-        "requester_email":  r.get("requester_email"),
-        "approved_by":      str(r["approved_by"]) if r.get("approved_by") else None,
-        "approver_email":   r.get("approver_email"),
-        "scheduled_at":     r["scheduled_at"].isoformat() if r.get("scheduled_at") else None,
-        "completed_at":     r["completed_at"].isoformat() if r.get("completed_at") else None,
-        "rollback_plan":    r.get("rollback_plan"),
-        "linked_ticket_id": str(r["linked_ticket_id"]) if r.get("linked_ticket_id") else None,
-        "blackout_check":   bool(r.get("blackout_check")),
-        "notes":            r.get("notes"),
-        "created_at":       r["created_at"].isoformat() if r.get("created_at") else None,
-        "updated_at":       r["updated_at"].isoformat() if r.get("updated_at") else None,
+        "id": str(r["id"]),
+        "organization_id": str(r["organization_id"]),
+        "title": r["title"],
+        "description": r.get("description"),
+        "risk_level": r["risk_level"],
+        "status": r["status"],
+        "requested_by": str(r["requested_by"]) if r.get("requested_by") else None,
+        "requester_email": r.get("requester_email"),
+        "approved_by": str(r["approved_by"]) if r.get("approved_by") else None,
+        "approver_email": r.get("approver_email"),
+        "scheduled_at": (
+            r["scheduled_at"].isoformat() if r.get("scheduled_at") else None
+        ),
+        "completed_at": (
+            r["completed_at"].isoformat() if r.get("completed_at") else None
+        ),
+        "rollback_plan": r.get("rollback_plan"),
+        "linked_ticket_id": (
+            str(r["linked_ticket_id"]) if r.get("linked_ticket_id") else None
+        ),
+        "blackout_check": bool(r.get("blackout_check")),
+        "notes": r.get("notes"),
+        "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+        "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
     }
+
 
 def _blackout_row(r) -> dict:
     return {
-        "id":       str(r["id"]),
-        "name":     r["name"],
+        "id": str(r["id"]),
+        "name": r["name"],
         "start_at": r["start_at"].isoformat(),
-        "end_at":   r["end_at"].isoformat(),
+        "end_at": r["end_at"].isoformat(),
     }
+
 
 _SELECT = """
     SELECT c.*,
@@ -84,6 +103,7 @@ _SELECT = """
 
 
 # ── Platform stats ─────────────────────────────────────────────────────────────
+
 
 @router.get("/platform-stats")
 def change_platform_stats(
@@ -111,8 +131,10 @@ def change_platform_stats(
 
     pending = counts.get("pending_approval", 0)
     in_prog = counts.get("in_progress", 0)
-    health  = "warning" if active_blackouts > 0 else ("warning" if pending > 5 else "healthy")
-    stats   = []
+    health = (
+        "warning" if active_blackouts > 0 else ("warning" if pending > 5 else "healthy")
+    )
+    stats = []
     if pending:
         stats.append(f"{pending} awaiting approval")
     if in_prog:
@@ -126,6 +148,7 @@ def change_platform_stats(
 
 
 # ── Blackout windows ──────────────────────────────────────────────────────────
+
 
 @router.get("/blackouts")
 def list_blackouts(
@@ -195,6 +218,7 @@ def delete_blackout(
 
 # ── CRUD ───────────────────────────────────────────────────────────────────────
 
+
 class ChangeIn(BaseModel):
     title: str
     description: Optional[str] = None
@@ -216,7 +240,7 @@ def list_changes(
     offset: int = Query(0, ge=0),
 ):
     org_id = require_org_context(request)
-    conds  = ["c.organization_id = %s"]
+    conds = ["c.organization_id = %s"]
     params: list = [org_id]
     if status:
         conds.append("c.status = %s")
@@ -272,9 +296,18 @@ def create_change(
                 linked_ticket_id, scheduled_at, notes, requested_by, blackout_check)
                VALUES (%s, %s, %s, %s, %s, %s::uuid, %s::timestamptz, %s, %s::uuid, %s)
                RETURNING *""",
-            (org_id, body.title.strip(), body.description, body.risk_level,
-             body.rollback_plan, body.linked_ticket_id or None,
-             body.scheduled_at or None, body.notes, user.id, blackout_active),
+            (
+                org_id,
+                body.title.strip(),
+                body.description,
+                body.risk_level,
+                body.rollback_plan,
+                body.linked_ticket_id or None,
+                body.scheduled_at or None,
+                body.notes,
+                user.id,
+                blackout_active,
+            ),
         )
         row = cur.fetchone()
         conn.commit()
@@ -302,9 +335,15 @@ def get_change(
     return _row(row)
 
 
-def _transition(change_id: str, org_id: str, user: User,
-                allowed_from: tuple, new_status: str,
-                extra_sets: str = "", extra_params: list = None):
+def _transition(
+    change_id: str,
+    org_id: str,
+    user: User,
+    allowed_from: tuple,
+    new_status: str,
+    extra_sets: str = "",
+    extra_params: list = None,
+):
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -315,7 +354,9 @@ def _transition(change_id: str, org_id: str, user: User,
         if not row:
             raise HTTPException(404, "Change not found")
         if row["status"] not in allowed_from:
-            raise HTTPException(400, f"Cannot transition from '{row['status']}' to '{new_status}'")
+            raise HTTPException(
+                400, f"Cannot transition from '{row['status']}' to '{new_status}'"
+            )
 
         params = [new_status] + (extra_params or []) + [change_id, org_id]
         cur.execute(
@@ -347,9 +388,9 @@ def submit_change(
 ):
     org_id = require_org_context(request)
     _require_rep(user)
-    return _transition(change_id, org_id, user,
-                       ("draft",), "pending_approval",
-                       "updated_at = NOW()")
+    return _transition(
+        change_id, org_id, user, ("draft",), "pending_approval", "updated_at = NOW()"
+    )
 
 
 @router.post("/{change_id}/approve")
@@ -379,11 +420,20 @@ def approve_change(
                 (org_id,),
             )
             if int(cur.fetchone()[0] or 0) > 0:
-                raise HTTPException(409, "Cannot approve high/emergency change during an active blackout window")
+                raise HTTPException(
+                    409,
+                    "Cannot approve high/emergency change during an active blackout window",
+                )
 
-    return _transition(change_id, org_id, user,
-                       ("pending_approval",), "approved",
-                       "approved_by = %s::uuid, updated_at = NOW()", [user.id])
+    return _transition(
+        change_id,
+        org_id,
+        user,
+        ("pending_approval",),
+        "approved",
+        "approved_by = %s::uuid, updated_at = NOW()",
+        [user.id],
+    )
 
 
 @router.post("/{change_id}/reject")
@@ -395,9 +445,14 @@ def reject_change(
 ):
     org_id = require_org_context(request)
     _require_admin(user)
-    return _transition(change_id, org_id, user,
-                       ("pending_approval",), "cancelled",
-                       "updated_at = NOW()")
+    return _transition(
+        change_id,
+        org_id,
+        user,
+        ("pending_approval",),
+        "cancelled",
+        "updated_at = NOW()",
+    )
 
 
 class ScheduleIn(BaseModel):
@@ -414,9 +469,15 @@ def schedule_change(
 ):
     org_id = require_org_context(request)
     _require_rep(user)
-    return _transition(change_id, org_id, user,
-                       ("approved",), "scheduled",
-                       "scheduled_at = %s::timestamptz, updated_at = NOW()", [body.scheduled_at])
+    return _transition(
+        change_id,
+        org_id,
+        user,
+        ("approved",),
+        "scheduled",
+        "scheduled_at = %s::timestamptz, updated_at = NOW()",
+        [body.scheduled_at],
+    )
 
 
 @router.post("/{change_id}/start")
@@ -428,9 +489,14 @@ def start_change(
 ):
     org_id = require_org_context(request)
     _require_rep(user)
-    return _transition(change_id, org_id, user,
-                       ("approved", "scheduled"), "in_progress",
-                       "updated_at = NOW()")
+    return _transition(
+        change_id,
+        org_id,
+        user,
+        ("approved", "scheduled"),
+        "in_progress",
+        "updated_at = NOW()",
+    )
 
 
 class CompleteIn(BaseModel):

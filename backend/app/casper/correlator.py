@@ -25,21 +25,21 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CorrelatedEntity:
-    namespace:   str           # "kb_chunk", "asset", "contract", "knowbase_article"
-    entity_id:   str
-    label:       str
-    score:       float
-    snippet:     str = ""
-    metadata:    Dict[str, Any] = field(default_factory=dict)
+    namespace: str  # "kb_chunk", "asset", "contract", "knowbase_article"
+    entity_id: str
+    label: str
+    score: float
+    snippet: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class EntityNamespace:
-    name:         str
-    search_fn:    Callable[[List[float], str, int], List[Dict]]
+    name: str
+    search_fn: Callable[[List[float], str, int], List[Dict]]
     # search_fn(query_embedding, org_id, top_k) → List[{id, label, score, snippet, ...}]
-    format_fn:    Optional[Callable[[Dict], CorrelatedEntity]] = None
-    enabled:      bool = True
+    format_fn: Optional[Callable[[Dict], CorrelatedEntity]] = None
+    enabled: bool = True
 
 
 class EntityCorrelator:
@@ -84,7 +84,9 @@ class EntityCorrelator:
                             entity_id=str(item.get("id", "")),
                             label=str(item.get("label", item.get("title", ""))),
                             score=float(item.get("score", 0.0)),
-                            snippet=str(item.get("snippet", item.get("text", ""))[:200]),
+                            snippet=str(
+                                item.get("snippet", item.get("text", ""))[:200]
+                            ),
                             metadata=item,
                         )
                     all_results.append(entity)

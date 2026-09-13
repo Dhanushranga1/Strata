@@ -5,10 +5,11 @@ Two surfaces:
   1. /api/portal/{org_slug}/... — public, no auth
   2. /api/servicehub/...       — authenticated admin management
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Optional, List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -24,34 +25,39 @@ router = APIRouter(tags=["servicehub"])
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _get_role(user_id: str) -> str:
     try:
         from .roles import get_user_role
+
         return get_user_role(user_id)
     except Exception:
         return "customer"
+
 
 def _require_rep(user: User):
     if _get_role(user.id) not in ("rep", "admin", "owner"):
         raise HTTPException(403, "Rep or admin required")
 
+
 def _row(r) -> dict:
     return {
-        "id":               str(r["id"]),
-        "organization_id":  str(r["organization_id"]),
-        "name":             r["name"],
-        "description":      r.get("description"),
-        "category":         r.get("category"),
-        "icon":             r.get("icon") or "LayoutGrid",
-        "form_schema":      r["form_schema"] if r.get("form_schema") is not None else [],
+        "id": str(r["id"]),
+        "organization_id": str(r["organization_id"]),
+        "name": r["name"],
+        "description": r.get("description"),
+        "category": r.get("category"),
+        "icon": r.get("icon") or "LayoutGrid",
+        "form_schema": r["form_schema"] if r.get("form_schema") is not None else [],
         "auto_assign_role": r.get("auto_assign_role"),
-        "sla_priority":     r.get("sla_priority", 3),
-        "estimated_time":   r.get("estimated_time"),
-        "sort_order":       r.get("sort_order", 0),
-        "is_active":        bool(r.get("is_active", True)),
-        "is_public":        bool(r.get("is_public", False)),
-        "created_at":       r["created_at"].isoformat() if r.get("created_at") else None,
+        "sla_priority": r.get("sla_priority", 3),
+        "estimated_time": r.get("estimated_time"),
+        "sort_order": r.get("sort_order", 0),
+        "is_active": bool(r.get("is_active", True)),
+        "is_public": bool(r.get("is_public", False)),
+        "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
     }
+
 
 def _org_by_slug(slug: str) -> Optional[dict]:
     with get_db_connection() as conn:
@@ -116,6 +122,7 @@ def create_catalog_item(
     org_id = require_org_context(request)
     _require_rep(user)
     import json
+
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -125,10 +132,21 @@ def create_catalog_item(
                 is_active, is_public, created_by)
                VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s::uuid)
                RETURNING *""",
-            (org_id, body.name.strip(), body.description, body.category, body.icon,
-             json.dumps(body.form_schema), body.auto_assign_role,
-             body.sla_priority, body.estimated_time, body.sort_order,
-             body.is_active, body.is_public, user.id),
+            (
+                org_id,
+                body.name.strip(),
+                body.description,
+                body.category,
+                body.icon,
+                json.dumps(body.form_schema),
+                body.auto_assign_role,
+                body.sla_priority,
+                body.estimated_time,
+                body.sort_order,
+                body.is_active,
+                body.is_public,
+                user.id,
+            ),
         )
         row = cur.fetchone()
         conn.commit()
@@ -146,6 +164,7 @@ def update_catalog_item(
     org_id = require_org_context(request)
     _require_rep(user)
     import json
+
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -154,10 +173,21 @@ def update_catalog_item(
                    auto_assign_role=%s, sla_priority=%s, estimated_time=%s,
                    sort_order=%s, is_active=%s, is_public=%s, updated_at=NOW()
                WHERE id=%s::uuid AND organization_id=%s RETURNING *""",
-            (body.name.strip(), body.description, body.category, body.icon,
-             json.dumps(body.form_schema), body.auto_assign_role,
-             body.sla_priority, body.estimated_time, body.sort_order,
-             body.is_active, body.is_public, item_id, org_id),
+            (
+                body.name.strip(),
+                body.description,
+                body.category,
+                body.icon,
+                json.dumps(body.form_schema),
+                body.auto_assign_role,
+                body.sla_priority,
+                body.estimated_time,
+                body.sort_order,
+                body.is_active,
+                body.is_public,
+                item_id,
+                org_id,
+            ),
         )
         row = cur.fetchone()
         if not row:
@@ -256,7 +286,15 @@ def portal_kb(org_slug: str, q: Optional[str] = None):
                    ORDER BY view_count DESC LIMIT 5""",
                 (str(org["id"]),),
             )
-        articles = [{"id": str(r["id"]), "title": r["title"], "category": r.get("category"), "view_count": r.get("view_count", 0)} for r in cur.fetchall()]
+        articles = [
+            {
+                "id": str(r["id"]),
+                "title": r["title"],
+                "category": r.get("category"),
+                "view_count": r.get("view_count", 0),
+            }
+            for r in cur.fetchall()
+        ]
     return {"articles": articles}
 
 
@@ -283,7 +321,9 @@ def portal_submit(org_slug: str, catalog_id: str, body: PortalRequestIn):
     if not item:
         raise HTTPException(404, "Service not found")
 
-    requester = body.requester_name or body.form_data.get("requester_name") or "Anonymous"
+    requester = (
+        body.requester_name or body.form_data.get("requester_name") or "Anonymous"
+    )
     title = f"{item['name']} — {requester}"
 
     # Build structured description from form data
@@ -302,7 +342,10 @@ def portal_submit(org_slug: str, catalog_id: str, body: PortalRequestIn):
     priority = priority_map.get(item.get("sla_priority", 3), "medium")
 
     import json
-    meta = json.dumps({"source": "portal", "catalog_id": catalog_id, "catalog_name": item["name"]})
+
+    meta = json.dumps(
+        {"source": "portal", "catalog_id": catalog_id, "catalog_name": item["name"]}
+    )
 
     with get_db_connection() as conn:
         cur = conn.cursor()

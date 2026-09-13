@@ -5,16 +5,18 @@ Keys are single-use credentials (format: sk_live_<32 random chars>).
 Only the SHA-256 hash is stored — the plain key is returned once on creation
 and never again (like GitHub PATs, Stripe keys, etc.).
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
-from typing import Optional
+
 import hashlib
 import secrets
 import string
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from .auth import User, get_current_user
-from .org_middleware import require_org_context
 from .db_sync import get_db_connection
+from .org_middleware import require_org_context
 
 router = APIRouter(prefix="/api/keys", tags=["api-keys"])
 
@@ -28,7 +30,7 @@ def _generate_key() -> tuple[str, str, str]:
     """Return (full_key, prefix, hash)."""
     random_part = "".join(secrets.choice(_ALPHABET) for _ in range(32))
     key = f"sk_live_{random_part}"
-    prefix = key[:12]                                 # "sk_live_XXXX"
+    prefix = key[:12]  # "sk_live_XXXX"
     key_hash = hashlib.sha256(key.encode()).hexdigest()
     return key, prefix, key_hash
 
@@ -47,12 +49,14 @@ def _require_admin(user: User, request: Request) -> None:
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────
 
+
 class CreateKeyRequest(BaseModel):
     name: str
-    expires_days: Optional[int] = None   # None = no expiry
+    expires_days: Optional[int] = None  # None = no expiry
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
+
 
 @router.get("")
 def list_keys(request: Request, user: User = Depends(get_current_user)):
@@ -92,6 +96,7 @@ def create_key(
     expires_at = None
     if payload.expires_days:
         from datetime import datetime, timedelta, timezone
+
         expires_at = datetime.now(timezone.utc) + timedelta(days=payload.expires_days)
 
     with get_db_connection() as conn:
@@ -109,7 +114,7 @@ def create_key(
 
     return {
         **row,
-        "key": full_key,   # shown once — not stored
+        "key": full_key,  # shown once — not stored
         "warning": "Store this key securely. It will not be shown again.",
     }
 

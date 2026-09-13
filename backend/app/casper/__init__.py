@@ -20,21 +20,21 @@ Single import point for all AI operations:
     casper_engine.correlator.register_namespace(EntityNamespace(...))
 """
 
-from .engine import (
-    CASPEREngine,
-    TicketAIResult,
-    ChatAIResult,
-)
-from .tools import (
-    ToolRegistry,
-    Tool,
-    ExecutionContext,
-    ToolResult,
-)
 from .correlator import (
+    CorrelatedEntity,
     EntityCorrelator,
     EntityNamespace,
-    CorrelatedEntity,
+)
+from .engine import (
+    CASPEREngine,
+    ChatAIResult,
+    TicketAIResult,
+)
+from .tools import (
+    ExecutionContext,
+    Tool,
+    ToolRegistry,
+    ToolResult,
 )
 
 # Module-level singleton — shared across all requests

@@ -30,25 +30,28 @@ logger = logging.getLogger(__name__)
 
 # ── Payload type ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class InsightPayload:
-    insight_type:   str
-    severity:       str   # critical | warning | notice | info
-    title:          str
-    body:           str
-    action_type:    Optional[str]          = None
-    action_payload: Dict[str, Any]         = field(default_factory=dict)
-    ref_type:       Optional[str]          = None
-    ref_id:         Optional[str]          = None
-    ref_label:      Optional[str]          = None
-    expires_days:   int                    = 30   # auto-expire after N days
+    insight_type: str
+    severity: str  # critical | warning | notice | info
+    title: str
+    body: str
+    action_type: Optional[str] = None
+    action_payload: Dict[str, Any] = field(default_factory=dict)
+    ref_type: Optional[str] = None
+    ref_id: Optional[str] = None
+    ref_label: Optional[str] = None
+    expires_days: int = 30  # auto-expire after N days
 
 
 # ── Individual agents ─────────────────────────────────────────────────────────
 
+
 def run_warranty_agent(cursor, org_id: str) -> List[InsightPayload]:
     """Flag assets with warranty expiring ≤90 days or already expired."""
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT id, asset_tag, name, category, warranty_expiry,
                (warranty_expiry - CURRENT_DATE) AS days_until
         FROM app.assets
@@ -57,60 +60,73 @@ def run_warranty_agent(cursor, org_id: str) -> List[InsightPayload]:
           AND status NOT IN ('retired','disposed')
           AND warranty_expiry <= CURRENT_DATE + INTERVAL '90 days'
         ORDER BY warranty_expiry ASC
-    """, (org_id,))
+    """,
+        (org_id,),
+    )
     rows = cursor.fetchall()
     insights: List[InsightPayload] = []
 
     for r in rows:
         days = r["days_until"]
-        tag  = r["asset_tag"]
+        tag = r["asset_tag"]
         name = r["name"]
-        exp  = r["warranty_expiry"].isoformat() if r["warranty_expiry"] else ""
+        exp = r["warranty_expiry"].isoformat() if r["warranty_expiry"] else ""
 
         if days < 0:
             severity = "critical"
-            title    = f"Warranty expired: {name} ({tag})"
-            body     = (f"Warranty expired {abs(days)} days ago ({exp}). "
-                        f"This {r['category']} is operating without manufacturer coverage. "
-                        f"CASPER recommends opening a renewal or replacement ticket immediately.")
+            title = f"Warranty expired: {name} ({tag})"
+            body = (
+                f"Warranty expired {abs(days)} days ago ({exp}). "
+                f"This {r['category']} is operating without manufacturer coverage. "
+                f"CASPER recommends opening a renewal or replacement ticket immediately."
+            )
         elif days <= 14:
             severity = "critical"
-            title    = f"Warranty expiring in {days} days: {tag}"
-            body     = (f"{name} warranty expires {exp}. "
-                        f"Less than 2 weeks remaining. CASPER recommends scheduling renewal.")
+            title = f"Warranty expiring in {days} days: {tag}"
+            body = (
+                f"{name} warranty expires {exp}. "
+                f"Less than 2 weeks remaining. CASPER recommends scheduling renewal."
+            )
         elif days <= 30:
             severity = "warning"
-            title    = f"Warranty expiring in {days} days: {tag}"
-            body     = (f"{name} ({r['category']}) warranty expires {exp}. "
-                        f"Contact vendor or budget for replacement.")
+            title = f"Warranty expiring in {days} days: {tag}"
+            body = (
+                f"{name} ({r['category']}) warranty expires {exp}. "
+                f"Contact vendor or budget for replacement."
+            )
         else:
             severity = "notice"
-            title    = f"Warranty expiring in {days} days: {tag}"
-            body     = f"{name} ({r['category']}) warranty expires {exp}. Review renewal options."
+            title = f"Warranty expiring in {days} days: {tag}"
+            body = f"{name} ({r['category']}) warranty expires {exp}. Review renewal options."
 
-        insights.append(InsightPayload(
-            insight_type   = "warranty_expiry",
-            severity       = severity,
-            title          = title,
-            body           = body,
-            action_type    = "create_ticket",
-            action_payload = {
-                "title":    f"[AssetLog] Warranty action required: {name} ({tag})",
-                "body":     body,
-                "asset_id": str(r["id"]),
-                "priority": "urgent" if days < 0 else "high" if days <= 14 else "medium",
-            },
-            ref_type   = "asset",
-            ref_id     = str(r["id"]),
-            ref_label  = f"{tag} · {name}",
-            expires_days = 7,
-        ))
+        insights.append(
+            InsightPayload(
+                insight_type="warranty_expiry",
+                severity=severity,
+                title=title,
+                body=body,
+                action_type="create_ticket",
+                action_payload={
+                    "title": f"[AssetLog] Warranty action required: {name} ({tag})",
+                    "body": body,
+                    "asset_id": str(r["id"]),
+                    "priority": (
+                        "urgent" if days < 0 else "high" if days <= 14 else "medium"
+                    ),
+                },
+                ref_type="asset",
+                ref_id=str(r["id"]),
+                ref_label=f"{tag} · {name}",
+                expires_days=7,
+            )
+        )
     return insights
 
 
 def run_license_waste_agent(cursor, org_id: str) -> List[InsightPayload]:
     """Flag licenses with <60% seat utilization for cost optimisation."""
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT id, product_name, vendor, seat_count, seats_used,
                cost_per_year, currency,
                ROUND(seats_used::numeric / NULLIF(seat_count,0) * 100, 1) AS utilization_pct,
@@ -122,46 +138,55 @@ def run_license_waste_agent(cursor, org_id: str) -> List[InsightPayload]:
           AND seats_used::float / seat_count < 0.60
           AND created_at < NOW() - INTERVAL '30 days'
         ORDER BY (seat_count - seats_used) * COALESCE(cost_per_year / NULLIF(seat_count,0), 0) DESC
-    """, (org_id,))
+    """,
+        (org_id,),
+    )
 
     insights: List[InsightPayload] = []
     for r in cursor.fetchall():
-        unused   = r["seat_count"] - r["seats_used"]
-        pct      = float(r["utilization_pct"] or 0)
-        annual   = float(r["cost_per_year"] or 0)
+        unused = r["seat_count"] - r["seats_used"]
+        pct = float(r["utilization_pct"] or 0)
+        annual = float(r["cost_per_year"] or 0)
         currency = r["currency"] or "USD"
-        waste    = round(annual * (unused / r["seat_count"]), 2) if annual else None
+        waste = round(annual * (unused / r["seat_count"]), 2) if annual else None
 
-        body = (f"{r['product_name']} ({r['vendor'] or 'unknown vendor'}): "
-                f"{r['seats_used']}/{r['seat_count']} seats used ({pct:.0f}%). "
-                f"{unused} seats are idle.")
+        body = (
+            f"{r['product_name']} ({r['vendor'] or 'unknown vendor'}): "
+            f"{r['seats_used']}/{r['seat_count']} seats used ({pct:.0f}%). "
+            f"{unused} seats are idle."
+        )
         if waste:
             body += f" Estimated annual waste: {currency} {waste:,.0f}."
-        body += " CASPER recommends reducing the seat count or reassigning unused licenses."
+        body += (
+            " CASPER recommends reducing the seat count or reassigning unused licenses."
+        )
 
-        insights.append(InsightPayload(
-            insight_type   = "license_waste",
-            severity       = "warning" if pct < 40 else "notice",
-            title          = f"License underutilised: {r['product_name']} ({pct:.0f}% used)",
-            body           = body,
-            action_type    = "view_license",
-            action_payload = {
-                "license_id":  str(r["id"]),
-                "idle_seats":  unused,
-                "annual_waste": waste,
-                "currency":    currency,
-            },
-            ref_type   = "license",
-            ref_id     = str(r["id"]),
-            ref_label  = r["product_name"],
-            expires_days = 30,
-        ))
+        insights.append(
+            InsightPayload(
+                insight_type="license_waste",
+                severity="warning" if pct < 40 else "notice",
+                title=f"License underutilised: {r['product_name']} ({pct:.0f}% used)",
+                body=body,
+                action_type="view_license",
+                action_payload={
+                    "license_id": str(r["id"]),
+                    "idle_seats": unused,
+                    "annual_waste": waste,
+                    "currency": currency,
+                },
+                ref_type="license",
+                ref_id=str(r["id"]),
+                ref_label=r["product_name"],
+                expires_days=30,
+            )
+        )
     return insights
 
 
 def run_depreciation_agent(cursor, org_id: str) -> List[InsightPayload]:
     """Flag fully-depreciated assets still in active use."""
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT id, asset_tag, name, category, purchase_date, purchase_price,
                currency, depreciation_years,
                (CURRENT_DATE - purchase_date) / 365.25 AS years_owned
@@ -174,40 +199,47 @@ def run_depreciation_agent(cursor, org_id: str) -> List[InsightPayload]:
           AND (CURRENT_DATE - purchase_date) / 365.25 >= depreciation_years
         ORDER BY purchase_date ASC
         LIMIT 20
-    """, (org_id,))
+    """,
+        (org_id,),
+    )
 
     insights: List[InsightPayload] = []
     for r in cursor.fetchall():
-        years   = float(r["years_owned"])
+        years = float(r["years_owned"])
         age_str = f"{years:.1f} years old"
-        price   = float(r["purchase_price"])
-        currency= r["currency"] or "USD"
+        price = float(r["purchase_price"])
+        currency = r["currency"] or "USD"
 
-        body = (f"{r['name']} ({r['asset_tag']}) is {age_str} — original cost {currency} {price:,.0f}. "
-                f"It has exceeded its {r['depreciation_years']}-year depreciation period and carries "
-                f"no book value. CASPER recommends reviewing for refresh, retirement, or disposal.")
+        body = (
+            f"{r['name']} ({r['asset_tag']}) is {age_str} — original cost {currency} {price:,.0f}. "
+            f"It has exceeded its {r['depreciation_years']}-year depreciation period and carries "
+            f"no book value. CASPER recommends reviewing for refresh, retirement, or disposal."
+        )
 
-        insights.append(InsightPayload(
-            insight_type   = "fully_depreciated",
-            severity       = "notice",
-            title          = f"Fully depreciated: {r['asset_tag']} ({r['name']})",
-            body           = body,
-            action_type    = "change_status",
-            action_payload = {
-                "asset_id":    str(r["id"]),
-                "suggest_status": "retired",
-            },
-            ref_type   = "asset",
-            ref_id     = str(r["id"]),
-            ref_label  = f"{r['asset_tag']} · {r['name']}",
-            expires_days = 60,
-        ))
+        insights.append(
+            InsightPayload(
+                insight_type="fully_depreciated",
+                severity="notice",
+                title=f"Fully depreciated: {r['asset_tag']} ({r['name']})",
+                body=body,
+                action_type="change_status",
+                action_payload={
+                    "asset_id": str(r["id"]),
+                    "suggest_status": "retired",
+                },
+                ref_type="asset",
+                ref_id=str(r["id"]),
+                ref_label=f"{r['asset_tag']} · {r['name']}",
+                expires_days=60,
+            )
+        )
     return insights
 
 
 def run_repair_roi_agent(cursor, org_id: str) -> List[InsightPayload]:
     """Flag repairs where cost exceeds 60% of remaining asset value."""
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT
             a.id AS asset_id, a.asset_tag, a.name, a.category,
             a.purchase_price, a.purchase_date, a.depreciation_years, a.currency,
@@ -222,14 +254,16 @@ def run_repair_roi_agent(cursor, org_id: str) -> List[InsightPayload]:
           AND a.purchase_price IS NOT NULL
           AND a.purchase_date IS NOT NULL
         ORDER BY ar.sent_date DESC
-    """, (org_id,))
+    """,
+        (org_id,),
+    )
 
     insights: List[InsightPayload] = []
     for r in cursor.fetchall():
-        years    = (date.today() - r["purchase_date"]).days / 365.25
-        rate     = min(1.0, years / max(r["depreciation_years"], 1))
-        cur_val  = max(0.0, float(r["purchase_price"]) * (1.0 - rate))
-        repair   = float(r["repair_cost"])
+        years = (date.today() - r["purchase_date"]).days / 365.25
+        rate = min(1.0, years / max(r["depreciation_years"], 1))
+        cur_val = max(0.0, float(r["purchase_price"]) * (1.0 - rate))
+        repair = float(r["repair_cost"])
         currency = r["currency"] or "USD"
 
         if cur_val <= 0:
@@ -250,29 +284,32 @@ def run_repair_roi_agent(cursor, org_id: str) -> List[InsightPayload]:
         else:
             body += "CASPER recommends evaluating whether repair or replacement is more cost-effective."
 
-        insights.append(InsightPayload(
-            insight_type   = "repair_roi",
-            severity       = severity,
-            title          = f"Repair cost alert: {r['asset_tag']} ({ratio_pct:.0f}% of value)",
-            body           = body,
-            action_type    = "create_ticket",
-            action_payload = {
-                "title":     f"[AssetLog] Repair vs replace decision: {r['name']} ({r['asset_tag']})",
-                "body":      body,
-                "asset_id":  str(r["asset_id"]),
-                "priority":  "high",
-            },
-            ref_type   = "asset",
-            ref_id     = str(r["asset_id"]),
-            ref_label  = f"{r['asset_tag']} · {r['name']}",
-            expires_days = 14,
-        ))
+        insights.append(
+            InsightPayload(
+                insight_type="repair_roi",
+                severity=severity,
+                title=f"Repair cost alert: {r['asset_tag']} ({ratio_pct:.0f}% of value)",
+                body=body,
+                action_type="create_ticket",
+                action_payload={
+                    "title": f"[AssetLog] Repair vs replace decision: {r['name']} ({r['asset_tag']})",
+                    "body": body,
+                    "asset_id": str(r["asset_id"]),
+                    "priority": "high",
+                },
+                ref_type="asset",
+                ref_id=str(r["asset_id"]),
+                ref_label=f"{r['asset_tag']} · {r['name']}",
+                expires_days=14,
+            )
+        )
     return insights
 
 
 def run_idle_asset_agent(cursor, org_id: str) -> List[InsightPayload]:
     """Flag assets that are assigned but never deployed (or stagnant) for 60+ days."""
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT
             a.id, a.asset_tag, a.name, a.category, a.status,
             a.assigned_to, au.email AS assigned_email,
@@ -285,41 +322,50 @@ def run_idle_asset_agent(cursor, org_id: str) -> List[InsightPayload]:
           AND a.updated_at < NOW() - INTERVAL '60 days'
         ORDER BY a.updated_at ASC
         LIMIT 20
-    """, (org_id,))
+    """,
+        (org_id,),
+    )
 
     insights: List[InsightPayload] = []
     for r in cursor.fetchall():
         days_idle = int(r["age"].total_seconds() / 86400) if r["age"] else 0
-        tag  = r["asset_tag"]
+        tag = r["asset_tag"]
         name = r["name"]
 
         if r["assigned_to"]:
-            body = (f"{name} ({tag}) is assigned to {r['assigned_email'] or 'user'} "
-                    f"but has had no activity for {days_idle} days. "
-                    f"Verify the asset is still in use or reassign/redeploy it.")
+            body = (
+                f"{name} ({tag}) is assigned to {r['assigned_email'] or 'user'} "
+                f"but has had no activity for {days_idle} days. "
+                f"Verify the asset is still in use or reassign/redeploy it."
+            )
         else:
-            body = (f"{name} ({tag}) has been sitting as '{r['status']}' for {days_idle} days "
-                    f"with no recorded activity. "
-                    f"CASPER recommends deploying it to a user or marking it for storage review.")
+            body = (
+                f"{name} ({tag}) has been sitting as '{r['status']}' for {days_idle} days "
+                f"with no recorded activity. "
+                f"CASPER recommends deploying it to a user or marking it for storage review."
+            )
 
-        insights.append(InsightPayload(
-            insight_type   = "idle_asset",
-            severity       = "notice",
-            title          = f"Idle asset: {tag} ({days_idle} days no activity)",
-            body           = body,
-            action_type    = "view_asset",
-            action_payload = {"asset_id": str(r["id"])},
-            ref_type   = "asset",
-            ref_id     = str(r["id"]),
-            ref_label  = f"{tag} · {name}",
-            expires_days = 30,
-        ))
+        insights.append(
+            InsightPayload(
+                insight_type="idle_asset",
+                severity="notice",
+                title=f"Idle asset: {tag} ({days_idle} days no activity)",
+                body=body,
+                action_type="view_asset",
+                action_payload={"asset_id": str(r["id"])},
+                ref_type="asset",
+                ref_id=str(r["id"]),
+                ref_label=f"{tag} · {name}",
+                expires_days=30,
+            )
+        )
     return insights
 
 
 def run_license_expiry_agent(cursor, org_id: str) -> List[InsightPayload]:
     """Flag licenses expiring within 30 days."""
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT id, product_name, vendor, expiry_date,
                (expiry_date - CURRENT_DATE) AS days_until,
                seat_count, seats_used, cost_per_year, currency
@@ -328,48 +374,57 @@ def run_license_expiry_agent(cursor, org_id: str) -> List[InsightPayload]:
           AND expiry_date IS NOT NULL
           AND expiry_date BETWEEN CURRENT_DATE - INTERVAL '1 day' AND CURRENT_DATE + INTERVAL '30 days'
         ORDER BY expiry_date ASC
-    """, (org_id,))
+    """,
+        (org_id,),
+    )
 
     insights: List[InsightPayload] = []
     for r in cursor.fetchall():
-        days     = r["days_until"]
-        name     = r["product_name"]
+        days = r["days_until"]
+        name = r["product_name"]
         currency = r["currency"] or "USD"
-        annual   = float(r["cost_per_year"] or 0)
-        exp_str  = r["expiry_date"].isoformat()
+        annual = float(r["cost_per_year"] or 0)
+        exp_str = r["expiry_date"].isoformat()
 
         if days < 0:
             severity = "critical"
-            title    = f"License expired: {name}"
-            body     = (f"{name} ({r['vendor'] or 'vendor'}) expired {exp_str}. "
-                        f"{r['seats_used']} users may lose access. Renew immediately.")
+            title = f"License expired: {name}"
+            body = (
+                f"{name} ({r['vendor'] or 'vendor'}) expired {exp_str}. "
+                f"{r['seats_used']} users may lose access. Renew immediately."
+            )
         else:
             severity = "critical" if days <= 7 else "warning"
-            title    = f"License expiring in {days} days: {name}"
-            body     = (f"{name} ({r['vendor'] or 'vendor'}) expires {exp_str}. "
-                        f"{r['seats_used']} active seat{'s' if r['seats_used'] != 1 else ''} will be revoked. ")
+            title = f"License expiring in {days} days: {name}"
+            body = (
+                f"{name} ({r['vendor'] or 'vendor'}) expires {exp_str}. "
+                f"{r['seats_used']} active seat{'s' if r['seats_used'] != 1 else ''} will be revoked. "
+            )
             if annual:
                 body += f"Annual cost: {currency} {annual:,.0f}. "
             body += "CASPER recommends scheduling renewal before expiry."
 
-        insights.append(InsightPayload(
-            insight_type   = "license_expiry",
-            severity       = severity,
-            title          = title,
-            body           = body,
-            action_type    = "view_license",
-            action_payload = {"license_id": str(r["id"])},
-            ref_type   = "license",
-            ref_id     = str(r["id"]),
-            ref_label  = name,
-            expires_days = 7,
-        ))
+        insights.append(
+            InsightPayload(
+                insight_type="license_expiry",
+                severity=severity,
+                title=title,
+                body=body,
+                action_type="view_license",
+                action_payload={"license_id": str(r["id"])},
+                ref_type="license",
+                ref_id=str(r["id"]),
+                ref_label=name,
+                expires_days=7,
+            )
+        )
     return insights
 
 
 def run_contract_renewal_agent(cursor, org_id: str) -> List[InsightPayload]:
     """Flag contracts expiring within 90 days or requiring notice-period action."""
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT c.id, c.title, c.end_date, c.renewal_date,
                c.renewal_notice_days, c.auto_renews, c.status,
                c.total_value, c.currency, c.payment_schedule,
@@ -383,29 +438,35 @@ def run_contract_renewal_agent(cursor, org_id: str) -> List[InsightPayload]:
           AND c.end_date IS NOT NULL
           AND c.end_date <= CURRENT_DATE + INTERVAL '90 days'
         ORDER BY c.end_date ASC
-    """, (org_id,))
+    """,
+        (org_id,),
+    )
 
     insights: List[InsightPayload] = []
     for r in cursor.fetchall():
-        days     = int(r["days_until_end"] or 0)
-        title    = r["title"]
-        vendor   = r["vendor_name"] or "vendor"
+        days = int(r["days_until_end"] or 0)
+        title = r["title"]
+        vendor = r["vendor_name"] or "vendor"
         currency = r["currency"] or "USD"
-        value    = float(r["total_value"] or 0)
-        notice   = int(r["renewal_notice_days"] or 30)
-        exp_str  = r["end_date"].isoformat()
-        auto_r   = r["auto_renews"]
+        value = float(r["total_value"] or 0)
+        notice = int(r["renewal_notice_days"] or 30)
+        exp_str = r["end_date"].isoformat()
+        auto_r = r["auto_renews"]
 
         if days < 0:
             severity = "critical"
-            heading  = f"Contract expired: {title}"
-            detail   = (f"Your contract with {vendor} ('{title}') expired {exp_str}. "
-                        f"Services may be at risk. Review and renew or terminate immediately.")
+            heading = f"Contract expired: {title}"
+            detail = (
+                f"Your contract with {vendor} ('{title}') expired {exp_str}. "
+                f"Services may be at risk. Review and renew or terminate immediately."
+            )
         elif days <= notice:
             severity = "critical" if days <= 7 else "warning"
-            heading  = f"Contract renewal deadline: {title} ({days}d)"
-            detail   = (f"'{title}' with {vendor} expires {exp_str} — "
-                        f"within your {notice}-day notice window. ")
+            heading = f"Contract renewal deadline: {title} ({days}d)"
+            detail = (
+                f"'{title}' with {vendor} expires {exp_str} — "
+                f"within your {notice}-day notice window. "
+            )
             if auto_r:
                 detail += "Auto-renews unless cancelled. Review terms before deadline."
             else:
@@ -414,43 +475,48 @@ def run_contract_renewal_agent(cursor, org_id: str) -> List[InsightPayload]:
                 detail += f" Contract value: {currency} {value:,.0f}."
         else:
             severity = "notice"
-            heading  = f"Contract expiring in {days} days: {title}"
-            detail   = (f"'{title}' with {vendor} expires {exp_str}. "
-                        f"Notice period: {notice} days. ")
+            heading = f"Contract expiring in {days} days: {title}"
+            detail = (
+                f"'{title}' with {vendor} expires {exp_str}. "
+                f"Notice period: {notice} days. "
+            )
             if auto_r:
                 detail += "Set to auto-renew — verify terms are still favourable."
             else:
                 detail += "Plan renewal or replacement before the notice deadline."
 
-        insights.append(InsightPayload(
-            insight_type   = "contract_renewal",
-            severity       = severity,
-            title          = heading,
-            body           = detail,
-            action_type    = "view_contract",
-            action_payload = {"contract_id": str(r["id"])},
-            ref_type   = "contract",
-            ref_id     = str(r["id"]),
-            ref_label  = title,
-            expires_days = 7,
-        ))
+        insights.append(
+            InsightPayload(
+                insight_type="contract_renewal",
+                severity=severity,
+                title=heading,
+                body=detail,
+                action_type="view_contract",
+                action_payload={"contract_id": str(r["id"])},
+                ref_type="contract",
+                ref_id=str(r["id"]),
+                ref_label=title,
+                expires_days=7,
+            )
+        )
     return insights
 
 
 # ── Agent registry ─────────────────────────────────────────────────────────────
 
 _AGENTS = [
-    ("warranty",          run_warranty_agent),
-    ("license_waste",     run_license_waste_agent),
-    ("depreciation",      run_depreciation_agent),
-    ("repair_roi",        run_repair_roi_agent),
-    ("idle_asset",        run_idle_asset_agent),
-    ("license_expiry",    run_license_expiry_agent),
-    ("contract_renewal",  run_contract_renewal_agent),
+    ("warranty", run_warranty_agent),
+    ("license_waste", run_license_waste_agent),
+    ("depreciation", run_depreciation_agent),
+    ("repair_roi", run_repair_roi_agent),
+    ("idle_asset", run_idle_asset_agent),
+    ("license_expiry", run_license_expiry_agent),
+    ("contract_renewal", run_contract_renewal_agent),
 ]
 
 
 # ── Scheduler (called from main.py lifespan) ──────────────────────────────────
+
 
 def run_all_agents_for_org(org_id: str) -> Dict[str, int]:
     """Run all registered agents for a single org. Returns {agent: insights_upserted}."""
@@ -473,7 +539,8 @@ def run_all_agents_for_org(org_id: str) -> Dict[str, int]:
 
                 for p in payloads:
                     # UPSERT — update title/body/severity/payload if insight already exists
-                    cur.execute("""
+                    cur.execute(
+                        """
                         INSERT INTO app.casper_insights
                             (organization_id, insight_type, severity, title, body,
                              action_type, action_payload, ref_type, ref_id, ref_label,
@@ -492,11 +559,21 @@ def run_all_agents_for_org(org_id: str) -> Dict[str, int]:
                             refreshed_at   = NOW(),
                             expires_at     = EXCLUDED.expires_at
                         RETURNING (xmax = 0) AS was_inserted
-                    """, (
-                        org_id, p.insight_type, p.severity, p.title, p.body,
-                        p.action_type, p.action_payload, p.ref_type, p.ref_id, p.ref_label,
-                        str(p.expires_days),
-                    ))
+                    """,
+                        (
+                            org_id,
+                            p.insight_type,
+                            p.severity,
+                            p.title,
+                            p.body,
+                            p.action_type,
+                            p.action_payload,
+                            p.ref_type,
+                            p.ref_id,
+                            p.ref_label,
+                            str(p.expires_days),
+                        ),
+                    )
                     row = cur.fetchone()
                     if row and row["was_inserted"]:
                         created += 1
@@ -508,11 +585,14 @@ def run_all_agents_for_org(org_id: str) -> Dict[str, int]:
 
             except Exception as exc:
                 error_msg = str(exc)
-                logger.exception("Agent %s failed for org %s: %s", agent_name, org_id, exc)
+                logger.exception(
+                    "Agent %s failed for org %s: %s", agent_name, org_id, exc
+                )
 
             finally:
                 duration_ms = int((time.monotonic() - start) * 1000)
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO app.casper_agent_runs
                         (organization_id, agent_name, last_run_at, insights_created,
                          insights_updated, run_duration_ms, error_message)
@@ -524,7 +604,9 @@ def run_all_agents_for_org(org_id: str) -> Dict[str, int]:
                         insights_updated = EXCLUDED.insights_updated,
                         run_duration_ms  = EXCLUDED.run_duration_ms,
                         error_message    = EXCLUDED.error_message
-                """, (org_id, agent_name, created, updated, duration_ms, error_msg))
+                """,
+                    (org_id, agent_name, created, updated, duration_ms, error_msg),
+                )
 
             results[agent_name] = created + updated
 
@@ -539,7 +621,8 @@ def _expire_resolved(cursor, org_id: str, agent_name: str):
     """Auto-dismiss insights whose underlying condition has resolved."""
     if agent_name == "warranty":
         # Warranty insight resolved if asset retired/disposed or warranty renewed (>90 days away)
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE app.casper_insights ci
             SET is_dismissed = true, dismissed_at = NOW()
             FROM app.assets a
@@ -552,11 +635,14 @@ def _expire_resolved(cursor, org_id: str, agent_name: str):
                   OR a.warranty_expiry IS NULL
                   OR a.warranty_expiry > CURRENT_DATE + INTERVAL '90 days'
               )
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
 
     elif agent_name == "license_waste":
         # License waste resolved if utilisation rose above 70%
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE app.casper_insights ci
             SET is_dismissed = true, dismissed_at = NOW()
             FROM app.software_licenses sl
@@ -565,11 +651,14 @@ def _expire_resolved(cursor, org_id: str, agent_name: str):
               AND ci.ref_id = sl.id
               AND ci.is_dismissed = false
               AND (sl.seat_count IS NULL OR sl.seats_used::float / sl.seat_count >= 0.70)
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
 
     elif agent_name == "repair_roi":
         # Resolved when repair closes (status != 'in_progress')
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE app.casper_insights ci
             SET is_dismissed = true, dismissed_at = NOW()
             FROM app.assets a
@@ -578,11 +667,14 @@ def _expire_resolved(cursor, org_id: str, agent_name: str):
               AND ci.ref_id = a.id
               AND ci.is_dismissed = false
               AND a.status NOT IN ('in_repair')
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
 
     elif agent_name == "idle_asset":
         # Resolved when asset status changes or updated_at refreshed
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE app.casper_insights ci
             SET is_dismissed = true, dismissed_at = NOW()
             FROM app.assets a
@@ -591,11 +683,14 @@ def _expire_resolved(cursor, org_id: str, agent_name: str):
               AND ci.ref_id = a.id
               AND ci.is_dismissed = false
               AND (a.status IN ('retired','disposed') OR a.updated_at > NOW() - INTERVAL '60 days')
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
 
     elif agent_name == "license_expiry":
         # Resolved when expiry date pushed out or license deleted
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE app.casper_insights ci
             SET is_dismissed = true, dismissed_at = NOW()
             FROM app.software_licenses sl
@@ -604,11 +699,14 @@ def _expire_resolved(cursor, org_id: str, agent_name: str):
               AND ci.ref_id = sl.id
               AND ci.is_dismissed = false
               AND (sl.expiry_date IS NULL OR sl.expiry_date > CURRENT_DATE + INTERVAL '30 days')
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
 
     elif agent_name == "contract_renewal":
         # Resolved when contract renewed (end_date > 90 days out), terminated, or expired status
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE app.casper_insights ci
             SET is_dismissed = true, dismissed_at = NOW()
             FROM app.contracts c
@@ -621,16 +719,21 @@ def _expire_resolved(cursor, org_id: str, agent_name: str):
                   OR c.end_date IS NULL
                   OR c.end_date > CURRENT_DATE + INTERVAL '90 days'
               )
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
 
 
 def get_last_run_info(cursor, org_id: str) -> Optional[Dict]:
     """Return the most recent agent run time for display in the UI."""
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT MIN(last_run_at) AS oldest_run
         FROM app.casper_agent_runs
         WHERE organization_id = %s
-    """, (org_id,))
+    """,
+        (org_id,),
+    )
     row = cursor.fetchone()
     if row and row["oldest_run"]:
         return {"last_run_at": row["oldest_run"].isoformat()}

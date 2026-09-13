@@ -28,9 +28,11 @@ router = APIRouter(prefix="/api/contracts", tags=["contractvault"])
 
 # ── Permission helpers ────────────────────────────────────────────────────────
 
+
 def _require_rep(user: User) -> str:
     try:
         from .roles import get_user_role
+
         role = get_user_role(user.id)
     except Exception:
         role = "customer"
@@ -39,9 +41,17 @@ def _require_rep(user: User) -> str:
     return role
 
 
-def _log_history(cursor, contract_id: str, org_id: str, user_id: str,
-                 event_type: str, field: str = None, old: str = None,
-                 new: str = None, note: str = None):
+def _log_history(
+    cursor,
+    contract_id: str,
+    org_id: str,
+    user_id: str,
+    event_type: str,
+    field: str = None,
+    old: str = None,
+    new: str = None,
+    note: str = None,
+):
     cursor.execute(
         "INSERT INTO app.contract_history "
         "(contract_id, organization_id, changed_by, event_type, field_changed, old_value, new_value, note) "
@@ -52,72 +62,73 @@ def _log_history(cursor, contract_id: str, org_id: str, user_id: str,
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
+
 class VendorCreate(BaseModel):
-    name:                  str
-    category:              Optional[str]  = None
-    website:               Optional[str]  = None
-    support_email:         Optional[str]  = None
-    support_phone:         Optional[str]  = None
-    account_manager:       Optional[str]  = None
-    account_manager_email: Optional[str]  = None
-    address:               Optional[str]  = None
-    notes:                 Optional[str]  = None
-    is_preferred:          bool           = False
+    name: str
+    category: Optional[str] = None
+    website: Optional[str] = None
+    support_email: Optional[str] = None
+    support_phone: Optional[str] = None
+    account_manager: Optional[str] = None
+    account_manager_email: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    is_preferred: bool = False
 
 
 class VendorUpdate(BaseModel):
-    name:                  Optional[str]  = None
-    category:              Optional[str]  = None
-    website:               Optional[str]  = None
-    support_email:         Optional[str]  = None
-    support_phone:         Optional[str]  = None
-    account_manager:       Optional[str]  = None
-    account_manager_email: Optional[str]  = None
-    address:               Optional[str]  = None
-    notes:                 Optional[str]  = None
-    is_preferred:          Optional[bool] = None
+    name: Optional[str] = None
+    category: Optional[str] = None
+    website: Optional[str] = None
+    support_email: Optional[str] = None
+    support_phone: Optional[str] = None
+    account_manager: Optional[str] = None
+    account_manager_email: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    is_preferred: Optional[bool] = None
 
 
 class ContractCreate(BaseModel):
-    title:               str
-    vendor_id:           Optional[str]   = None
-    contract_number:     Optional[str]   = None
-    status:              str             = "active"
-    contract_type:       Optional[str]   = None
-    description:         Optional[str]   = None
-    start_date:          Optional[str]   = None
-    end_date:            Optional[str]   = None
-    renewal_date:        Optional[str]   = None
-    auto_renews:         bool            = False
-    renewal_notice_days: int             = 30
-    total_value:         Optional[float] = None
-    currency:            str             = "USD"
-    payment_schedule:    Optional[str]   = None
-    payment_amount:      Optional[float] = None
-    key_terms:           Dict[str, Any]  = {}
-    document_url:        Optional[str]   = None
-    owner_id:            Optional[str]   = None
+    title: str
+    vendor_id: Optional[str] = None
+    contract_number: Optional[str] = None
+    status: str = "active"
+    contract_type: Optional[str] = None
+    description: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    renewal_date: Optional[str] = None
+    auto_renews: bool = False
+    renewal_notice_days: int = 30
+    total_value: Optional[float] = None
+    currency: str = "USD"
+    payment_schedule: Optional[str] = None
+    payment_amount: Optional[float] = None
+    key_terms: Dict[str, Any] = {}
+    document_url: Optional[str] = None
+    owner_id: Optional[str] = None
 
 
 class ContractUpdate(BaseModel):
-    title:               Optional[str]   = None
-    vendor_id:           Optional[str]   = None
-    contract_number:     Optional[str]   = None
-    status:              Optional[str]   = None
-    contract_type:       Optional[str]   = None
-    description:         Optional[str]   = None
-    start_date:          Optional[str]   = None
-    end_date:            Optional[str]   = None
-    renewal_date:        Optional[str]   = None
-    auto_renews:         Optional[bool]  = None
-    renewal_notice_days: Optional[int]   = None
-    total_value:         Optional[float] = None
-    currency:            Optional[str]   = None
-    payment_schedule:    Optional[str]   = None
-    payment_amount:      Optional[float] = None
-    key_terms:           Optional[Dict[str, Any]] = None
-    document_url:        Optional[str]   = None
-    owner_id:            Optional[str]   = None
+    title: Optional[str] = None
+    vendor_id: Optional[str] = None
+    contract_number: Optional[str] = None
+    status: Optional[str] = None
+    contract_type: Optional[str] = None
+    description: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    renewal_date: Optional[str] = None
+    auto_renews: Optional[bool] = None
+    renewal_notice_days: Optional[int] = None
+    total_value: Optional[float] = None
+    currency: Optional[str] = None
+    payment_schedule: Optional[str] = None
+    payment_amount: Optional[float] = None
+    key_terms: Optional[Dict[str, Any]] = None
+    document_url: Optional[str] = None
+    owner_id: Optional[str] = None
 
 
 class LinkAsset(BaseModel):
@@ -126,9 +137,10 @@ class LinkAsset(BaseModel):
 
 # ── Serialisers ───────────────────────────────────────────────────────────────
 
+
 def _vendor_row(row: Dict) -> Dict:
     d = dict(row)
-    for k in ("created_at","updated_at"):
+    for k in ("created_at", "updated_at"):
         if d.get(k) and hasattr(d[k], "isoformat"):
             d[k] = d[k].isoformat()
     return d
@@ -136,7 +148,7 @@ def _vendor_row(row: Dict) -> Dict:
 
 def _contract_row(row: Dict) -> Dict:
     d = dict(row)
-    for k in ("start_date","end_date","renewal_date","created_at","updated_at"):
+    for k in ("start_date", "end_date", "renewal_date", "created_at", "updated_at"):
         if d.get(k) and hasattr(d[k], "isoformat"):
             d[k] = d[k].isoformat()
     # Annotate expiry status
@@ -144,31 +156,35 @@ def _contract_row(row: Dict) -> Dict:
         end = date.fromisoformat(d["end_date"])
         days_left = (end - date.today()).days
         d["days_until_expiry"] = days_left
-        d["is_expired"]        = days_left < 0
+        d["is_expired"] = days_left < 0
         d["expiry_status"] = (
-            "expired"  if days_left < 0  else
-            "critical" if days_left <= 30 else
-            "warning"  if days_left <= 90 else
-            "ok"
+            "expired"
+            if days_left < 0
+            else (
+                "critical"
+                if days_left <= 30
+                else "warning" if days_left <= 90 else "ok"
+            )
         )
     else:
         d["days_until_expiry"] = None
-        d["is_expired"]        = False
-        d["expiry_status"]     = "ok"
+        d["is_expired"] = False
+        d["expiry_status"] = "ok"
     return d
 
 
 # ── Vendors CRUD ──────────────────────────────────────────────────────────────
+
 
 @router.get("/vendors")
 def list_vendors(
     request: Request,
     user: User = Depends(get_current_user),
     _gate: None = requires_feature("contracts"),
-    search:    Optional[str] = Query(None, max_length=100),
-    category:  Optional[str] = None,
+    search: Optional[str] = Query(None, max_length=100),
+    category: Optional[str] = None,
     preferred: Optional[bool] = None,
-    page:  int = Query(1, ge=1),
+    page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
 ):
     org_id = require_org_context(request)
@@ -177,20 +193,25 @@ def list_vendors(
     params: list = [org_id]
 
     if search:
-        conditions.append("(name ILIKE %s OR support_email ILIKE %s OR account_manager ILIKE %s)")
+        conditions.append(
+            "(name ILIKE %s OR support_email ILIKE %s OR account_manager ILIKE %s)"
+        )
         s = f"%{search}%"
         params += [s, s, s]
     if category:
-        conditions.append("category = %s"); params.append(category)
+        conditions.append("category = %s")
+        params.append(category)
     if preferred is not None:
-        conditions.append("is_preferred = %s"); params.append(preferred)
+        conditions.append("is_preferred = %s")
+        params.append(preferred)
 
     where = " AND ".join(conditions)
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute(f"SELECT COUNT(*) AS total FROM app.vendors WHERE {where}", params)
         total = cur.fetchone()["total"]
-        cur.execute(f"""
+        cur.execute(
+            f"""
             SELECT v.*,
                    COUNT(c.id) FILTER (WHERE c.status = 'active') AS active_contracts,
                    COUNT(c.id) AS total_contracts
@@ -200,11 +221,17 @@ def list_vendors(
             GROUP BY v.id
             ORDER BY v.is_preferred DESC, v.name ASC
             LIMIT %s OFFSET %s
-        """, params + [limit, offset])
+        """,
+            params + [limit, offset],
+        )
         rows = [_vendor_row(dict(r)) for r in cur.fetchall()]
 
-    return {"vendors": rows, "total": total, "page": page,
-            "pages": math.ceil(total / limit) if total else 1}
+    return {
+        "vendors": rows,
+        "total": total,
+        "page": page,
+        "pages": math.ceil(total / limit) if total else 1,
+    }
 
 
 @router.post("/vendors", status_code=201)
@@ -219,18 +246,29 @@ def create_vendor(
 
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO app.vendors
               (organization_id, name, category, website, support_email, support_phone,
                account_manager, account_manager_email, address, notes, is_preferred, created_by)
             VALUES (%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s)
             RETURNING *
-        """, (
-            org_id, payload.name, payload.category, payload.website,
-            payload.support_email, payload.support_phone,
-            payload.account_manager, payload.account_manager_email,
-            payload.address, payload.notes, payload.is_preferred, user.id,
-        ))
+        """,
+            (
+                org_id,
+                payload.name,
+                payload.category,
+                payload.website,
+                payload.support_email,
+                payload.support_phone,
+                payload.account_manager,
+                payload.account_manager_email,
+                payload.address,
+                payload.notes,
+                payload.is_preferred,
+                user.id,
+            ),
+        )
         vendor = cur.fetchone()
         conn.commit()
 
@@ -247,18 +285,24 @@ def get_vendor(
     org_id = require_org_context(request)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM app.vendors WHERE id=%s AND organization_id=%s", (vendor_id, org_id))
+        cur.execute(
+            "SELECT * FROM app.vendors WHERE id=%s AND organization_id=%s",
+            (vendor_id, org_id),
+        )
         v = cur.fetchone()
         if not v:
             raise HTTPException(404, "Vendor not found")
 
-        cur.execute("""
+        cur.execute(
+            """
             SELECT c.id, c.title, c.status, c.contract_type, c.end_date,
                    c.total_value, c.currency, c.renewal_date, c.auto_renews, c.created_at
             FROM app.contracts c
             WHERE c.vendor_id = %s AND c.organization_id = %s
             ORDER BY c.created_at DESC
-        """, (vendor_id, org_id))
+        """,
+            (vendor_id, org_id),
+        )
         contracts = [_contract_row(dict(r)) for r in cur.fetchall()]
 
     result = _vendor_row(dict(v))
@@ -277,19 +321,26 @@ def update_vendor(
     org_id = require_org_context(request)
     _require_rep(user)
 
-    updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    updates = {
+        k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None
+    }
     if not updates:
         raise HTTPException(400, "No fields to update")
 
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM app.vendors WHERE id=%s AND organization_id=%s", (vendor_id, org_id))
+        cur.execute(
+            "SELECT id FROM app.vendors WHERE id=%s AND organization_id=%s",
+            (vendor_id, org_id),
+        )
         if not cur.fetchone():
             raise HTTPException(404, "Vendor not found")
 
         set_clause = ", ".join(f"{k}=%s" for k in updates)
-        cur.execute(f"UPDATE app.vendors SET {set_clause} WHERE id=%s RETURNING *",
-                    list(updates.values()) + [vendor_id])
+        cur.execute(
+            f"UPDATE app.vendors SET {set_clause} WHERE id=%s RETURNING *",
+            list(updates.values()) + [vendor_id],
+        )
         vendor = cur.fetchone()
         conn.commit()
 
@@ -305,12 +356,15 @@ def delete_vendor(
 ):
     org_id = require_org_context(request)
     role = _require_rep(user)
-    if role not in ("admin","owner"):
+    if role not in ("admin", "owner"):
         raise HTTPException(403, "Admin role required")
 
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM app.vendors WHERE id=%s AND organization_id=%s", (vendor_id, org_id))
+        cur.execute(
+            "SELECT id FROM app.vendors WHERE id=%s AND organization_id=%s",
+            (vendor_id, org_id),
+        )
         if not cur.fetchone():
             raise HTTPException(404, "Vendor not found")
         cur.execute("DELETE FROM app.vendors WHERE id=%s", (vendor_id,))
@@ -319,17 +373,18 @@ def delete_vendor(
 
 # ── Contracts CRUD ─────────────────────────────────────────────────────────────
 
+
 @router.get("")
 def list_contracts(
     request: Request,
     user: User = Depends(get_current_user),
     _gate: None = requires_feature("contracts"),
-    search:     Optional[str] = Query(None, max_length=100),
-    status:     Optional[str] = None,
-    vendor_id:  Optional[str] = None,
-    asset_id:   Optional[str] = None,
-    expiring:   Optional[int] = None,   # days
-    page:  int = Query(1, ge=1),
+    search: Optional[str] = Query(None, max_length=100),
+    status: Optional[str] = None,
+    vendor_id: Optional[str] = None,
+    asset_id: Optional[str] = None,
+    expiring: Optional[int] = None,  # days
+    page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
 ):
     org_id = require_org_context(request)
@@ -338,34 +393,44 @@ def list_contracts(
     params: list = [org_id]
 
     if search:
-        conditions.append("(c.title ILIKE %s OR c.contract_number ILIKE %s OR v.name ILIKE %s)")
+        conditions.append(
+            "(c.title ILIKE %s OR c.contract_number ILIKE %s OR v.name ILIKE %s)"
+        )
         s = f"%{search}%"
         params += [s, s, s]
     if status:
-        conditions.append("c.status = %s"); params.append(status)
+        conditions.append("c.status = %s")
+        params.append(status)
     if vendor_id:
-        conditions.append("c.vendor_id = %s"); params.append(vendor_id)
+        conditions.append("c.vendor_id = %s")
+        params.append(vendor_id)
     if asset_id:
         conditions.append(
             "c.id IN (SELECT contract_id FROM app.contract_assets WHERE asset_id = %s)"
         )
         params.append(asset_id)
     if expiring is not None:
-        conditions.append("c.end_date <= CURRENT_DATE + %s AND c.end_date >= CURRENT_DATE")
+        conditions.append(
+            "c.end_date <= CURRENT_DATE + %s AND c.end_date >= CURRENT_DATE"
+        )
         params.append(expiring)
 
     where = " AND ".join(conditions)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute(f"""
+        cur.execute(
+            f"""
             SELECT COUNT(*) AS total
             FROM app.contracts c
             LEFT JOIN app.vendors v ON v.id = c.vendor_id
             WHERE {where}
-        """, params)
+        """,
+            params,
+        )
         total = cur.fetchone()["total"]
 
-        cur.execute(f"""
+        cur.execute(
+            f"""
             SELECT c.*,
                    v.name AS vendor_name, v.category AS vendor_category,
                    ou.email AS owner_email
@@ -378,11 +443,17 @@ def list_contracts(
                 c.end_date ASC NULLS LAST,
                 c.created_at DESC
             LIMIT %s OFFSET %s
-        """, params + [limit, offset])
+        """,
+            params + [limit, offset],
+        )
         rows = [_contract_row(dict(r)) for r in cur.fetchall()]
 
-    return {"contracts": rows, "total": total, "page": page,
-            "pages": math.ceil(total / limit) if total else 1}
+    return {
+        "contracts": rows,
+        "total": total,
+        "page": page,
+        "pages": math.ceil(total / limit) if total else 1,
+    }
 
 
 @router.post("", status_code=201)
@@ -400,12 +471,15 @@ def create_contract(
 
         # Validate vendor belongs to this org
         if payload.vendor_id:
-            cur.execute("SELECT id FROM app.vendors WHERE id=%s AND organization_id=%s",
-                        (payload.vendor_id, org_id))
+            cur.execute(
+                "SELECT id FROM app.vendors WHERE id=%s AND organization_id=%s",
+                (payload.vendor_id, org_id),
+            )
             if not cur.fetchone():
                 raise HTTPException(404, "Vendor not found")
 
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO app.contracts
               (organization_id, vendor_id, contract_number, title, status, contract_type,
                description, start_date, end_date, renewal_date, auto_renews, renewal_notice_days,
@@ -413,25 +487,47 @@ def create_contract(
                key_terms, document_url, owner_id, created_by)
             VALUES (%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s, %s,%s,%s,%s, %s,%s,%s,%s)
             RETURNING *
-        """, (
-            org_id, payload.vendor_id or None, payload.contract_number, payload.title,
-            payload.status, payload.contract_type, payload.description,
-            payload.start_date or None, payload.end_date or None, payload.renewal_date or None,
-            payload.auto_renews, payload.renewal_notice_days,
-            payload.total_value, payload.currency, payload.payment_schedule, payload.payment_amount,
-            json.dumps(payload.key_terms), payload.document_url,
-            payload.owner_id or None, user.id,
-        ))
+        """,
+            (
+                org_id,
+                payload.vendor_id or None,
+                payload.contract_number,
+                payload.title,
+                payload.status,
+                payload.contract_type,
+                payload.description,
+                payload.start_date or None,
+                payload.end_date or None,
+                payload.renewal_date or None,
+                payload.auto_renews,
+                payload.renewal_notice_days,
+                payload.total_value,
+                payload.currency,
+                payload.payment_schedule,
+                payload.payment_amount,
+                json.dumps(payload.key_terms),
+                payload.document_url,
+                payload.owner_id or None,
+                user.id,
+            ),
+        )
         contract = cur.fetchone()
         contract_id = str(contract["id"])
 
-        _log_history(cur, contract_id, org_id, user.id, "created",
-                     note=f"Contract '{payload.title}' created")
+        _log_history(
+            cur,
+            contract_id,
+            org_id,
+            user.id,
+            "created",
+            note=f"Contract '{payload.title}' created",
+        )
         conn.commit()
 
     # Background CASPER embedding
     try:
         from .casper import casper_engine
+
         text = f"[contract] {payload.title} {payload.contract_type or ''} {payload.description or ''}"
         casper_engine.embed_entity("contract", contract_id, text, org_id)
     except Exception:
@@ -451,7 +547,8 @@ def contracts_dashboard(
     with get_db_connection() as conn:
         cur = conn.cursor()
 
-        cur.execute("""
+        cur.execute(
+            """
             SELECT
                 COUNT(*) FILTER (WHERE status = 'active')      AS active_count,
                 COUNT(*) FILTER (WHERE status = 'draft')       AS draft_count,
@@ -463,10 +560,13 @@ def contracts_dashboard(
                     AND status = 'active'
                 ) AS expiring_90d
             FROM app.contracts WHERE organization_id = %s
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
         counts = dict(cur.fetchone())
 
-        cur.execute("""
+        cur.execute(
+            """
             SELECT c.id, c.title, c.status, c.end_date, c.total_value, c.currency,
                    v.name AS vendor_name,
                    (c.end_date - CURRENT_DATE) AS days_until
@@ -478,14 +578,20 @@ def contracts_dashboard(
               AND c.status = 'active'
             ORDER BY c.end_date ASC
             LIMIT 10
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
         expiring = []
         for r in cur.fetchall():
             d = dict(r)
-            if d.get("end_date"): d["end_date"] = d["end_date"].isoformat()
+            if d.get("end_date"):
+                d["end_date"] = d["end_date"].isoformat()
             expiring.append(d)
 
-        cur.execute("SELECT COUNT(*) AS cnt FROM app.vendors WHERE organization_id=%s", (org_id,))
+        cur.execute(
+            "SELECT COUNT(*) AS cnt FROM app.vendors WHERE organization_id=%s",
+            (org_id,),
+        )
         vendor_count = cur.fetchone()["cnt"]
 
     for k in ("total_active_value",):
@@ -504,25 +610,35 @@ def contracts_platform_stats(
     org_id = require_org_context(request)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT
                 COUNT(*) FILTER (WHERE status = 'active')                          AS active,
                 COUNT(*) FILTER (WHERE end_date <= CURRENT_DATE + 30 AND status = 'active') AS expiring_30d,
                 COUNT(*) FILTER (WHERE end_date < CURRENT_DATE AND status = 'active')       AS overdue
             FROM app.contracts WHERE organization_id = %s
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
         row = dict(cur.fetchone())
-        cur.execute("SELECT COUNT(*) AS cnt FROM app.vendors WHERE organization_id=%s", (org_id,))
+        cur.execute(
+            "SELECT COUNT(*) AS cnt FROM app.vendors WHERE organization_id=%s",
+            (org_id,),
+        )
         vendors = cur.fetchone()["cnt"]
 
-    active    = row["active"] or 0
-    exp30     = row["expiring_30d"] or 0
-    overdue   = row["overdue"] or 0
+    active = row["active"] or 0
+    exp30 = row["expiring_30d"] or 0
+    overdue = row["overdue"] or 0
 
-    stats = [f"{vendors} vendor{'s' if vendors != 1 else ''}",
-             f"{active} active contract{'s' if active != 1 else ''}"]
-    if exp30:   stats.append(f"{exp30} renewing soon")
-    if overdue: stats.append(f"{overdue} expired")
+    stats = [
+        f"{vendors} vendor{'s' if vendors != 1 else ''}",
+        f"{active} active contract{'s' if active != 1 else ''}",
+    ]
+    if exp30:
+        stats.append(f"{exp30} renewing soon")
+    if overdue:
+        stats.append(f"{overdue} expired")
 
     health = "critical" if overdue > 0 else "warning" if exp30 > 0 else "healthy"
     return {"stats": stats, "health": health}
@@ -539,7 +655,8 @@ def contracts_calendar(
     org_id = require_org_context(request)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT c.id, c.title, c.status, c.end_date, c.renewal_date,
                    c.total_value, c.currency, c.auto_renews,
                    c.renewal_notice_days,
@@ -553,11 +670,14 @@ def contracts_calendar(
               AND c.end_date >= CURRENT_DATE - INTERVAL '7 days'
               AND c.end_date <= CURRENT_DATE + (%s || ' months')::interval
             ORDER BY c.end_date ASC
-        """, (org_id, str(months)))
+        """,
+            (org_id, str(months)),
+        )
         rows = cur.fetchall()
 
     # Group by YYYY-MM
     from collections import defaultdict
+
     by_month: Dict[str, List] = defaultdict(list)
     for r in rows:
         d = dict(r)
@@ -568,10 +688,9 @@ def contracts_calendar(
         days = int(d["days_until_end"] or 0)
         d["days_until_end"] = days
         d["expiry_status"] = (
-            "expired"  if days < 0   else
-            "critical" if days <= 30 else
-            "warning"  if days <= 90 else
-            "ok"
+            "expired"
+            if days < 0
+            else "critical" if days <= 30 else "warning" if days <= 90 else "ok"
         )
         by_month[key].append(d)
 
@@ -589,12 +708,16 @@ def vendor_analytics(
     org_id = require_org_context(request)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM app.vendors WHERE id=%s AND organization_id=%s", (vendor_id, org_id))
+        cur.execute(
+            "SELECT * FROM app.vendors WHERE id=%s AND organization_id=%s",
+            (vendor_id, org_id),
+        )
         vendor = cur.fetchone()
         if not vendor:
             raise HTTPException(404, "Vendor not found")
 
-        cur.execute("""
+        cur.execute(
+            """
             SELECT
                 COUNT(*)                                         AS total_contracts,
                 COUNT(*) FILTER (WHERE status='active')         AS active_contracts,
@@ -608,11 +731,13 @@ def vendor_analytics(
                 AVG(total_value) FILTER (WHERE total_value IS NOT NULL) AS avg_contract_value
             FROM app.contracts
             WHERE vendor_id=%s AND organization_id=%s
-        """, (vendor_id, org_id))
+        """,
+            (vendor_id, org_id),
+        )
         stats = dict(cur.fetchone())
-        for k in ("active_value","total_value","avg_contract_value"):
+        for k in ("active_value", "total_value", "avg_contract_value"):
             stats[k] = float(stats[k] or 0)
-        for k in ("latest_expiry","soonest_expiry"):
+        for k in ("latest_expiry", "soonest_expiry"):
             if stats.get(k) and hasattr(stats[k], "isoformat"):
                 stats[k] = stats[k].isoformat()
 
@@ -625,20 +750,32 @@ def vendor_analytics(
 
         # Risk score: 0-100 (higher = more risk)
         risk = 0
-        if stats["critical_expiring"] > 0:        risk += 40
-        if stats["expired_contracts"] > stats.get("active_contracts", 0): risk += 20
-        if stats["active_contracts"] == 0:        risk += 30
-        if stats.get("days_until_soonest_expiry") is not None and 0 < stats["days_until_soonest_expiry"] <= 30: risk += 10
+        if stats["critical_expiring"] > 0:
+            risk += 40
+        if stats["expired_contracts"] > stats.get("active_contracts", 0):
+            risk += 20
+        if stats["active_contracts"] == 0:
+            risk += 30
+        if (
+            stats.get("days_until_soonest_expiry") is not None
+            and 0 < stats["days_until_soonest_expiry"] <= 30
+        ):
+            risk += 10
         stats["risk_score"] = min(100, risk)
-        stats["risk_level"] = "critical" if risk >= 60 else "warning" if risk >= 30 else "healthy"
+        stats["risk_level"] = (
+            "critical" if risk >= 60 else "warning" if risk >= 30 else "healthy"
+        )
 
         # Linked assets count
-        cur.execute("""
+        cur.execute(
+            """
             SELECT COUNT(ca.asset_id) AS asset_count
             FROM app.contract_assets ca
             JOIN app.contracts c ON c.id = ca.contract_id
             WHERE c.vendor_id=%s AND c.organization_id=%s
-        """, (vendor_id, org_id))
+        """,
+            (vendor_id, org_id),
+        )
         stats["covered_assets"] = cur.fetchone()["asset_count"]
 
     return {**_vendor_row(dict(vendor)), "analytics": stats}
@@ -657,16 +794,22 @@ def renew_contract(
 
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM app.contracts WHERE id=%s AND organization_id=%s", (contract_id, org_id))
+        cur.execute(
+            "SELECT * FROM app.contracts WHERE id=%s AND organization_id=%s",
+            (contract_id, org_id),
+        )
         orig = cur.fetchone()
         if not orig:
             raise HTTPException(404, "Contract not found")
         if orig["status"] not in ("active", "expired"):
-            raise HTTPException(400, f"Cannot renew a contract with status '{orig['status']}'")
+            raise HTTPException(
+                400, f"Cannot renew a contract with status '{orig['status']}'"
+            )
 
         # Compute new dates: start = day after original end (or today)
         from datetime import date as date_cls
-        orig_end  = orig["end_date"]
+
+        orig_end = orig["end_date"]
         new_start = (orig_end + timedelta(days=1)) if orig_end else date_cls.today()
         duration = None
         if orig_end and orig["start_date"]:
@@ -677,9 +820,14 @@ def renew_contract(
         else:
             new_end = None
 
-        new_renewal = (new_end - timedelta(days=orig["renewal_notice_days"])) if new_end and orig["renewal_notice_days"] else None
+        new_renewal = (
+            (new_end - timedelta(days=orig["renewal_notice_days"]))
+            if new_end and orig["renewal_notice_days"]
+            else None
+        )
 
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO app.contracts
               (organization_id, vendor_id, contract_number, title, status, contract_type,
                description, start_date, end_date, renewal_date, auto_renews, renewal_notice_days,
@@ -687,32 +835,59 @@ def renew_contract(
                key_terms, document_url, owner_id, created_by)
             VALUES (%s,%s,%s,%s,'draft',%s, %s,%s,%s,%s,%s,%s, %s,%s,%s,%s, %s,%s,%s,%s)
             RETURNING *
-        """, (
-            org_id, orig["vendor_id"], orig["contract_number"],
-            orig["title"] + " (Renewal)",
-            orig["contract_type"], orig["description"],
-            new_start.isoformat() if new_start else None,
-            new_end.isoformat() if new_end else None,
-            new_renewal.isoformat() if new_renewal else None,
-            orig["auto_renews"], orig["renewal_notice_days"],
-            orig["total_value"], orig["currency"] or "USD",
-            orig["payment_schedule"], orig["payment_amount"],
-            json.dumps(dict(orig["key_terms"] or {})),
-            orig["document_url"], orig["owner_id"], user.id,
-        ))
+        """,
+            (
+                org_id,
+                orig["vendor_id"],
+                orig["contract_number"],
+                orig["title"] + " (Renewal)",
+                orig["contract_type"],
+                orig["description"],
+                new_start.isoformat() if new_start else None,
+                new_end.isoformat() if new_end else None,
+                new_renewal.isoformat() if new_renewal else None,
+                orig["auto_renews"],
+                orig["renewal_notice_days"],
+                orig["total_value"],
+                orig["currency"] or "USD",
+                orig["payment_schedule"],
+                orig["payment_amount"],
+                json.dumps(dict(orig["key_terms"] or {})),
+                orig["document_url"],
+                orig["owner_id"],
+                user.id,
+            ),
+        )
         new_contract = cur.fetchone()
         new_id = str(new_contract["id"])
 
         # Mark original as renewed
-        cur.execute("UPDATE app.contracts SET status='renewed',updated_by=%s WHERE id=%s",
-                    (user.id, contract_id))
-        _log_history(cur, contract_id, org_id, user.id, "renewed",
-                     note=f"Renewed → contract {new_id}")
-        _log_history(cur, new_id, org_id, user.id, "created",
-                     note=f"Renewal of contract {contract_id}")
+        cur.execute(
+            "UPDATE app.contracts SET status='renewed',updated_by=%s WHERE id=%s",
+            (user.id, contract_id),
+        )
+        _log_history(
+            cur,
+            contract_id,
+            org_id,
+            user.id,
+            "renewed",
+            note=f"Renewed → contract {new_id}",
+        )
+        _log_history(
+            cur,
+            new_id,
+            org_id,
+            user.id,
+            "created",
+            note=f"Renewal of contract {contract_id}",
+        )
         conn.commit()
 
-    return {"renewed_id": contract_id, "new_contract": _contract_row(dict(new_contract))}
+    return {
+        "renewed_id": contract_id,
+        "new_contract": _contract_row(dict(new_contract)),
+    }
 
 
 @router.post("/{contract_id}/status")
@@ -725,22 +900,36 @@ def change_contract_status(
     note: Optional[str] = Query(None),
 ):
     """Quick status transition for a contract."""
-    VALID = ("draft","active","expired","terminated","renewed")
+    VALID = ("draft", "active", "expired", "terminated", "renewed")
     if status not in VALID:
         raise HTTPException(400, f"Invalid status '{status}'")
     org_id = require_org_context(request)
     _require_rep(user)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id, status FROM app.contracts WHERE id=%s AND organization_id=%s", (contract_id, org_id))
+        cur.execute(
+            "SELECT id, status FROM app.contracts WHERE id=%s AND organization_id=%s",
+            (contract_id, org_id),
+        )
         existing = cur.fetchone()
         if not existing:
             raise HTTPException(404, "Contract not found")
         old_status = existing["status"]
-        cur.execute("UPDATE app.contracts SET status=%s, updated_by=%s WHERE id=%s",
-                    (status, user.id, contract_id))
-        _log_history(cur, contract_id, org_id, user.id, "status_changed",
-                     field="status", old=old_status, new=status, note=note)
+        cur.execute(
+            "UPDATE app.contracts SET status=%s, updated_by=%s WHERE id=%s",
+            (status, user.id, contract_id),
+        )
+        _log_history(
+            cur,
+            contract_id,
+            org_id,
+            user.id,
+            "status_changed",
+            field="status",
+            old=old_status,
+            new=status,
+            note=note,
+        )
         conn.commit()
     return {"id": contract_id, "status": status}
 
@@ -755,7 +944,8 @@ def get_contract(
     org_id = require_org_context(request)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT c.*,
                    v.name AS vendor_name, v.support_email AS vendor_support_email,
                    v.support_phone AS vendor_support_phone, v.account_manager,
@@ -766,42 +956,52 @@ def get_contract(
             LEFT JOIN auth.users ou ON ou.id = c.owner_id
             LEFT JOIN auth.users cr ON cr.id = c.created_by
             WHERE c.id = %s AND c.organization_id = %s
-        """, (contract_id, org_id))
+        """,
+            (contract_id, org_id),
+        )
         contract = cur.fetchone()
         if not contract:
             raise HTTPException(404, "Contract not found")
 
         # Linked assets
-        cur.execute("""
+        cur.execute(
+            """
             SELECT a.id, a.asset_tag, a.name, a.category, a.status, ca.linked_at
             FROM app.contract_assets ca
             JOIN app.assets a ON a.id = ca.asset_id
             WHERE ca.contract_id = %s
             ORDER BY ca.linked_at DESC
-        """, (contract_id,))
+        """,
+            (contract_id,),
+        )
         assets = []
         for r in cur.fetchall():
             d = dict(r)
-            if d.get("linked_at"): d["linked_at"] = d["linked_at"].isoformat()
+            if d.get("linked_at"):
+                d["linked_at"] = d["linked_at"].isoformat()
             assets.append(d)
 
         # History (most recent 20)
-        cur.execute("""
+        cur.execute(
+            """
             SELECT ch.*, au.email AS actor_email
             FROM app.contract_history ch
             LEFT JOIN auth.users au ON au.id = ch.changed_by
             WHERE ch.contract_id = %s
             ORDER BY ch.created_at DESC LIMIT 20
-        """, (contract_id,))
+        """,
+            (contract_id,),
+        )
         history = []
         for r in cur.fetchall():
             d = dict(r)
-            if d.get("created_at"): d["created_at"] = d["created_at"].isoformat()
+            if d.get("created_at"):
+                d["created_at"] = d["created_at"].isoformat()
             history.append(d)
 
     result = _contract_row(dict(contract))
     result["linked_assets"] = assets
-    result["history"]       = history
+    result["history"] = history
     return result
 
 
@@ -818,8 +1018,10 @@ def update_contract(
 
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT * FROM app.contracts WHERE id=%s AND organization_id=%s",
-                    (contract_id, org_id))
+        cur.execute(
+            "SELECT * FROM app.contracts WHERE id=%s AND organization_id=%s",
+            (contract_id, org_id),
+        )
         existing = cur.fetchone()
         if not existing:
             raise HTTPException(404, "Contract not found")
@@ -848,15 +1050,26 @@ def update_contract(
         for field, new_val in updates.items():
             old_val = existing.get(field)
             if str(old_val) != str(new_val):
-                _log_history(cur, contract_id, org_id, user.id, "updated",
-                             field=field, old=str(old_val), new=str(new_val))
+                _log_history(
+                    cur,
+                    contract_id,
+                    org_id,
+                    user.id,
+                    "updated",
+                    field=field,
+                    old=str(old_val),
+                    new=str(new_val),
+                )
         conn.commit()
 
     # Re-embed
     try:
         from .casper import casper_engine
+
         title = updated["title"]
-        casper_engine.embed_entity("contract", contract_id, f"[contract] {title}", org_id)
+        casper_engine.embed_entity(
+            "contract", contract_id, f"[contract] {title}", org_id
+        )
     except Exception:
         pass
 
@@ -872,12 +1085,15 @@ def delete_contract(
 ):
     org_id = require_org_context(request)
     role = _require_rep(user)
-    if role not in ("admin","owner"):
+    if role not in ("admin", "owner"):
         raise HTTPException(403, "Admin role required")
 
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM app.contracts WHERE id=%s AND organization_id=%s", (contract_id, org_id))
+        cur.execute(
+            "SELECT id FROM app.contracts WHERE id=%s AND organization_id=%s",
+            (contract_id, org_id),
+        )
         if not cur.fetchone():
             raise HTTPException(404, "Contract not found")
         cur.execute("DELETE FROM app.contracts WHERE id=%s", (contract_id,))
@@ -885,6 +1101,7 @@ def delete_contract(
 
 
 # ── Asset linking ─────────────────────────────────────────────────────────────
+
 
 @router.post("/{contract_id}/link-asset", status_code=201)
 def link_asset(
@@ -899,17 +1116,23 @@ def link_asset(
 
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM app.contracts WHERE id=%s AND organization_id=%s", (contract_id, org_id))
+        cur.execute(
+            "SELECT id FROM app.contracts WHERE id=%s AND organization_id=%s",
+            (contract_id, org_id),
+        )
         if not cur.fetchone():
             raise HTTPException(404, "Contract not found")
-        cur.execute("SELECT id FROM app.assets WHERE id=%s AND organization_id=%s", (payload.asset_id, org_id))
+        cur.execute(
+            "SELECT id FROM app.assets WHERE id=%s AND organization_id=%s",
+            (payload.asset_id, org_id),
+        )
         if not cur.fetchone():
             raise HTTPException(404, "Asset not found")
 
         cur.execute(
             "INSERT INTO app.contract_assets (contract_id, asset_id, linked_by) "
             "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
-            (contract_id, payload.asset_id, user.id)
+            (contract_id, payload.asset_id, user.id),
         )
         conn.commit()
 
@@ -929,9 +1152,14 @@ def unlink_asset(
 
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM app.contracts WHERE id=%s AND organization_id=%s", (contract_id, org_id))
+        cur.execute(
+            "SELECT id FROM app.contracts WHERE id=%s AND organization_id=%s",
+            (contract_id, org_id),
+        )
         if not cur.fetchone():
             raise HTTPException(404, "Contract not found")
-        cur.execute("DELETE FROM app.contract_assets WHERE contract_id=%s AND asset_id=%s",
-                    (contract_id, asset_id))
+        cur.execute(
+            "DELETE FROM app.contract_assets WHERE contract_id=%s AND asset_id=%s",
+            (contract_id, asset_id),
+        )
         conn.commit()

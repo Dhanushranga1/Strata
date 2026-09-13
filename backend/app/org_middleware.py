@@ -344,9 +344,8 @@ def require_org_context(request: Request) -> str:
     # token format edge-cases).  Read the header / query param directly so
     # the request is not blocked when auth is still enforced by get_current_user.
     if not org_id:
-        org_id = (
-            request.headers.get("X-Organization-ID")
-            or request.query_params.get("org_id")
+        org_id = request.headers.get("X-Organization-ID") or request.query_params.get(
+            "org_id"
         )
 
     if not org_id:

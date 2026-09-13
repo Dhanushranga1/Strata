@@ -3,12 +3,13 @@ IncidentBridge — Incident Management & Post-Mortem.
 
 War room for P1/P2 incidents with live timeline, commander, stakeholder comms.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -23,41 +24,55 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/incidents", tags=["incidentbridge"])
 
 SEVERITIES = ("p1", "p2", "p3", "p4")
-STATUSES   = ("active", "investigating", "identified", "monitoring", "resolved")
+STATUSES = ("active", "investigating", "identified", "monitoring", "resolved")
 
 
 def _get_role(user_id: str) -> str:
     try:
         from .roles import get_user_role
+
         return get_user_role(user_id)
     except Exception:
         return "customer"
+
 
 def _require_rep(user: User):
     if _get_role(user.id) not in ("rep", "admin", "owner"):
         raise HTTPException(403, "Rep or admin required")
 
+
 def _row(r, user_email: str = "") -> dict:
     return {
-        "id":               str(r["id"]),
-        "title":            r["title"],
-        "description":      r.get("description"),
-        "severity":         r["severity"],
-        "status":           r["status"],
-        "commander_id":     str(r["commander_id"]) if r.get("commander_id") else None,
-        "commander_email":  r.get("commander_email"),
-        "root_cause":       r.get("root_cause"),
-        "resolution":       r.get("resolution"),
-        "timeline":         r["timeline"] if r.get("timeline") is not None else [],
-        "affected_services":list(r.get("affected_services") or []),
-        "linked_ticket_ids":[str(x) for x in (r.get("linked_ticket_ids") or [])],
-        "linked_change_id": str(r["linked_change_id"]) if r.get("linked_change_id") else None,
-        "declared_at":      r["declared_at"].isoformat() if r.get("declared_at") else None,
-        "resolved_at":      r["resolved_at"].isoformat() if r.get("resolved_at") else None,
-        "postmortem_done":  bool(r.get("postmortem_done")),
-        "duration_minutes": None if not r.get("resolved_at") else int((r["resolved_at"] - r["declared_at"]).total_seconds() / 60) if r.get("declared_at") else None,
-        "created_at":       r["created_at"].isoformat() if r.get("created_at") else None,
+        "id": str(r["id"]),
+        "title": r["title"],
+        "description": r.get("description"),
+        "severity": r["severity"],
+        "status": r["status"],
+        "commander_id": str(r["commander_id"]) if r.get("commander_id") else None,
+        "commander_email": r.get("commander_email"),
+        "root_cause": r.get("root_cause"),
+        "resolution": r.get("resolution"),
+        "timeline": r["timeline"] if r.get("timeline") is not None else [],
+        "affected_services": list(r.get("affected_services") or []),
+        "linked_ticket_ids": [str(x) for x in (r.get("linked_ticket_ids") or [])],
+        "linked_change_id": (
+            str(r["linked_change_id"]) if r.get("linked_change_id") else None
+        ),
+        "declared_at": r["declared_at"].isoformat() if r.get("declared_at") else None,
+        "resolved_at": r["resolved_at"].isoformat() if r.get("resolved_at") else None,
+        "postmortem_done": bool(r.get("postmortem_done")),
+        "duration_minutes": (
+            None
+            if not r.get("resolved_at")
+            else (
+                int((r["resolved_at"] - r["declared_at"]).total_seconds() / 60)
+                if r.get("declared_at")
+                else None
+            )
+        ),
+        "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
     }
+
 
 _SELECT = """
     SELECT i.*, u.email AS commander_email
@@ -97,6 +112,7 @@ class PostmortemIn(BaseModel):
 
 # ── Platform stats ─────────────────────────────────────────────────────────────
 
+
 @router.get("/platform-stats")
 def incident_platform_stats(
     request: Request,
@@ -117,9 +133,16 @@ def incident_platform_stats(
         )
         pending_pm = int(cur.fetchone()[0] or 0)
 
-    active = sum(counts.get(s, 0) for s in ("active", "investigating", "identified", "monitoring"))
+    active = sum(
+        counts.get(s, 0)
+        for s in ("active", "investigating", "identified", "monitoring")
+    )
     critical_active = active > 0
-    stats = [f"{active} active incident{'s' if active != 1 else ''}"] if active else ["0 active incidents"]
+    stats = (
+        [f"{active} active incident{'s' if active != 1 else ''}"]
+        if active
+        else ["0 active incidents"]
+    )
     if pending_pm:
         stats.append(f"{pending_pm} postmortem{'s' if pending_pm != 1 else ''} pending")
     return {"stats": stats, "health": "critical" if critical_active else "healthy"}
@@ -156,15 +179,20 @@ def list_incidents(
     conds = ["i.organization_id=%s"]
     params: list = [org_id]
     if severity:
-        conds.append("i.severity=%s"); params.append(severity)
+        conds.append("i.severity=%s")
+        params.append(severity)
     if status:
-        conds.append("i.status=%s"); params.append(status)
+        conds.append("i.status=%s")
+        params.append(status)
     where = " AND ".join(conds)
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute(f"SELECT COUNT(*) FROM app.incidents i WHERE {where}", params)
         total = int(cur.fetchone()[0])
-        cur.execute(f"{_SELECT} WHERE {where} ORDER BY i.declared_at DESC LIMIT %s OFFSET %s", params + [limit, offset])
+        cur.execute(
+            f"{_SELECT} WHERE {where} ORDER BY i.declared_at DESC LIMIT %s OFFSET %s",
+            params + [limit, offset],
+        )
         rows = cur.fetchall()
     return {"incidents": [_row(r) for r in rows], "total": total}
 
@@ -181,11 +209,15 @@ def declare_incident(
     if body.severity not in SEVERITIES:
         raise HTTPException(400, f"severity must be one of: {', '.join(SEVERITIES)}")
 
-    initial_entry = json.dumps([{
-        "ts": datetime.utcnow().isoformat(),
-        "actor_id": str(user.id),
-        "action": "Incident declared",
-    }])
+    initial_entry = json.dumps(
+        [
+            {
+                "ts": datetime.utcnow().isoformat(),
+                "actor_id": str(user.id),
+                "action": "Incident declared",
+            }
+        ]
+    )
 
     with get_db_connection() as conn:
         cur = conn.cursor()
@@ -195,10 +227,17 @@ def declare_incident(
                 affected_services, linked_ticket_ids, linked_change_id, timeline)
                VALUES (%s,%s,%s,%s,'active',%s::uuid,%s::text[],%s::uuid[],%s::uuid,%s::jsonb)
                RETURNING *""",
-            (org_id, body.title.strip(), body.description, body.severity,
-             body.commander_id or None,
-             list(body.affected_services), list(body.linked_ticket_ids),
-             body.linked_change_id or None, initial_entry),
+            (
+                org_id,
+                body.title.strip(),
+                body.description,
+                body.severity,
+                body.commander_id or None,
+                list(body.affected_services),
+                list(body.linked_ticket_ids),
+                body.linked_change_id or None,
+                initial_entry,
+            ),
         )
         row = cur.fetchone()
         conn.commit()
@@ -215,7 +254,10 @@ def get_incident(
     org_id = require_org_context(request)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute(f"{_SELECT} WHERE i.id=%s::uuid AND i.organization_id=%s", (incident_id, org_id))
+        cur.execute(
+            f"{_SELECT} WHERE i.id=%s::uuid AND i.organization_id=%s",
+            (incident_id, org_id),
+        )
         row = cur.fetchone()
     if not row:
         raise HTTPException(404, "Incident not found")
@@ -236,9 +278,9 @@ def add_update(
         raise HTTPException(400, f"status must be one of: {', '.join(STATUSES)}")
 
     entry: dict = {
-        "ts":      datetime.utcnow().isoformat(),
+        "ts": datetime.utcnow().isoformat(),
         "actor_id": str(user.id),
-        "action":  body.message,
+        "action": body.message,
     }
     if body.new_status:
         entry["status_change"] = body.new_status
@@ -271,12 +313,16 @@ def resolve_incident(
 ):
     org_id = require_org_context(request)
     _require_rep(user)
-    entry = json.dumps([{
-        "ts": datetime.utcnow().isoformat(),
-        "actor_id": str(user.id),
-        "action": f"Incident resolved. {body.resolution}",
-        "status_change": "resolved",
-    }])
+    entry = json.dumps(
+        [
+            {
+                "ts": datetime.utcnow().isoformat(),
+                "actor_id": str(user.id),
+                "action": f"Incident resolved. {body.resolution}",
+                "status_change": "resolved",
+            }
+        ]
+    )
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -306,7 +352,10 @@ def upsert_postmortem(
     _require_rep(user)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM app.incidents WHERE id=%s::uuid AND organization_id=%s", (incident_id, org_id))
+        cur.execute(
+            "SELECT id FROM app.incidents WHERE id=%s::uuid AND organization_id=%s",
+            (incident_id, org_id),
+        )
         if not cur.fetchone():
             raise HTTPException(404, "Incident not found")
         cur.execute(
@@ -319,10 +368,23 @@ def upsert_postmortem(
                    what_went_well=%s, what_went_poorly=%s, action_items=%s::jsonb,
                    written_by=%s::uuid, updated_at=NOW()
                RETURNING *""",
-            (incident_id, body.root_cause, body.timeline_summary, body.contributing_factors,
-             body.what_went_well, body.what_went_poorly, json.dumps(body.action_items), user.id,
-             body.root_cause, body.timeline_summary, body.contributing_factors,
-             body.what_went_well, body.what_went_poorly, json.dumps(body.action_items), user.id),
+            (
+                incident_id,
+                body.root_cause,
+                body.timeline_summary,
+                body.contributing_factors,
+                body.what_went_well,
+                body.what_went_poorly,
+                json.dumps(body.action_items),
+                user.id,
+                body.root_cause,
+                body.timeline_summary,
+                body.contributing_factors,
+                body.what_went_well,
+                body.what_went_poorly,
+                json.dumps(body.action_items),
+                user.id,
+            ),
         )
         row = cur.fetchone()
         cur.execute(
@@ -334,7 +396,9 @@ def upsert_postmortem(
         "id": str(row["id"]),
         "incident_id": str(row["incident_id"]),
         "root_cause": row["root_cause"],
-        "action_items": row["action_items"] if row.get("action_items") is not None else [],
+        "action_items": (
+            row["action_items"] if row.get("action_items") is not None else []
+        ),
         "written_by": str(row["written_by"]) if row.get("written_by") else None,
         "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
     }
@@ -352,5 +416,8 @@ def delete_incident(
         raise HTTPException(403, "Admin required")
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("DELETE FROM app.incidents WHERE id=%s::uuid AND organization_id=%s", (incident_id, org_id))
+        cur.execute(
+            "DELETE FROM app.incidents WHERE id=%s::uuid AND organization_id=%s",
+            (incident_id, org_id),
+        )
         conn.commit()

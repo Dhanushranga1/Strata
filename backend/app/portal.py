@@ -6,12 +6,14 @@ Endpoints (no auth required):
   POST /api/portal/{slug}/tickets             → submit a ticket
   GET  /api/portal/{slug}/tickets/{ticket_id} → check ticket status (needs submitter_email)
 """
+
+import threading
+import time
+from datetime import datetime, timezone
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional
-from datetime import datetime, timezone
-import time
-import threading
 
 from .db_sync import get_db_connection
 
@@ -20,9 +22,9 @@ router = APIRouter(prefix="/api/portal", tags=["portal"])
 # ─── Simple in-memory rate limiter (per IP, max 5 submissions/hour) ──────────
 
 _rate_lock = threading.Lock()
-_rate_store: dict[str, list[float]] = {}   # ip -> [timestamp, ...]
-_RATE_WINDOW = 3600      # seconds
-_RATE_MAX    = 5         # submissions per window
+_rate_store: dict[str, list[float]] = {}  # ip -> [timestamp, ...]
+_RATE_WINDOW = 3600  # seconds
+_RATE_MAX = 5  # submissions per window
 
 
 def _check_rate_limit(ip: str) -> None:
@@ -33,7 +35,7 @@ def _check_rate_limit(ip: str) -> None:
         if len(hits) >= _RATE_MAX:
             raise HTTPException(
                 status_code=429,
-                detail="Too many submissions — please wait before trying again."
+                detail="Too many submissions — please wait before trying again.",
             )
         hits.append(now)
         _rate_store[ip] = hits
@@ -41,13 +43,14 @@ def _check_rate_limit(ip: str) -> None:
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────
 
+
 class PortalTicketCreate(BaseModel):
-    name:        str
-    email:       EmailStr
-    subject:     str
+    name: str
+    email: EmailStr
+    subject: str
     description: str
-    category:    Optional[str] = None
-    priority:    Optional[int] = None
+    category: Optional[str] = None
+    priority: Optional[int] = None
 
     @field_validator("subject")
     @classmethod
@@ -80,6 +83,7 @@ class PortalTicketCreate(BaseModel):
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
+
 def _get_org_by_slug(slug: str) -> dict:
     with get_db_connection() as conn:
         cur = conn.cursor()
@@ -95,7 +99,9 @@ def _get_org_by_slug(slug: str) -> dict:
     if not row:
         raise HTTPException(status_code=404, detail="Organisation not found")
     if not row["is_active"]:
-        raise HTTPException(status_code=403, detail="This support portal is currently inactive")
+        raise HTTPException(
+            status_code=403, detail="This support portal is currently inactive"
+        )
     return dict(row)
 
 
@@ -120,6 +126,7 @@ def _get_org_owner_id(org_id: str) -> str:
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
+
 
 @router.get("/{slug}")
 def get_portal_info(slug: str):
@@ -149,7 +156,9 @@ def submit_portal_ticket(slug: str, payload: PortalTicketCreate, request: Reques
     org_id = org["id"]
     owner_id = _get_org_owner_id(org_id)
 
-    priority = payload.priority if payload.priority and 1 <= payload.priority <= 7 else 4
+    priority = (
+        payload.priority if payload.priority and 1 <= payload.priority <= 7 else 4
+    )
     tags = [payload.category] if payload.category else []
 
     with get_db_connection() as conn:
@@ -253,7 +262,9 @@ def get_portal_ticket_status(
         ticket = cur.fetchone()
 
         if not ticket:
-            raise HTTPException(status_code=404, detail="Ticket not found or email does not match")
+            raise HTTPException(
+                status_code=404, detail="Ticket not found or email does not match"
+            )
 
         # Fetch only public (non-internal) messages
         cur.execute(
@@ -276,18 +287,22 @@ def get_portal_ticket_status(
     ref = str(ticket["id"]).replace("-", "").upper()[-8:]
 
     return {
-        "ticket_id":   str(ticket["id"]),
-        "ref":         f"TKT-{ref}",
-        "title":       ticket["title"],
-        "status":      ticket["status"],
-        "priority":    ticket["priority"],
-        "created_at":  ticket["created_at"].isoformat() if ticket["created_at"] else None,
-        "updated_at":  ticket["updated_at"].isoformat() if ticket["updated_at"] else None,
-        "messages":    [
+        "ticket_id": str(ticket["id"]),
+        "ref": f"TKT-{ref}",
+        "title": ticket["title"],
+        "status": ticket["status"],
+        "priority": ticket["priority"],
+        "created_at": (
+            ticket["created_at"].isoformat() if ticket["created_at"] else None
+        ),
+        "updated_at": (
+            ticket["updated_at"].isoformat() if ticket["updated_at"] else None
+        ),
+        "messages": [
             {
-                "body":        m["body"],
-                "from_team":   m["sender_role"] in ("rep", "admin", "ai"),
-                "created_at":  m["created_at"].isoformat() if m["created_at"] else None,
+                "body": m["body"],
+                "from_team": m["sender_role"] in ("rep", "admin", "ai"),
+                "created_at": m["created_at"].isoformat() if m["created_at"] else None,
             }
             for m in messages
         ],

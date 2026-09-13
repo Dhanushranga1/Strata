@@ -33,31 +33,33 @@ logger = logging.getLogger(__name__)
 
 # ── Result types ───────────────────────────────────────────────────────────────
 
+
 @dataclass
 class TicketAIResult:
-    priority_level:        str               # P1–P7
-    requires_senior:       bool
-    routing_reason:        str
+    priority_level: str  # P1–P7
+    requires_senior: bool
+    routing_reason: str
     suggested_assignee_id: Optional[str] = None
     suggested_assignee_email: Optional[str] = None
-    correlated_entities:   List[CorrelatedEntity] = field(default_factory=list)
-    tool_results:          List[ToolResult] = field(default_factory=list)
+    correlated_entities: List[CorrelatedEntity] = field(default_factory=list)
+    tool_results: List[ToolResult] = field(default_factory=list)
 
 
 @dataclass
 class ChatAIResult:
-    response:        str
-    confidence:      float
+    response: str
+    confidence: float
     suggest_escalation: bool
-    citations:       List[str] = field(default_factory=list)
-    tool_results:    List[ToolResult] = field(default_factory=list)
+    citations: List[str] = field(default_factory=list)
+    tool_results: List[ToolResult] = field(default_factory=list)
     escalation_info: Dict[str, Any] = field(default_factory=dict)
     retrieval_metrics: Dict[str, Any] = field(default_factory=dict)
-    cache_hit:       bool = False
-    latency_ms:      int = 0
+    cache_hit: bool = False
+    latency_ms: int = 0
 
 
 # ── Engine ─────────────────────────────────────────────────────────────────────
+
 
 class CASPEREngine:
     """
@@ -81,20 +83,20 @@ class CASPEREngine:
 
     def __init__(self) -> None:
         self.tool_registry = build_default_registry()
-        self.correlator    = EntityCorrelator()
+        self.correlator = EntityCorrelator()
         self._kb_search_registered = False
 
     # ── Ticket creation pipeline ───────────────────────────────────────────────
 
     def process_ticket_creation(
         self,
-        ticket_id:   str,
-        title:       str,
+        ticket_id: str,
+        title: str,
         description: str,
-        org_id:      str,
-        reps:        List[Dict],
-        db_cursor:   Any,
-        user_id:     str = "",
+        org_id: str,
+        reps: List[Dict],
+        db_cursor: Any,
+        user_id: str = "",
     ) -> TicketAIResult:
         """
         Full AI pipeline on ticket creation:
@@ -104,7 +106,7 @@ class CASPEREngine:
 
         Never raises — failures degrade gracefully (routing skipped, no correlation, etc.).
         """
-        from ..rag_scoring import profile_ticket, casper_route
+        from ..rag_scoring import casper_route, profile_ticket
 
         result = TicketAIResult(
             priority_level="P4",
@@ -115,20 +117,23 @@ class CASPEREngine:
         # 1) CASPER profile + routing
         try:
             profile = profile_ticket(title, description or "")
-            result.priority_level  = profile.suggested_priority_level
+            result.priority_level = profile.suggested_priority_level
             result.requires_senior = profile.requires_senior
-            result.routing_reason  = profile.routing_reason
+            result.routing_reason = profile.routing_reason
 
             best = casper_route(profile, reps)
             if best:
-                result.suggested_assignee_id    = best["user_id"]
+                result.suggested_assignee_id = best["user_id"]
                 result.suggested_assignee_email = best["email"]
         except Exception as exc:
-            logger.warning("CASPER profile/route failed for ticket %s: %s", ticket_id, exc)
+            logger.warning(
+                "CASPER profile/route failed for ticket %s: %s", ticket_id, exc
+            )
 
         # 2) Cross-entity correlation — embed ticket text, search all namespaces
         try:
             from ..embeddings import embed_texts
+
             q_emb = embed_texts([f"{title} {description or ''}"])[0]
             result.correlated_entities = self.correlator.correlate(
                 query_embedding=q_emb,
@@ -143,8 +148,12 @@ class CASPEREngine:
                 db_cursor.execute(
                     "INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body) "
                     "VALUES (%s, %s, 'system', %s, %s)",
-                    (ticket_id, user_id, org_id,
-                     f"[system] CASPER correlated: {top_labels}"),
+                    (
+                        ticket_id,
+                        user_id,
+                        org_id,
+                        f"[system] CASPER correlated: {top_labels}",
+                    ),
                 )
         except Exception as exc:
             logger.debug("Correlation skipped for ticket %s: %s", ticket_id, exc)
@@ -158,21 +167,27 @@ class CASPEREngine:
 
         return result
 
-    def _embed_ticket_bg(self, ticket_id: str, title: str, description: str, org_id: str) -> None:
+    def _embed_ticket_bg(
+        self, ticket_id: str, title: str, description: str, org_id: str
+    ) -> None:
         """Background: embed ticket and store FAISS ID in entity_embeddings table."""
         try:
+            from ..db import get_db_connection
             from ..embeddings import embed_texts
             from ..store import add_to_org_index
-            from ..db import get_db_connection
 
             text = f"[ticket] {title}\n{description}"
-            emb  = embed_texts([text])[0]
-            faiss_id = add_to_org_index(org_id, emb, {
-                "entity_type": "ticket",
-                "entity_id":   ticket_id,
-                "text":        text[:500],
-                "title":       title,
-            })
+            emb = embed_texts([text])[0]
+            faiss_id = add_to_org_index(
+                org_id,
+                emb,
+                {
+                    "entity_type": "ticket",
+                    "entity_id": ticket_id,
+                    "text": text[:500],
+                    "title": title,
+                },
+            )
             if faiss_id is not None:
                 with get_db_connection() as conn:
                     cur = conn.cursor()
@@ -192,13 +207,13 @@ class CASPEREngine:
 
     def process_chat(
         self,
-        query:          str,
-        org_id:         str,
-        ticket_id:      str,
-        user_id:        str,
-        user_role:      str,
+        query: str,
+        org_id: str,
+        ticket_id: str,
+        user_id: str,
+        user_role: str,
         fetch_chunks_fn: Callable,
-        query_vector:   Optional[np.ndarray] = None,
+        query_vector: Optional[np.ndarray] = None,
         kb_chunk_count: int = 100,
         conversation_length: int = 1,
     ) -> ChatAIResult:
@@ -213,8 +228,8 @@ class CASPEREngine:
 
         Returns ChatAIResult — caller stores message and returns to frontend.
         """
-        from ..rag import retrieve, compute_confidence, should_escalate
         from ..ai import generate_structured_completion, stream_groq_completion
+        from ..rag import compute_confidence, retrieve, should_escalate
         from ..redact import scrub
 
         t_start = time.time()
@@ -226,7 +241,10 @@ class CASPEREngine:
         if q_emb is None:
             try:
                 from ..embeddings import embed_texts
-                q_emb = np.array(embed_texts([clean_query], task_type="retrieval_query")[0])
+
+                q_emb = np.array(
+                    embed_texts([clean_query], task_type="retrieval_query")[0]
+                )
             except Exception as exc:
                 logger.error("Query embedding failed in CASPEREngine: %s", exc)
                 return ChatAIResult(
@@ -236,6 +254,7 @@ class CASPEREngine:
                 )
 
         from ..tickets import _cache_lookup, _cache_store
+
         cached = _cache_lookup(org_id, q_emb)
         if cached is not None:
             return ChatAIResult(
@@ -270,7 +289,9 @@ class CASPEREngine:
         tool_schemas = self.tool_registry.tool_schemas()
         try:
             structured_response, latency_ms = generate_structured_completion(
-                context, clean_query, sources,
+                context,
+                clean_query,
+                sources,
                 tool_schemas=tool_schemas,
             )
             ai_response = structured_response.response
@@ -285,13 +306,17 @@ class CASPEREngine:
 
         # 4) CASPER confidence + escalation
         confidence, confidence_components = compute_confidence(
-            scores, ai_response, len(chunks),
+            scores,
+            ai_response,
+            len(chunks),
             retrieval_metrics=retrieval_metrics,
             query=clean_query,
             kb_chunk_count=kb_chunk_count,
         )
         escalate_flag, escalation_info = should_escalate(
-            confidence, retrieval_metrics, ai_response,
+            confidence,
+            retrieval_metrics,
+            ai_response,
             conversation_length=conversation_length,
             confidence_breakdown=confidence_components,
         )
@@ -331,10 +356,10 @@ class CASPEREngine:
 
     def correlate_with_kb(
         self,
-        text:           str,
-        org_id:         str,
+        text: str,
+        org_id: str,
         fetch_chunks_fn: Callable,
-        top_k:          int = 3,
+        top_k: int = 3,
     ) -> List[Dict]:
         """
         Semantic search the KB for text related to a given string.
@@ -354,18 +379,27 @@ class CASPEREngine:
             ]
             if not candidates:
                 return []
-            faiss_ids = [fid for _, fid in candidates[:top_k * 2]]
-            chunks    = fetch_chunks_fn(faiss_ids)
-            scored    = sorted(
-                [(c, next((s for s, fid in candidates if fid == c.get("faiss_id")), 0.0)) for c in chunks],
+            faiss_ids = [fid for _, fid in candidates[: top_k * 2]]
+            chunks = fetch_chunks_fn(faiss_ids)
+            scored = sorted(
+                [
+                    (
+                        c,
+                        next(
+                            (s for s, fid in candidates if fid == c.get("faiss_id")),
+                            0.0,
+                        ),
+                    )
+                    for c in chunks
+                ],
                 key=lambda x: x[1],
                 reverse=True,
             )
             return [
                 {
-                    "title":    c.get("title", ""),
-                    "snippet":  c.get("text", "")[:200],
-                    "score":    round(s, 4),
+                    "title": c.get("title", ""),
+                    "snippet": c.get("text", "")[:200],
+                    "score": round(s, 4),
                     "faiss_id": c.get("faiss_id"),
                 }
                 for c, s in scored[:top_k]
@@ -379,9 +413,9 @@ class CASPEREngine:
     def embed_entity(
         self,
         entity_type: str,
-        entity_id:   str,
-        text:        str,
-        org_id:      str,
+        entity_id: str,
+        text: str,
+        org_id: str,
     ) -> None:
         """
         Embed any entity in background. Call this from any module on create/update.
@@ -399,22 +433,26 @@ class CASPEREngine:
     def _embed_entity_bg(
         self,
         entity_type: str,
-        entity_id:   str,
-        text:        str,
-        org_id:      str,
+        entity_id: str,
+        text: str,
+        org_id: str,
     ) -> None:
         try:
+            from ..db import get_db_connection
             from ..embeddings import embed_texts
             from ..store import add_to_org_index
-            from ..db import get_db_connection
 
-            emb      = embed_texts([text])[0]
-            faiss_id = add_to_org_index(org_id, emb, {
-                "entity_type": entity_type,
-                "entity_id":   entity_id,
-                "text":        text[:500],
-                "title":       text[:80],
-            })
+            emb = embed_texts([text])[0]
+            faiss_id = add_to_org_index(
+                org_id,
+                emb,
+                {
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "text": text[:500],
+                    "title": text[:80],
+                },
+            )
             if faiss_id is not None:
                 with get_db_connection() as conn:
                     cur = conn.cursor()
@@ -428,7 +466,9 @@ class CASPEREngine:
                     )
                     conn.commit()
         except Exception as exc:
-            logger.debug("Background embedding failed (%s %s): %s", entity_type, entity_id, exc)
+            logger.debug(
+                "Background embedding failed (%s %s): %s", entity_type, entity_id, exc
+            )
 
     def _register_kb_namespace(self) -> None:
         """Register the KB chunk namespace so ticket creation searches it."""
@@ -437,29 +477,38 @@ class CASPEREngine:
 
         def _kb_search(q_emb: List[float], org_id: str, top_k: int) -> List[Dict]:
             from ..store import search_org_vectors
+
             scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 2)
             return [
-                {"id": str(fid), "label": f"KB chunk {fid}", "score": float(s), "snippet": ""}
+                {
+                    "id": str(fid),
+                    "label": f"KB chunk {fid}",
+                    "score": float(s),
+                    "snippet": "",
+                }
                 for s, fid in zip(scores_raw, ids_raw)
                 if s >= 0.3 and fid >= 0
             ][:top_k]
 
-        self.correlator.register_namespace(EntityNamespace(
-            name="kb_chunk",
-            search_fn=_kb_search,
-        ))
+        self.correlator.register_namespace(
+            EntityNamespace(
+                name="kb_chunk",
+                search_fn=_kb_search,
+            )
+        )
         self._kb_search_registered = True
 
     def _register_asset_namespace(self) -> None:
         def _asset_search(q_emb: List[float], org_id: str, top_k: int) -> List[Dict]:
-            from ..store import search_org_vectors
             from ..db_sync import get_db_connection
+            from ..store import search_org_vectors
 
             scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 4)
             if not ids_raw:
                 return []
             fid_to_score = {
-                fid: float(s) for s, fid in zip(scores_raw, ids_raw)
+                fid: float(s)
+                for s, fid in zip(scores_raw, ids_raw)
                 if s >= 0.25 and fid >= 0
             }
             if not fid_to_score:
@@ -477,29 +526,34 @@ class CASPEREngine:
                 rows = cur.fetchall()
             results = []
             for row in rows:
-                results.append({
-                    "id":          row["entity_id"],
-                    "label":       f"{row['name']} ({row['asset_tag']})",
-                    "score":       fid_to_score.get(row["faiss_id"], 0.0),
-                    "snippet":     row["category"],
-                    "entity_type": "asset",
-                    "href":        f"/assets/{row['entity_id']}",
-                })
+                results.append(
+                    {
+                        "id": row["entity_id"],
+                        "label": f"{row['name']} ({row['asset_tag']})",
+                        "score": fid_to_score.get(row["faiss_id"], 0.0),
+                        "snippet": row["category"],
+                        "entity_type": "asset",
+                        "href": f"/assets/{row['entity_id']}",
+                    }
+                )
             results.sort(key=lambda x: x["score"], reverse=True)
             return results[:top_k]
 
-        self.correlator.register_namespace(EntityNamespace(name="asset", search_fn=_asset_search))
+        self.correlator.register_namespace(
+            EntityNamespace(name="asset", search_fn=_asset_search)
+        )
 
     def _register_contract_namespace(self) -> None:
         def _contract_search(q_emb: List[float], org_id: str, top_k: int) -> List[Dict]:
-            from ..store import search_org_vectors
             from ..db_sync import get_db_connection
+            from ..store import search_org_vectors
 
             scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 4)
             if not ids_raw:
                 return []
             fid_to_score = {
-                fid: float(s) for s, fid in zip(scores_raw, ids_raw)
+                fid: float(s)
+                for s, fid in zip(scores_raw, ids_raw)
                 if s >= 0.25 and fid >= 0
             }
             if not fid_to_score:
@@ -520,29 +574,34 @@ class CASPEREngine:
             results = []
             for row in rows:
                 vendor = f" — {row['vendor_name']}" if row.get("vendor_name") else ""
-                results.append({
-                    "id":          row["entity_id"],
-                    "label":       f"{row['title']}{vendor}",
-                    "score":       fid_to_score.get(row["faiss_id"], 0.0),
-                    "snippet":     row["status"],
-                    "entity_type": "contract",
-                    "href":        f"/contracts/{row['entity_id']}",
-                })
+                results.append(
+                    {
+                        "id": row["entity_id"],
+                        "label": f"{row['title']}{vendor}",
+                        "score": fid_to_score.get(row["faiss_id"], 0.0),
+                        "snippet": row["status"],
+                        "entity_type": "contract",
+                        "href": f"/contracts/{row['entity_id']}",
+                    }
+                )
             results.sort(key=lambda x: x["score"], reverse=True)
             return results[:top_k]
 
-        self.correlator.register_namespace(EntityNamespace(name="contract", search_fn=_contract_search))
+        self.correlator.register_namespace(
+            EntityNamespace(name="contract", search_fn=_contract_search)
+        )
 
     def _register_article_namespace(self) -> None:
         def _article_search(q_emb: List[float], org_id: str, top_k: int) -> List[Dict]:
-            from ..store import search_org_vectors
             from ..db_sync import get_db_connection
+            from ..store import search_org_vectors
 
             scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 4)
             if not ids_raw:
                 return []
             fid_to_score = {
-                fid: float(s) for s, fid in zip(scores_raw, ids_raw)
+                fid: float(s)
+                for s, fid in zip(scores_raw, ids_raw)
                 if s >= 0.25 and fid >= 0
             }
             if not fid_to_score:
@@ -561,29 +620,34 @@ class CASPEREngine:
                 rows = cur.fetchall()
             results = []
             for row in rows:
-                results.append({
-                    "id":          row["entity_id"],
-                    "label":       row["title"],
-                    "score":       fid_to_score.get(row["faiss_id"], 0.0),
-                    "snippet":     row.get("category") or "",
-                    "entity_type": "knowbase_article",
-                    "href":        f"/knowbase/{row['entity_id']}",
-                })
+                results.append(
+                    {
+                        "id": row["entity_id"],
+                        "label": row["title"],
+                        "score": fid_to_score.get(row["faiss_id"], 0.0),
+                        "snippet": row.get("category") or "",
+                        "entity_type": "knowbase_article",
+                        "href": f"/knowbase/{row['entity_id']}",
+                    }
+                )
             results.sort(key=lambda x: x["score"], reverse=True)
             return results[:top_k]
 
-        self.correlator.register_namespace(EntityNamespace(name="knowbase_article", search_fn=_article_search))
+        self.correlator.register_namespace(
+            EntityNamespace(name="knowbase_article", search_fn=_article_search)
+        )
 
     def _register_ticket_namespace(self) -> None:
         def _ticket_search(q_emb: List[float], org_id: str, top_k: int) -> List[Dict]:
-            from ..store import search_org_vectors
             from ..db_sync import get_db_connection
+            from ..store import search_org_vectors
 
             scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 4)
             if not ids_raw:
                 return []
             fid_to_score = {
-                fid: float(s) for s, fid in zip(scores_raw, ids_raw)
+                fid: float(s)
+                for s, fid in zip(scores_raw, ids_raw)
                 if s >= 0.3 and fid >= 0
             }
             if not fid_to_score:
@@ -602,18 +666,22 @@ class CASPEREngine:
                 rows = cur.fetchall()
             results = []
             for row in rows:
-                results.append({
-                    "id":          row["entity_id"],
-                    "label":       row["title"],
-                    "score":       fid_to_score.get(row["faiss_id"], 0.0),
-                    "snippet":     row["status"],
-                    "entity_type": "ticket",
-                    "href":        f"/tickets/{row['entity_id']}",
-                })
+                results.append(
+                    {
+                        "id": row["entity_id"],
+                        "label": row["title"],
+                        "score": fid_to_score.get(row["faiss_id"], 0.0),
+                        "snippet": row["status"],
+                        "entity_type": "ticket",
+                        "href": f"/tickets/{row['entity_id']}",
+                    }
+                )
             results.sort(key=lambda x: x["score"], reverse=True)
             return results[:top_k]
 
-        self.correlator.register_namespace(EntityNamespace(name="resolved_ticket", search_fn=_ticket_search))
+        self.correlator.register_namespace(
+            EntityNamespace(name="resolved_ticket", search_fn=_ticket_search)
+        )
 
     def startup(self) -> None:
         """Call from app startup to initialise built-in namespaces."""

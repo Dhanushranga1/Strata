@@ -3,15 +3,16 @@ KnowBase — human-readable knowledge articles (SOPs, runbooks, how-tos).
 Separate from the RAG KB (app.chunks / FAISS) which is for AI retrieval.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from pydantic import BaseModel
-from typing import Optional, List
 import logging
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from .auth import User, get_current_user
-from .org_middleware import require_org_context
 from .db_sync import get_db_connection
 from .entitlements import requires_feature
+from .org_middleware import require_org_context
 
 _log = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ def _require_rep(user: User):
 
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
+
 
 class ArticleIn(BaseModel):
     title: str
@@ -71,6 +73,7 @@ class KnowBaseStats(BaseModel):
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
+
 @router.get("/platform-stats")
 def knowbase_platform_stats(
     request: Request,
@@ -91,7 +94,8 @@ def knowbase_platform_stats(
     published = row["published"] or 0
     drafts = total - published
     stats = [f"{total} article{'s' if total != 1 else ''}"]
-    if drafts: stats.append(f"{drafts} draft{'s' if drafts != 1 else ''}")
+    if drafts:
+        stats.append(f"{drafts} draft{'s' if drafts != 1 else ''}")
     return {"stats": stats, "health": "healthy"}
 
 
@@ -211,17 +215,26 @@ def create_article(
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
-            (org_id, body.title.strip(), body.content.strip(),
-             body.category or None, body.tags,
-             user.id, body.is_published, body.is_public),
+            (
+                org_id,
+                body.title.strip(),
+                body.content.strip(),
+                body.category or None,
+                body.tags,
+                user.id,
+                body.is_published,
+                body.is_public,
+            ),
         )
         row = cur.fetchone()
         conn.commit()
 
     try:
         from .casper import casper_engine
+
         casper_engine.embed_entity(
-            "knowbase_article", str(row["id"]),
+            "knowbase_article",
+            str(row["id"]),
             f"[article] {body.title} {body.content[:500]}",
             org_id,
         )
@@ -299,18 +312,26 @@ def update_article(
             WHERE id = %s::uuid AND organization_id = %s
             RETURNING *
             """,
-            (body.title.strip(), body.content.strip(),
-             body.category or None, body.tags,
-             body.is_published, body.is_public,
-             article_id, org_id),
+            (
+                body.title.strip(),
+                body.content.strip(),
+                body.category or None,
+                body.tags,
+                body.is_published,
+                body.is_public,
+                article_id,
+                org_id,
+            ),
         )
         row = cur.fetchone()
         conn.commit()
 
     try:
         from .casper import casper_engine
+
         casper_engine.embed_entity(
-            "knowbase_article", article_id,
+            "knowbase_article",
+            article_id,
             f"[article] {body.title} {body.content[:500]}",
             org_id,
         )
@@ -362,6 +383,7 @@ def mark_helpful(
 
 
 # ── Helper ─────────────────────────────────────────────────────────────────────
+
 
 def _row_to_out(row, author_email: Optional[str] = None) -> ArticleOut:
     return ArticleOut(

@@ -23,15 +23,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/patches", tags=["patches"])
 
 SEVERITIES = ("critical", "high", "medium", "low")
-STATUSES   = ("needed", "scheduled", "applied", "deferred", "not_applicable")
+STATUSES = ("needed", "scheduled", "applied", "deferred", "not_applicable")
 
 
 def _get_role(user_id: str) -> str:
     try:
         from .roles import get_user_role
+
         return get_user_role(user_id)
     except Exception:
         return "customer"
+
 
 def _require_rep(user: User):
     if _get_role(user.id) not in ("rep", "admin", "owner"):
@@ -55,21 +57,23 @@ class StatusUpdateIn(BaseModel):
 
 def _row(r) -> dict:
     return {
-        "id":             str(r["id"]),
-        "organization_id":str(r["organization_id"]),
-        "asset_id":       str(r["asset_id"]) if r.get("asset_id") else None,
-        "asset_name":     r.get("asset_name"),
-        "asset_tag":      r.get("asset_tag"),
-        "patch_name":     r["patch_name"],
-        "cve_id":         r.get("cve_id"),
+        "id": str(r["id"]),
+        "organization_id": str(r["organization_id"]),
+        "asset_id": str(r["asset_id"]) if r.get("asset_id") else None,
+        "asset_name": r.get("asset_name"),
+        "asset_tag": r.get("asset_tag"),
+        "patch_name": r["patch_name"],
+        "cve_id": r.get("cve_id"),
         "patch_severity": r["patch_severity"],
-        "status":         r["status"],
-        "scheduled_at":   r["scheduled_at"].isoformat() if r.get("scheduled_at") else None,
-        "applied_at":     r["applied_at"].isoformat() if r.get("applied_at") else None,
-        "applied_by":     str(r["applied_by"]) if r.get("applied_by") else None,
-        "notes":          r.get("notes"),
-        "created_at":     r["created_at"].isoformat() if r.get("created_at") else None,
-        "updated_at":     r["updated_at"].isoformat() if r.get("updated_at") else None,
+        "status": r["status"],
+        "scheduled_at": (
+            r["scheduled_at"].isoformat() if r.get("scheduled_at") else None
+        ),
+        "applied_at": r["applied_at"].isoformat() if r.get("applied_at") else None,
+        "applied_by": str(r["applied_by"]) if r.get("applied_by") else None,
+        "notes": r.get("notes"),
+        "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+        "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
     }
 
 
@@ -82,6 +86,7 @@ _SELECT = """
 
 
 # ── Platform stats ─────────────────────────────────────────────────────────────
+
 
 @router.get("/platform-stats")
 def patch_platform_stats(
@@ -101,15 +106,16 @@ def patch_platform_stats(
         rows = {r["patch_severity"]: int(r["count"]) for r in cur.fetchall()}
 
     critical = rows.get("critical", 0)
-    total    = sum(rows.values())
-    health   = "critical" if critical > 0 else "warning" if total > 10 else "healthy"
-    stats    = [f"{total} patches needed"]
+    total = sum(rows.values())
+    health = "critical" if critical > 0 else "warning" if total > 10 else "healthy"
+    stats = [f"{total} patches needed"]
     if critical:
         stats.append(f"{critical} critical")
     return {"stats": stats, "health": health}
 
 
 # ── Dashboard summary ─────────────────────────────────────────────────────────
+
 
 @router.get("/dashboard")
 def patch_dashboard(
@@ -131,7 +137,7 @@ def patch_dashboard(
         matrix: dict = {}
         for r in cur.fetchall():
             sev = r["patch_severity"]
-            st  = r["status"]
+            st = r["status"]
             matrix.setdefault(sev, {})[st] = int(r["count"])
 
         # Overdue critical (needed + no schedule or scheduled in the past)
@@ -160,22 +166,25 @@ def patch_dashboard(
         applied = counts.get("applied", 0)
         total_sev = sum(counts.values())
         pct = round(applied / total_sev * 100) if total_sev else 0
-        sev_summary.append({
-            "severity": sev,
-            "needed": needed,
-            "applied": applied,
-            "total": total_sev,
-            "pct_patched": pct,
-        })
+        sev_summary.append(
+            {
+                "severity": sev,
+                "needed": needed,
+                "applied": applied,
+                "total": total_sev,
+                "pct_patched": pct,
+            }
+        )
 
     return {
-        "severity_summary":  sev_summary,
-        "overdue_critical":  overdue_critical,
-        "scheduled_week":    scheduled_week,
+        "severity_summary": sev_summary,
+        "overdue_critical": overdue_critical,
+        "scheduled_week": scheduled_week,
     }
 
 
 # ── CRUD ───────────────────────────────────────────────────────────────────────
+
 
 @router.get("")
 def list_patches(
@@ -189,7 +198,7 @@ def list_patches(
     offset: int = Query(0, ge=0),
 ):
     org_id = require_org_context(request)
-    conds  = ["pr.organization_id = %s"]
+    conds = ["pr.organization_id = %s"]
     params: list = [org_id]
     if severity:
         conds.append("pr.patch_severity = %s")
@@ -238,11 +247,16 @@ def create_patch(
                (organization_id, asset_id, patch_name, cve_id, patch_severity, status, scheduled_at, notes)
                VALUES (%s, %s::uuid, %s, %s, %s, %s, %s::timestamptz, %s)
                RETURNING *""",
-            (org_id,
-             body.asset_id or None,
-             body.patch_name.strip(), body.cve_id,
-             body.patch_severity, body.status,
-             body.scheduled_at or None, body.notes),
+            (
+                org_id,
+                body.asset_id or None,
+                body.patch_name.strip(),
+                body.cve_id,
+                body.patch_severity,
+                body.status,
+                body.scheduled_at or None,
+                body.notes,
+            ),
         )
         row = cur.fetchone()
         conn.commit()
@@ -263,8 +277,8 @@ def update_patch_status(
     if body.status not in STATUSES:
         raise HTTPException(400, f"status must be one of: {', '.join(STATUSES)}")
 
-    applied_at  = "NOW()" if body.status == "applied" else "NULL"
-    applied_by  = user.id if body.status == "applied" else None
+    applied_at = "NOW()" if body.status == "applied" else "NULL"
+    applied_by = user.id if body.status == "applied" else None
 
     with get_db_connection() as conn:
         cur = conn.cursor()

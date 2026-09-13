@@ -5,6 +5,7 @@ POST /api/casper/query  →  plain-English question across all Strata modules.
 The engine embeds the query, routes it through all registered namespaces,
 and returns ranked entity cards the frontend renders.
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,11 +30,11 @@ class NLQueryIn(BaseModel):
 
 class EntityCard(BaseModel):
     entity_type: str
-    entity_id:   str
-    label:       str
-    score:       float
-    href:        str
-    namespace:   str
+    entity_id: str
+    label: str
+    score: float
+    href: str
+    namespace: str
 
 
 @router.post("/query")
@@ -53,6 +54,7 @@ def nl_query(
 
     try:
         from ..embeddings import embed_texts
+
         q_emb = embed_texts([body.query.strip()], task_type="retrieval_query")[0]
     except Exception as exc:
         logger.error("[casper/query] embedding failed: %s", exc)
@@ -60,6 +62,7 @@ def nl_query(
 
     try:
         from ..casper.engine import casper_engine
+
         raw = casper_engine.correlator.correlate(
             q_emb, org_id, top_k_per_namespace=body.top_k
         )
@@ -69,14 +72,19 @@ def nl_query(
 
     cards = []
     for item in raw:
-        cards.append(EntityCard(
-            entity_type=item.get("entity_type", item.get("namespace", "unknown")),
-            entity_id=item.get("entity_id", ""),
-            label=item.get("label", item.get("title", "Untitled")),
-            score=round(float(item.get("score", 0)), 3),
-            href=item.get("href", "#"),
-            namespace=item.get("namespace", ""),
-        ))
+        cards.append(
+            EntityCard(
+                entity_type=item.get("entity_type", item.get("namespace", "unknown")),
+                entity_id=item.get("entity_id", ""),
+                label=item.get("label", item.get("title", "Untitled")),
+                score=round(float(item.get("score", 0)), 3),
+                href=item.get("href", "#"),
+                namespace=item.get("namespace", ""),
+            )
+        )
 
     cards.sort(key=lambda c: c.score, reverse=True)
-    return {"results": [c.model_dump() for c in cards[:body.top_k * 3]], "query": body.query}
+    return {
+        "results": [c.model_dump() for c in cards[: body.top_k * 3]],
+        "query": body.query,
+    }

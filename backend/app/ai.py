@@ -573,7 +573,9 @@ def _get_groq_api_key() -> str:
     return key
 
 
-def stream_groq_completion(context: str, question: str, sources: list[str]) -> Iterator[str]:
+def stream_groq_completion(
+    context: str, question: str, sources: list[str]
+) -> Iterator[str]:
     """Yield text tokens from Groq's streaming API. Plain text — no JSON mode."""
     api_key = _get_groq_api_key()
     prompt = _STREAM_PROMPT.format(
@@ -591,7 +593,10 @@ def stream_groq_completion(context: str, question: str, sources: list[str]) -> I
     with httpx.stream(
         "POST",
         _GROQ_STREAM_API_URL,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
         json=payload,
         timeout=60.0,
     ) as resp:

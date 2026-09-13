@@ -20,16 +20,16 @@ logger = logging.getLogger(__name__)
 # Role hierarchy — must meet or exceed tool.required_role to execute
 _ROLE_RANK: Dict[str, int] = {
     "customer": 0,
-    "rep":      1,
-    "admin":    2,
-    "owner":    3,
+    "rep": 1,
+    "admin": 2,
+    "owner": 3,
 }
 
 
 @dataclass
 class ExecutionContext:
-    org_id:    str
-    user_id:   str
+    org_id: str
+    user_id: str
     user_role: str
     ticket_id: Optional[str] = None
     db_cursor: Optional[Any] = None
@@ -37,18 +37,18 @@ class ExecutionContext:
 
 @dataclass
 class ToolResult:
-    success:      bool
+    success: bool
     action_taken: str
-    message:      str
-    data:         Dict[str, Any] = field(default_factory=dict)
+    message: str
+    data: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class Tool:
-    name:          str
-    description:   str
-    parameters:    Dict[str, Any]          # JSON Schema for LLM prompt inclusion
-    handler:       Callable[[Dict, ExecutionContext], ToolResult]
+    name: str
+    description: str
+    parameters: Dict[str, Any]  # JSON Schema for LLM prompt inclusion
+    handler: Callable[[Dict, ExecutionContext], ToolResult]
     required_role: str = "rep"
 
 
@@ -66,15 +66,17 @@ class ToolRegistry:
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
-        logger.info("CASPER tool registered: %s (requires: %s)", tool.name, tool.required_role)
+        logger.info(
+            "CASPER tool registered: %s (requires: %s)", tool.name, tool.required_role
+        )
 
     def tool_schemas(self) -> List[Dict]:
         """Return JSON schemas for all registered tools — injected into LLM prompt."""
         return [
             {
-                "name":        t.name,
+                "name": t.name,
                 "description": t.description,
-                "parameters":  t.parameters,
+                "parameters": t.parameters,
             }
             for t in self._tools.values()
         ]
@@ -117,7 +119,7 @@ class ToolRegistry:
         """Execute a list of tool_call dicts from CASPER's LLM response."""
         results = []
         for call in calls:
-            name   = call.get("tool", "")
+            name = call.get("tool", "")
             params = call.get("params", {})
             if name:
                 results.append(self.execute(name, params, context))
@@ -130,9 +132,13 @@ class ToolRegistry:
 def _handle_escalate(params: Dict, ctx: ExecutionContext) -> ToolResult:
     """Flag ticket for immediate human attention."""
     if not ctx.db_cursor or not ctx.ticket_id:
-        return ToolResult(success=False, action_taken="escalate_skipped", message="No DB cursor or ticket_id")
+        return ToolResult(
+            success=False,
+            action_taken="escalate_skipped",
+            message="No DB cursor or ticket_id",
+        )
 
-    reason   = params.get("reason", "AI-triggered escalation")
+    reason = params.get("reason", "AI-triggered escalation")
     priority = params.get("priority")
 
     ctx.db_cursor.execute(
@@ -142,7 +148,12 @@ def _handle_escalate(params: Dict, ctx: ExecutionContext) -> ToolResult:
     ctx.db_cursor.execute(
         "INSERT INTO app.messages (ticket_id, sender_id, sender_role, organization_id, body) "
         "VALUES (%s, %s, 'system', %s, %s)",
-        (ctx.ticket_id, ctx.user_id, ctx.org_id, f"[system] CASPER escalation: {reason}"),
+        (
+            ctx.ticket_id,
+            ctx.user_id,
+            ctx.org_id,
+            f"[system] CASPER escalation: {reason}",
+        ),
     )
     if priority:
         ctx.db_cursor.execute(
@@ -160,11 +171,17 @@ def _handle_escalate(params: Dict, ctx: ExecutionContext) -> ToolResult:
 def _handle_link_kb_article(params: Dict, ctx: ExecutionContext) -> ToolResult:
     """Attach a KnowBase article reference to the ticket metadata."""
     if not ctx.db_cursor or not ctx.ticket_id:
-        return ToolResult(success=False, action_taken="link_kb_skipped", message="No DB cursor or ticket_id")
+        return ToolResult(
+            success=False,
+            action_taken="link_kb_skipped",
+            message="No DB cursor or ticket_id",
+        )
 
     article_id = params.get("article_id", "")
     if not article_id:
-        return ToolResult(success=False, action_taken="link_kb_skipped", message="Missing article_id")
+        return ToolResult(
+            success=False, action_taken="link_kb_skipped", message="Missing article_id"
+        )
 
     # Verify article exists and belongs to org
     ctx.db_cursor.execute(
@@ -173,7 +190,11 @@ def _handle_link_kb_article(params: Dict, ctx: ExecutionContext) -> ToolResult:
     )
     row = ctx.db_cursor.fetchone()
     if not row:
-        return ToolResult(success=False, action_taken="link_kb_skipped", message="Article not found or not published")
+        return ToolResult(
+            success=False,
+            action_taken="link_kb_skipped",
+            message="Article not found or not published",
+        )
 
     # Store in ticket meta
     ctx.db_cursor.execute(
@@ -193,7 +214,11 @@ def _handle_link_kb_article(params: Dict, ctx: ExecutionContext) -> ToolResult:
 def _handle_suggest_resolution(params: Dict, ctx: ExecutionContext) -> ToolResult:
     """Post a system note that CASPER has high confidence in its resolution."""
     if not ctx.db_cursor or not ctx.ticket_id:
-        return ToolResult(success=False, action_taken="suggest_resolution_skipped", message="No DB cursor")
+        return ToolResult(
+            success=False,
+            action_taken="suggest_resolution_skipped",
+            message="No DB cursor",
+        )
 
     confidence = params.get("confidence", 0.0)
     note = (
@@ -220,9 +245,11 @@ def _handle_suggest_resolution(params: Dict, ctx: ExecutionContext) -> ToolResul
 def _handle_create_followup_ticket(params: Dict, ctx: ExecutionContext) -> ToolResult:
     """Create a linked follow-up ticket for a related sub-issue CASPER detected."""
     if not ctx.db_cursor or not ctx.ticket_id:
-        return ToolResult(success=False, action_taken="followup_skipped", message="No DB cursor")
+        return ToolResult(
+            success=False, action_taken="followup_skipped", message="No DB cursor"
+        )
 
-    title       = params.get("title", "Follow-up issue detected by CASPER")
+    title = params.get("title", "Follow-up issue detected by CASPER")
     description = params.get("description", "Auto-created by CASPER — review required")
 
     ctx.db_cursor.execute(
@@ -250,10 +277,13 @@ def _handle_lookup_asset(params: Dict, ctx: ExecutionContext) -> ToolResult:
     """Search AssetLog for assets matching a query string."""
     query = params.get("query", "").strip()
     if not query:
-        return ToolResult(success=False, action_taken="lookup_asset_skipped", message="Missing query")
+        return ToolResult(
+            success=False, action_taken="lookup_asset_skipped", message="Missing query"
+        )
 
     try:
         from ..db_sync import get_db_connection
+
         with get_db_connection() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -268,7 +298,9 @@ def _handle_lookup_asset(params: Dict, ctx: ExecutionContext) -> ToolResult:
             )
             rows = cur.fetchall()
     except Exception as exc:
-        return ToolResult(success=False, action_taken="lookup_asset_error", message=str(exc))
+        return ToolResult(
+            success=False, action_taken="lookup_asset_error", message=str(exc)
+        )
 
     if not rows:
         return ToolResult(
@@ -279,12 +311,14 @@ def _handle_lookup_asset(params: Dict, ctx: ExecutionContext) -> ToolResult:
         )
     assets = [
         {
-            "id":              str(r["id"]),
-            "asset_tag":       r["asset_tag"],
-            "name":            r["name"],
-            "category":        r["category"],
-            "status":          r["status"],
-            "warranty_expiry": str(r["warranty_expiry"]) if r.get("warranty_expiry") else None,
+            "id": str(r["id"]),
+            "asset_tag": r["asset_tag"],
+            "name": r["name"],
+            "category": r["category"],
+            "status": r["status"],
+            "warranty_expiry": (
+                str(r["warranty_expiry"]) if r.get("warranty_expiry") else None
+            ),
         }
         for r in rows
     ]
@@ -300,10 +334,15 @@ def _handle_get_contract_status(params: Dict, ctx: ExecutionContext) -> ToolResu
     """Look up active contracts for a vendor by name."""
     vendor_name = params.get("vendor_name", "").strip()
     if not vendor_name:
-        return ToolResult(success=False, action_taken="get_contract_status_skipped", message="Missing vendor_name")
+        return ToolResult(
+            success=False,
+            action_taken="get_contract_status_skipped",
+            message="Missing vendor_name",
+        )
 
     try:
         from ..db_sync import get_db_connection
+
         with get_db_connection() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -320,7 +359,9 @@ def _handle_get_contract_status(params: Dict, ctx: ExecutionContext) -> ToolResu
             )
             rows = cur.fetchall()
     except Exception as exc:
-        return ToolResult(success=False, action_taken="get_contract_status_error", message=str(exc))
+        return ToolResult(
+            success=False, action_taken="get_contract_status_error", message=str(exc)
+        )
 
     if not rows:
         return ToolResult(
@@ -331,13 +372,13 @@ def _handle_get_contract_status(params: Dict, ctx: ExecutionContext) -> ToolResu
         )
     contracts = [
         {
-            "id":                  str(r["id"]),
-            "title":               r["title"],
-            "vendor":              r["vendor_name"],
-            "end_date":            str(r["end_date"]) if r.get("end_date") else None,
-            "value":               float(r["value"]) if r.get("value") else None,
-            "auto_renews":         r["auto_renews"],
-            "notice_period_days":  r["notice_period_days"],
+            "id": str(r["id"]),
+            "title": r["title"],
+            "vendor": r["vendor_name"],
+            "end_date": str(r["end_date"]) if r.get("end_date") else None,
+            "value": float(r["value"]) if r.get("value") else None,
+            "auto_renews": r["auto_renews"],
+            "notice_period_days": r["notice_period_days"],
         }
         for r in rows
     ]
@@ -349,14 +390,19 @@ def _handle_get_contract_status(params: Dict, ctx: ExecutionContext) -> ToolResu
     )
 
 
-def _handle_find_similar_resolved_tickets(params: Dict, ctx: ExecutionContext) -> ToolResult:
+def _handle_find_similar_resolved_tickets(
+    params: Dict, ctx: ExecutionContext
+) -> ToolResult:
     """Find resolved tickets with similar titles using trigram search."""
     query = params.get("query", "").strip()
     if not query:
-        return ToolResult(success=False, action_taken="find_similar_skipped", message="Missing query")
+        return ToolResult(
+            success=False, action_taken="find_similar_skipped", message="Missing query"
+        )
 
     try:
         from ..db_sync import get_db_connection
+
         with get_db_connection() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -370,7 +416,9 @@ def _handle_find_similar_resolved_tickets(params: Dict, ctx: ExecutionContext) -
             )
             rows = cur.fetchall()
     except Exception as exc:
-        return ToolResult(success=False, action_taken="find_similar_error", message=str(exc))
+        return ToolResult(
+            success=False, action_taken="find_similar_error", message=str(exc)
+        )
 
     if not rows:
         return ToolResult(
@@ -381,8 +429,8 @@ def _handle_find_similar_resolved_tickets(params: Dict, ctx: ExecutionContext) -
         )
     tickets = [
         {
-            "id":         str(r["id"]),
-            "title":      r["title"],
+            "id": str(r["id"]),
+            "title": r["title"],
             "resolution": (r.get("resolution") or "")[:300],
         }
         for r in rows
@@ -398,14 +446,22 @@ def _handle_find_similar_resolved_tickets(params: Dict, ctx: ExecutionContext) -
 def _handle_create_asset_ticket(params: Dict, ctx: ExecutionContext) -> ToolResult:
     """Create a new ticket pre-linked to a specific asset."""
     if not ctx.db_cursor:
-        return ToolResult(success=False, action_taken="create_asset_ticket_skipped", message="No DB cursor")
+        return ToolResult(
+            success=False,
+            action_taken="create_asset_ticket_skipped",
+            message="No DB cursor",
+        )
 
     asset_id = params.get("asset_id", "").strip()
-    title    = params.get("title", "Asset issue detected by CASPER").strip()
-    desc     = params.get("description", "").strip()
+    title = params.get("title", "Asset issue detected by CASPER").strip()
+    desc = params.get("description", "").strip()
 
     if not asset_id:
-        return ToolResult(success=False, action_taken="create_asset_ticket_skipped", message="Missing asset_id")
+        return ToolResult(
+            success=False,
+            action_taken="create_asset_ticket_skipped",
+            message="Missing asset_id",
+        )
 
     ctx.db_cursor.execute(
         """INSERT INTO app.tickets
@@ -430,11 +486,17 @@ def _handle_create_asset_ticket(params: Dict, ctx: ExecutionContext) -> ToolResu
 def _handle_flag_contract_renewal(params: Dict, ctx: ExecutionContext) -> ToolResult:
     """Create a renewal notification for a contract nearing expiry."""
     if not ctx.db_cursor:
-        return ToolResult(success=False, action_taken="flag_renewal_skipped", message="No DB cursor")
+        return ToolResult(
+            success=False, action_taken="flag_renewal_skipped", message="No DB cursor"
+        )
 
     contract_id = params.get("contract_id", "").strip()
     if not contract_id:
-        return ToolResult(success=False, action_taken="flag_renewal_skipped", message="Missing contract_id")
+        return ToolResult(
+            success=False,
+            action_taken="flag_renewal_skipped",
+            message="Missing contract_id",
+        )
 
     ctx.db_cursor.execute(
         "SELECT title, end_date FROM app.contracts WHERE id = %s::uuid AND organization_id = %s",
@@ -442,7 +504,11 @@ def _handle_flag_contract_renewal(params: Dict, ctx: ExecutionContext) -> ToolRe
     )
     row = ctx.db_cursor.fetchone()
     if not row:
-        return ToolResult(success=False, action_taken="flag_renewal_skipped", message="Contract not found")
+        return ToolResult(
+            success=False,
+            action_taken="flag_renewal_skipped",
+            message="Contract not found",
+        )
 
     note = (
         f"[system] CASPER flagged contract '{row['title']}' for renewal review. "
@@ -466,163 +532,218 @@ def build_default_registry() -> ToolRegistry:
     """Build and return the default tool registry with all built-in tools."""
     registry = ToolRegistry()
 
-    registry.register(Tool(
-        name="escalate_ticket",
-        description=(
-            "Escalate this ticket to a senior rep immediately. Use when the issue is complex, "
-            "involves security/data loss, or confidence is below threshold."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "reason":   {"type": "string", "description": "Why escalation is needed"},
-                "priority": {"type": "string", "enum": ["P1", "P2", "P3", "P4"], "description": "Suggested priority override"},
+    registry.register(
+        Tool(
+            name="escalate_ticket",
+            description=(
+                "Escalate this ticket to a senior rep immediately. Use when the issue is complex, "
+                "involves security/data loss, or confidence is below threshold."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Why escalation is needed",
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["P1", "P2", "P3", "P4"],
+                        "description": "Suggested priority override",
+                    },
+                },
+                "required": ["reason"],
             },
-            "required": ["reason"],
-        },
-        handler=_handle_escalate,
-        required_role="rep",
-    ))
+            handler=_handle_escalate,
+            required_role="rep",
+        )
+    )
 
-    registry.register(Tool(
-        name="link_knowbase_article",
-        description=(
-            "Attach a relevant KnowBase article to this ticket as a reference. "
-            "Use when the KB article directly addresses the ticket issue."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "article_id": {"type": "string", "description": "UUID of the KnowBase article to link"},
+    registry.register(
+        Tool(
+            name="link_knowbase_article",
+            description=(
+                "Attach a relevant KnowBase article to this ticket as a reference. "
+                "Use when the KB article directly addresses the ticket issue."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "article_id": {
+                        "type": "string",
+                        "description": "UUID of the KnowBase article to link",
+                    },
+                },
+                "required": ["article_id"],
             },
-            "required": ["article_id"],
-        },
-        handler=_handle_link_kb_article,
-        required_role="rep",
-    ))
+            handler=_handle_link_kb_article,
+            required_role="rep",
+        )
+    )
 
-    registry.register(Tool(
-        name="suggest_resolution",
-        description=(
-            "Post a system note indicating high-confidence resolution. "
-            "Use only when confidence is above 0.80 and the answer fully addresses the question."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "confidence": {"type": "number", "description": "CASPER confidence score (0.0–1.0)"},
+    registry.register(
+        Tool(
+            name="suggest_resolution",
+            description=(
+                "Post a system note indicating high-confidence resolution. "
+                "Use only when confidence is above 0.80 and the answer fully addresses the question."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "confidence": {
+                        "type": "number",
+                        "description": "CASPER confidence score (0.0–1.0)",
+                    },
+                },
+                "required": ["confidence"],
             },
-            "required": ["confidence"],
-        },
-        handler=_handle_suggest_resolution,
-        required_role="rep",
-    ))
+            handler=_handle_suggest_resolution,
+            required_role="rep",
+        )
+    )
 
-    registry.register(Tool(
-        name="create_followup_ticket",
-        description=(
-            "Create a linked follow-up ticket for a distinct sub-issue detected in the conversation. "
-            "Use sparingly — only for genuinely separate actionable issues."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "title":       {"type": "string", "description": "Title for the follow-up ticket"},
-                "description": {"type": "string", "description": "Description of the sub-issue"},
+    registry.register(
+        Tool(
+            name="create_followup_ticket",
+            description=(
+                "Create a linked follow-up ticket for a distinct sub-issue detected in the conversation. "
+                "Use sparingly — only for genuinely separate actionable issues."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Title for the follow-up ticket",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Description of the sub-issue",
+                    },
+                },
+                "required": ["title"],
             },
-            "required": ["title"],
-        },
-        handler=_handle_create_followup_ticket,
-        required_role="rep",
-    ))
+            handler=_handle_create_followup_ticket,
+            required_role="rep",
+        )
+    )
 
     # ── Strata module tools ────────────────────────────────────────────────────
 
-    registry.register(Tool(
-        name="lookup_asset",
-        description=(
-            "Search AssetLog for hardware/software assets by name, asset tag, serial, or department. "
-            "Use when the ticket mentions a specific device, machine, or equipment."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Asset name, tag, serial number, or department to search"},
+    registry.register(
+        Tool(
+            name="lookup_asset",
+            description=(
+                "Search AssetLog for hardware/software assets by name, asset tag, serial, or department. "
+                "Use when the ticket mentions a specific device, machine, or equipment."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Asset name, tag, serial number, or department to search",
+                    },
+                },
+                "required": ["query"],
             },
-            "required": ["query"],
-        },
-        handler=_handle_lookup_asset,
-        required_role="rep",
-    ))
+            handler=_handle_lookup_asset,
+            required_role="rep",
+        )
+    )
 
-    registry.register(Tool(
-        name="get_contract_status",
-        description=(
-            "Look up active contracts for a specific vendor in ContractVault. "
-            "Use when the ticket involves a vendor product or service."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "vendor_name": {"type": "string", "description": "Vendor name to look up (partial match OK)"},
+    registry.register(
+        Tool(
+            name="get_contract_status",
+            description=(
+                "Look up active contracts for a specific vendor in ContractVault. "
+                "Use when the ticket involves a vendor product or service."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "vendor_name": {
+                        "type": "string",
+                        "description": "Vendor name to look up (partial match OK)",
+                    },
+                },
+                "required": ["vendor_name"],
             },
-            "required": ["vendor_name"],
-        },
-        handler=_handle_get_contract_status,
-        required_role="rep",
-    ))
+            handler=_handle_get_contract_status,
+            required_role="rep",
+        )
+    )
 
-    registry.register(Tool(
-        name="find_similar_resolved_tickets",
-        description=(
-            "Find past resolved tickets with a similar issue. "
-            "Use to surface proven resolutions before answering a new ticket."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Keywords from the current ticket title/issue"},
+    registry.register(
+        Tool(
+            name="find_similar_resolved_tickets",
+            description=(
+                "Find past resolved tickets with a similar issue. "
+                "Use to surface proven resolutions before answering a new ticket."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Keywords from the current ticket title/issue",
+                    },
+                },
+                "required": ["query"],
             },
-            "required": ["query"],
-        },
-        handler=_handle_find_similar_resolved_tickets,
-        required_role="rep",
-    ))
+            handler=_handle_find_similar_resolved_tickets,
+            required_role="rep",
+        )
+    )
 
-    registry.register(Tool(
-        name="create_asset_ticket",
-        description=(
-            "Create a new support ticket pre-linked to a specific asset. "
-            "Use when a hardware issue is detected and no ticket exists for the asset yet."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "asset_id":    {"type": "string", "description": "UUID of the asset to link"},
-                "title":       {"type": "string", "description": "Ticket title"},
-                "description": {"type": "string", "description": "Ticket description"},
+    registry.register(
+        Tool(
+            name="create_asset_ticket",
+            description=(
+                "Create a new support ticket pre-linked to a specific asset. "
+                "Use when a hardware issue is detected and no ticket exists for the asset yet."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "asset_id": {
+                        "type": "string",
+                        "description": "UUID of the asset to link",
+                    },
+                    "title": {"type": "string", "description": "Ticket title"},
+                    "description": {
+                        "type": "string",
+                        "description": "Ticket description",
+                    },
+                },
+                "required": ["asset_id", "title"],
             },
-            "required": ["asset_id", "title"],
-        },
-        handler=_handle_create_asset_ticket,
-        required_role="rep",
-    ))
+            handler=_handle_create_asset_ticket,
+            required_role="rep",
+        )
+    )
 
-    registry.register(Tool(
-        name="flag_contract_renewal",
-        description=(
-            "Flag a contract in ContractVault for renewal review. "
-            "Use when the ticket involves a vendor whose contract is expiring soon."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "contract_id": {"type": "string", "description": "UUID of the contract to flag"},
+    registry.register(
+        Tool(
+            name="flag_contract_renewal",
+            description=(
+                "Flag a contract in ContractVault for renewal review. "
+                "Use when the ticket involves a vendor whose contract is expiring soon."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "contract_id": {
+                        "type": "string",
+                        "description": "UUID of the contract to flag",
+                    },
+                },
+                "required": ["contract_id"],
             },
-            "required": ["contract_id"],
-        },
-        handler=_handle_flag_contract_renewal,
-        required_role="rep",
-    ))
+            handler=_handle_flag_contract_renewal,
+            required_role="rep",
+        )
+    )
 
     return registry
