@@ -18,7 +18,7 @@
 
 **TicketPilot** is an AI-powered customer support ticket management system with:
 - **Frontend**: Next.js 15 + React 19 + Framer Motion + HeroUI
-- **Backend**: FastAPI (Python) + Google Gemini AI + FAISS Vector Store
+- **Backend**: FastAPI (Python) + Google Gemini AI + pgvector Vector Store
 - **Database**: Supabase (PostgreSQL)
 - **Auth**: Supabase Authentication
 - **AI Features**: RAG (Retrieval-Augmented Generation) for intelligent ticket responses
@@ -236,8 +236,6 @@ vercel --prod
    GOOGLE_API_KEY=AIzaSyBp3I2xu2kv0eRq1z5EAvzsjS5xSDFbHz8
    CHUNK_SIZE_CHARS=2400
    CHUNK_OVERLAP_CHARS=400
-   VECTOR_INDEX_DIR=./data/faiss
-   VECTOR_MAP_DIR=./data/maps
    GENAI_MODEL=gemini-1.5-pro
    GENAI_TEMPERATURE=0.2
    GENAI_MAX_OUTPUT_TOKENS=1024

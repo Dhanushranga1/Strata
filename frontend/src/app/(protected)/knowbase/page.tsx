@@ -1,18 +1,18 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import useSWR from "swr";
-import { useOrganization } from "@/contexts/OrganizationContext";
-import api from "@/lib/api-client";
-import { FeatureGate } from "@/components/FeatureGate";
-import { PageShell } from "@/ui/motion/PageShell";
-import { m } from "framer-motion";
-import { v } from "@/ui/motion/variants";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import useSWR from 'swr';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import api from '@/lib/api-client';
+import { FeatureGate } from '@/components/FeatureGate';
+import { PageShell } from '@/ui/motion/PageShell';
+import { m } from 'framer-motion';
+import { v } from '@/ui/motion/variants';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   BookMarked,
   Plus,
@@ -23,7 +23,7 @@ import {
   FileText,
   Loader2,
   AlertCircle,
-} from "lucide-react";
+} from 'lucide-react';
 
 interface ArticleSummary {
   id: string;
@@ -48,34 +48,33 @@ export default function KnowBasePage() {
   const router = useRouter();
   const { currentOrganization, isReady } = useOrganization();
   const orgId = currentOrganization?.id;
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string | null>(null);
 
-  const statsKey = isReady && orgId ? `/api/knowbase/stats?_org=${orgId}` : null;
+  const statsKey =
+    isReady && orgId ? `/api/knowbase/stats?_org=${orgId}` : null;
   const { data: stats } = useSWR<KnowBaseStats>(statsKey, () =>
-    api.get<KnowBaseStats>("/api/knowbase/stats", orgId)
+    api.get<KnowBaseStats>('/api/knowbase/stats', orgId)
   );
 
   const articlesKey =
-    isReady && orgId
-      ? ["knowbase-articles", orgId, search, category]
-      : null;
+    isReady && orgId ? ['knowbase-articles', orgId, search, category] : null;
   const {
     data: articles,
     isLoading,
     error,
   } = useSWR<ArticleSummary[]>(articlesKey, async () => {
-    const params = new URLSearchParams({ limit: "100" });
-    if (search) params.set("q", search);
-    if (category) params.set("category", category);
+    const params = new URLSearchParams({ limit: '100' });
+    if (search) params.set('q', search);
+    if (category) params.set('category', category);
     return api.get<ArticleSummary[]>(`/api/knowbase/articles?${params}`, orgId);
   });
 
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
     });
   }
 
@@ -86,7 +85,12 @@ export default function KnowBasePage() {
       description="Create and manage internal SOPs, runbooks, and how-to guides."
     >
       <PageShell>
-        <m.div variants={v.fadeUp} initial="hidden" animate="show" className="space-y-6">
+        <m.div
+          variants={v.fadeUp}
+          initial="hidden"
+          animate="show"
+          className="space-y-6"
+        >
           {/* Header */}
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -98,7 +102,7 @@ export default function KnowBasePage() {
                 </p>
               </div>
             </div>
-            <Button onClick={() => router.push("/knowbase/new")}>
+            <Button onClick={() => router.push('/knowbase/new')}>
               <Plus className="h-4 w-4 mr-2" />
               New Article
             </Button>
@@ -110,8 +114,10 @@ export default function KnowBasePage() {
               <CardContent className="pt-4 pb-4 flex items-center gap-3">
                 <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
                 <div>
-                  <p className="text-xs text-muted-foreground">Total articles</p>
-                  <p className="text-xl font-semibold">{stats?.total ?? "—"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Total articles
+                  </p>
+                  <p className="text-xl font-semibold">{stats?.total ?? '—'}</p>
                 </div>
               </CardContent>
             </Card>
@@ -120,7 +126,9 @@ export default function KnowBasePage() {
                 <Eye className="h-5 w-5 text-muted-foreground shrink-0" />
                 <div>
                   <p className="text-xs text-muted-foreground">Published</p>
-                  <p className="text-xl font-semibold">{stats?.published ?? "—"}</p>
+                  <p className="text-xl font-semibold">
+                    {stats?.published ?? '—'}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -129,7 +137,9 @@ export default function KnowBasePage() {
                 <FolderOpen className="h-5 w-5 text-muted-foreground shrink-0" />
                 <div>
                   <p className="text-xs text-muted-foreground">Categories</p>
-                  <p className="text-xl font-semibold">{stats?.categories.length ?? "—"}</p>
+                  <p className="text-xl font-semibold">
+                    {stats?.categories.length ?? '—'}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -143,7 +153,7 @@ export default function KnowBasePage() {
                 className="pl-9"
                 placeholder="Search articles…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={e => setSearch(e.target.value)}
               />
             </div>
             <div className="flex flex-wrap gap-2">
@@ -152,21 +162,21 @@ export default function KnowBasePage() {
                 onClick={() => setCategory(null)}
                 className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
                   category === null
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "border-border hover:bg-muted"
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border hover:bg-muted'
                 }`}
               >
                 All
               </button>
-              {stats?.categories.map((cat) => (
+              {stats?.categories.map(cat => (
                 <button
                   type="button"
                   key={cat}
                   onClick={() => setCategory(cat === category ? null : cat)}
                   className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
                     category === cat
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-border hover:bg-muted"
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'border-border hover:bg-muted'
                   }`}
                 >
                   {cat}
@@ -193,14 +203,17 @@ export default function KnowBasePage() {
               <p className="text-sm">
                 Create your first SOP, runbook, or how-to guide.
               </p>
-              <Button variant="outline" onClick={() => router.push("/knowbase/new")}>
+              <Button
+                variant="outline"
+                onClick={() => router.push('/knowbase/new')}
+              >
                 <Plus className="h-4 w-4 mr-2" />
                 New Article
               </Button>
             </div>
           ) : (
             <div className="space-y-2">
-              {articles.map((article) => (
+              {articles.map(article => (
                 <button
                   type="button"
                   key={article.id}
@@ -219,7 +232,10 @@ export default function KnowBasePage() {
                           </Badge>
                         )}
                         {article.is_public && (
-                          <Badge variant="secondary" className="text-xs shrink-0">
+                          <Badge
+                            variant="secondary"
+                            className="text-xs shrink-0"
+                          >
                             Public
                           </Badge>
                         )}
@@ -243,7 +259,7 @@ export default function KnowBasePage() {
                       </div>
                       {article.tags.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {article.tags.map((tag) => (
+                          {article.tags.map(tag => (
                             <span
                               key={tag}
                               className="text-xs bg-muted px-2 py-0.5 rounded-full"

@@ -128,10 +128,10 @@ def incident_platform_stats(
         )
         counts = {r["status"]: int(r["count"]) for r in cur.fetchall()}
         cur.execute(
-            "SELECT COUNT(*) FROM app.incidents WHERE organization_id=%s AND postmortem_done=false AND status='resolved'",
+            "SELECT COUNT(*) AS cnt FROM app.incidents WHERE organization_id=%s AND postmortem_done=false AND status='resolved'",
             (org_id,),
         )
-        pending_pm = int(cur.fetchone()[0] or 0)
+        pending_pm = int(cur.fetchone()["cnt"] or 0)
 
     active = sum(
         counts.get(s, 0)
@@ -187,8 +187,10 @@ def list_incidents(
     where = " AND ".join(conds)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM app.incidents i WHERE {where}", params)
-        total = int(cur.fetchone()[0])
+        cur.execute(
+            f"SELECT COUNT(*) AS cnt FROM app.incidents i WHERE {where}", params
+        )
+        total = int(cur.fetchone()["cnt"])
         cur.execute(
             f"{_SELECT} WHERE {where} ORDER BY i.declared_at DESC LIMIT %s OFFSET %s",
             params + [limit, offset],

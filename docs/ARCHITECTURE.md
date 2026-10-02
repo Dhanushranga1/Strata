@@ -6,7 +6,7 @@ Frontend (Next.js 15, port 3000)
 Backend (FastAPI, Python 3.11, port 8000)
   │
   ├── Supabase PostgreSQL (app. schema, port 6543)
-  ├── FAISS vector index (per org, ephemeral)
+  ├── pgvector index in Postgres (per org, persistent)
   └── Google AI / Groq (embeddings + LLM)
 ```
 
@@ -23,16 +23,16 @@ Two role systems:
 ## RAG pipeline
 
 ```
-User query → PII scrub → embed (text-embedding-004, 768-dim)
-  → FAISS IndexFlatIP search (per org)
+User query → PII scrub → embed (gemini-embedding-001, 1536-dim)
+  → pgvector cosine search over app.chunks.embedding_vec (per org)
   → MMR re-ranking (relevance × diversity)
-  → Gemini 1.5 flash generates response with [N] citations
+  → configured LLM generates response with [N] citations
   → CASPER confidence scoring (intent-adaptive, KB-density-calibrated)
 ```
 
 ## Database
 
-Supabase PostgreSQL, `app.` schema (not `public`). 28 migrations in
+Supabase PostgreSQL, `app.` schema (not `public`). 38 migration files (0001–0035) in
 `backend/migrations/`. Auto-applied on startup via `migration_runner.py`.
 
 Two connection pools:
@@ -45,7 +45,7 @@ Two connection pools:
 |----------|-----------|
 | Separate Supabase projects for dev/prod | Zero risk of dev ops touching prod data |
 | Transaction pooler (port 6543) | IPv4-compatible, connection pooling built-in |
-| FAISS per org, not global | Complete tenant isolation for vector search |
-| FAISS on ephemeral disk | Simpler than managed vector DB; re-build from DB on cold start |
+| pgvector per org (`organization_id` column + scoped queries) | Complete tenant isolation for vector search |
+| Vectors stored in Postgres | No ephemeral disk, no cold-start rebuild — survives deploys |
 | Two DB pools (async + sync) | asyncpg for async routes, psycopg3 for sync routes (both coexist) |
 | Migration runner on startup | No manual SQL Editor step; idempotent, tracks applied in `app.schema_migrations` |

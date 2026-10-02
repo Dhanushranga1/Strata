@@ -224,15 +224,15 @@ def servicehub_platform_stats(
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT COUNT(*) FROM app.service_catalog WHERE organization_id=%s AND is_active=true",
+            "SELECT COUNT(*) AS cnt FROM app.service_catalog WHERE organization_id=%s AND is_active=true",
             (org_id,),
         )
-        active = int(cur.fetchone()[0] or 0)
+        active = int(cur.fetchone()["cnt"] or 0)
         cur.execute(
-            "SELECT COUNT(*) FROM app.service_catalog WHERE organization_id=%s AND is_public=true AND is_active=true",
+            "SELECT COUNT(*) AS cnt FROM app.service_catalog WHERE organization_id=%s AND is_public=true AND is_active=true",
             (org_id,),
         )
-        public = int(cur.fetchone()[0] or 0)
+        public = int(cur.fetchone()["cnt"] or 0)
     stats = [f"{active} services"] if active else ["No services yet"]
     if public:
         stats.append(f"{public} public")

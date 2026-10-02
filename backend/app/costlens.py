@@ -37,28 +37,28 @@ def costlens_platform_stats(
 
         # Total annual software spend
         cur.execute(
-            "SELECT COALESCE(SUM(cost_per_year), 0) FROM app.software_licenses WHERE organization_id = %s",
+            "SELECT COALESCE(SUM(cost_per_year), 0) AS total FROM app.software_licenses WHERE organization_id = %s",
             (org_id,),
         )
-        annual_sw = float(cur.fetchone()[0] or 0)
+        annual_sw = float(cur.fetchone()["total"] or 0)
 
         # Unused license count
         cur.execute(
-            """SELECT COUNT(*) FROM app.software_licenses
+            """SELECT COUNT(*) AS cnt FROM app.software_licenses
                WHERE organization_id = %s AND seat_count > 0
                AND CAST(seats_used AS float) / seat_count < 0.6""",
             (org_id,),
         )
-        unused_count = cur.fetchone()[0] or 0
+        unused_count = cur.fetchone()["cnt"] or 0
 
         # Contracts expiring in 90 days
         cur.execute(
-            """SELECT COUNT(*) FROM app.contracts
+            """SELECT COUNT(*) AS cnt FROM app.contracts
                WHERE organization_id = %s AND status = 'active'
                AND end_date BETWEEN %s AND %s""",
             (org_id, date.today(), date.today() + timedelta(days=90)),
         )
-        expiring_soon = cur.fetchone()[0] or 0
+        expiring_soon = cur.fetchone()["cnt"] or 0
 
     health = (
         "critical"
@@ -160,8 +160,8 @@ def costlens_summary(
 
         # ── 3. Upcoming renewals (next 90 days) ───────────────────────────────
         cur.execute(
-            """SELECT c.id, c.title, c.value, c.end_date, c.auto_renews,
-                      c.notice_period_days, v.name AS vendor_name
+            """SELECT c.id, c.title, c.total_value AS value, c.end_date, c.auto_renews,
+                      c.renewal_notice_days, v.name AS vendor_name
                FROM app.contracts c
                LEFT JOIN app.vendors v ON v.id = c.vendor_id
                WHERE c.organization_id = %s AND c.status = 'active'
@@ -226,22 +226,22 @@ def costlens_summary(
 
         # ── Summary totals ────────────────────────────────────────────────────
         cur.execute(
-            "SELECT COALESCE(SUM(cost_per_year), 0) FROM app.software_licenses WHERE organization_id = %s",
+            "SELECT COALESCE(SUM(cost_per_year), 0) AS total FROM app.software_licenses WHERE organization_id = %s",
             (org_id,),
         )
-        total_sw_spend = float(cur.fetchone()[0] or 0)
+        total_sw_spend = float(cur.fetchone()["total"] or 0)
 
         cur.execute(
-            "SELECT COALESCE(SUM(value), 0) FROM app.contracts WHERE organization_id = %s AND status = 'active'",
+            "SELECT COALESCE(SUM(total_value), 0) AS total FROM app.contracts WHERE organization_id = %s AND status = 'active'",
             (org_id,),
         )
-        total_contract_value = float(cur.fetchone()[0] or 0)
+        total_contract_value = float(cur.fetchone()["total"] or 0)
 
         cur.execute(
-            "SELECT COALESCE(SUM(purchase_price), 0) FROM app.assets WHERE organization_id = %s AND status != 'disposed'",
+            "SELECT COALESCE(SUM(purchase_price), 0) AS total FROM app.assets WHERE organization_id = %s AND status != 'disposed'",
             (org_id,),
         )
-        total_asset_value = float(cur.fetchone()[0] or 0)
+        total_asset_value = float(cur.fetchone()["total"] or 0)
 
     potential_savings = sum(
         lic["potential_saving"] or 0

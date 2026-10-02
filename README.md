@@ -11,7 +11,7 @@ Strata brings ticketing, asset management, contracts, procurement, patch trackin
 | Module | What it does | Plan |
 |--------|-------------|------|
 | **TicketPilot** | AI-powered support tickets, SLA, canned responses, CSAT | Community |
-| **KnowBase** | Searchable knowledge articles, FAISS-backed AI retrieval | Starter |
+| **KnowBase** | Searchable knowledge articles, pgvector-backed AI retrieval | Starter |
 | **AssetLog** | Hardware/software inventory, QR codes, warranty alerts | Starter |
 | **ContractVault** | Vendor directory, contract renewals, document links | Starter |
 | **ProcureFlow** | Purchase requests → approvals → delivery → AssetLog | Starter |
@@ -153,10 +153,10 @@ The AI assistant only returns useful answers once documents are indexed:
 
 1. Log in as admin → go to **Knowledge Base**
 2. Upload PDF, TXT, MD, or DOCX files
-3. Wait for the "Indexed" status — documents are chunked and embedded into FAISS
+3. Wait for the "Indexed" status — documents are chunked and embedded into pgvector
 
-> **Cloud deploy note**: FAISS indices are stored on the ephemeral filesystem and
-> are wiped on every redeploy. Re-upload all documents after each deploy.
+> **Deploy note**: vectors are stored in Postgres (`app.chunks.embedding_vec`), so
+> your knowledge base survives redeploys — no re-upload needed.
 
 ### Invite your team
 
@@ -260,8 +260,7 @@ Build command: `npm run build` · Output directory: `.next` · Framework preset:
 | `WEB_ORIGIN` | Yes | Frontend URL for CORS — no trailing slash |
 | `ENVIRONMENT` | Yes | `development` or `production` |
 | `LOG_LEVEL` | No | Default: `INFO` |
-| `GENAI_MODEL` | No | Default: `gemini-1.5-flash` |
-| `VECTOR_INDEX_DIR` | No | FAISS directory, default: `./data/faiss` |
+| `GENAI_MODEL` | No | Default: `gemini-3.5-flash` |
 
 ### Frontend (`frontend/.env.local`)
 
@@ -365,7 +364,7 @@ Detailed specs for every module (schema, API, frontend, feature gates, cross-mod
 | `401 Invalid token` on all requests | `SUPABASE_JWT_SECRET` is wrong (set to JWT token instead of raw secret) | Set to the raw string from Settings → API → JWT Settings |
 | Migrations not applied on new instance | Backend started but migration_runner didn't fire | Restart the backend — migrations auto-apply on startup |
 | Backend health fails after deploy | Render cold-start + Supabase pool wake-up | Wait 30–60s, circuit breaker self-heals |
-| AI answers are all low confidence | FAISS index wiped (ephemeral deploy) | Re-upload KB documents after every deploy |
+| AI answers are all low confidence | KB chunks have no embeddings (no embedding API key configured) | Set a key in Settings → AI, then re-ingest documents |
 | Invite email not sent | `SUPABASE_SERVICE_ROLE_KEY` not set | Add it to backend env — or copy invite link from modal manually |
 | `403 You are not a member` | User missing from `organization_members` | Run the admin SQL from "First-Time Configuration" |
 | CORS errors in browser | `WEB_ORIGIN` mismatch | Set `WEB_ORIGIN` in backend env to exact frontend URL, no trailing slash |

@@ -142,22 +142,22 @@ def patch_dashboard(
 
         # Overdue critical (needed + no schedule or scheduled in the past)
         cur.execute(
-            """SELECT COUNT(*) FROM app.patch_records
+            """SELECT COUNT(*) AS cnt FROM app.patch_records
                WHERE organization_id = %s AND status IN ('needed', 'scheduled')
                AND patch_severity = 'critical'
                AND (scheduled_at IS NULL OR scheduled_at < NOW())""",
             (org_id,),
         )
-        overdue_critical = int(cur.fetchone()[0] or 0)
+        overdue_critical = int(cur.fetchone()["cnt"] or 0)
 
         # Scheduled next 7 days
         cur.execute(
-            """SELECT COUNT(*) FROM app.patch_records
+            """SELECT COUNT(*) AS cnt FROM app.patch_records
                WHERE organization_id = %s AND status = 'scheduled'
                AND scheduled_at BETWEEN NOW() AND NOW() + INTERVAL '7 days'""",
             (org_id,),
         )
-        scheduled_week = int(cur.fetchone()[0] or 0)
+        scheduled_week = int(cur.fetchone()["cnt"] or 0)
 
     sev_summary = []
     for sev in SEVERITIES:
@@ -213,8 +213,10 @@ def list_patches(
     where = " AND ".join(conds)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM app.patch_records pr WHERE {where}", params)
-        total = cur.fetchone()[0]
+        cur.execute(
+            f"SELECT COUNT(*) AS cnt FROM app.patch_records pr WHERE {where}", params
+        )
+        total = cur.fetchone()["cnt"]
         cur.execute(
             f"{_SELECT} WHERE {where} ORDER BY "
             "CASE pr.patch_severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, "

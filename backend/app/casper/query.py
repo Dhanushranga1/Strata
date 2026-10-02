@@ -55,13 +55,13 @@ def nl_query(
     try:
         from ..embeddings import embed_texts
 
-        q_emb = embed_texts([body.query.strip()], task_type="retrieval_query")[0]
+        q_emb = embed_texts([body.query.strip()])[0]
     except Exception as exc:
         logger.error("[casper/query] embedding failed: %s", exc)
         raise HTTPException(503, "Embedding service unavailable")
 
     try:
-        from ..casper.engine import casper_engine
+        from . import casper_engine
 
         raw = casper_engine.correlator.correlate(
             q_emb, org_id, top_k_per_namespace=body.top_k
@@ -72,14 +72,15 @@ def nl_query(
 
     cards = []
     for item in raw:
+        meta = item.metadata or {}
         cards.append(
             EntityCard(
-                entity_type=item.get("entity_type", item.get("namespace", "unknown")),
-                entity_id=item.get("entity_id", ""),
-                label=item.get("label", item.get("title", "Untitled")),
-                score=round(float(item.get("score", 0)), 3),
-                href=item.get("href", "#"),
-                namespace=item.get("namespace", ""),
+                entity_type=meta.get("entity_type", item.namespace),
+                entity_id=item.entity_id,
+                label=item.label or "Untitled",
+                score=round(float(item.score or 0), 3),
+                href=meta.get("href", "#"),
+                namespace=item.namespace,
             )
         )
 

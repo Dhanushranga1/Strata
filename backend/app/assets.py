@@ -14,6 +14,7 @@ import io
 import json
 import logging
 import math
+import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -1050,9 +1051,9 @@ async def import_assets(
 # ── Single asset endpoints ────────────────────────────────────────────────────
 
 
-@router.get("/{asset_id}")
+@router.get("/{asset_id:uuid}")
 def get_asset(
-    asset_id: str,
+    asset_id: uuid.UUID,
     request: Request,
     user: User = Depends(get_current_user),
     _gate: None = requires_feature("assets"),
@@ -1139,9 +1140,9 @@ def get_asset(
     return result
 
 
-@router.put("/{asset_id}")
+@router.put("/{asset_id:uuid}")
 def update_asset(
-    asset_id: str,
+    asset_id: uuid.UUID,
     payload: AssetUpdate,
     request: Request,
     user: User = Depends(get_current_user),
@@ -1196,7 +1197,7 @@ def update_asset(
             if str(old_val) != str(new_val):
                 _log_history(
                     cur,
-                    asset_id,
+                    str(asset_id),
                     org_id,
                     user.id,
                     "updated",
@@ -1214,7 +1215,10 @@ def update_asset(
         name = updated["name"]
         specs = json.dumps(updated.get("specs") or {})
         casper_engine.embed_entity(
-            "asset", asset_id, f"[asset] {name} {updated['category']} {specs}", org_id
+            "asset",
+            str(asset_id),
+            f"[asset] {name} {updated['category']} {specs}",
+            org_id,
         )
     except Exception:
         pass
@@ -1222,9 +1226,9 @@ def update_asset(
     return _asset_row(dict(updated))
 
 
-@router.delete("/{asset_id}", status_code=204)
+@router.delete("/{asset_id:uuid}", status_code=204)
 def delete_asset(
-    asset_id: str,
+    asset_id: uuid.UUID,
     request: Request,
     user: User = Depends(get_current_user),
     _gate: None = requires_feature("assets"),
@@ -1251,7 +1255,7 @@ def delete_asset(
         )
         _log_history(
             cur,
-            asset_id,
+            str(asset_id),
             org_id,
             user.id,
             "disposed",
@@ -2053,70 +2057,6 @@ def assign_license(
     if assignment.get("assigned_at"):
         assignment["assigned_at"] = assignment["assigned_at"].isoformat()
     return assignment
-
-
-@router.get("/platform-stats")
-def asset_platform_stats(
-    request: Request,
-    user: User = Depends(get_current_user),
-    _gate: None = requires_feature("assets"),
-):
-    """Stats for the Strata Platform Hub card."""
-    org_id = require_org_context(request)
-    with get_db_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                COUNT(*) FILTER (WHERE status NOT IN ('retired','disposed'))      AS active_count,
-                COUNT(*) FILTER (WHERE warranty_expiry <= CURRENT_DATE + 30
-                                   AND warranty_expiry >= CURRENT_DATE
-                                   AND status NOT IN ('retired','disposed'))      AS expiring_soon,
-                COUNT(*) FILTER (WHERE warranty_expiry < CURRENT_DATE
-                                   AND status NOT IN ('retired','disposed'))      AS expired_warranty,
-                COUNT(*) FILTER (WHERE status = 'in_repair')                      AS in_repair
-            FROM app.assets
-            WHERE organization_id = %s
-        """,
-            (org_id,),
-        )
-        row = dict(cur.fetchone())
-
-        cur.execute(
-            """
-            SELECT COUNT(*) AS expiring_licenses
-            FROM app.software_licenses
-            WHERE organization_id = %s
-              AND expiry_date IS NOT NULL
-              AND expiry_date <= CURRENT_DATE + 30
-              AND expiry_date >= CURRENT_DATE
-        """,
-            (org_id,),
-        )
-        lic_row = dict(cur.fetchone())
-
-    active = row["active_count"] or 0
-    exp_warranty = row["expired_warranty"] or 0
-    expiring_soon = row["expiring_soon"] or 0
-    in_repair = row["in_repair"] or 0
-    exp_licenses = lic_row["expiring_licenses"] or 0
-
-    stats: list[str] = [f"{active} asset{'s' if active != 1 else ''}"]
-    if in_repair:
-        stats.append(f"{in_repair} in repair")
-    if expiring_soon:
-        stats.append(f"{expiring_soon} warranty expiring")
-    if exp_licenses:
-        stats.append(
-            f"{exp_licenses} license{'s' if exp_licenses != 1 else ''} expiring"
-        )
-
-    health = (
-        "critical"
-        if exp_warranty > 0 or in_repair > 3
-        else "warning" if expiring_soon > 0 or exp_licenses > 0 else "healthy"
-    )
-    return {"stats": stats, "health": health}
 
 
 @router.delete("/licenses/{license_id}/assignments/{assignment_id}", status_code=204)

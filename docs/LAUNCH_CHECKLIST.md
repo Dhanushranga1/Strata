@@ -549,7 +549,7 @@ curl https://api.your-domain.com/api/health
 
 2. **AI-Powered Knowledge Base**
    - RAG (Retrieval Augmented Generation)
-   - FAISS vector search
+   - pgvector semantic search
    - Google Gemini AI
 
 3. **Full Ticketing System**

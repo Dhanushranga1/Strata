@@ -81,7 +81,7 @@ Find your UUID in Supabase **Auth → Users**.
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `401 Invalid token` everywhere | `SUPABASE_JWT_SECRET` is wrong | Set to raw signing secret, not service_role token |
-| AI responses all low confidence | FAISS index empty | Upload KB docs after every deploy |
+| AI responses all low confidence | No embedding API key / KB not ingested | Set key in Settings → AI, re-ingest docs (vectors persist in DB) |
 | CORS errors | `WEB_ORIGIN` mismatch | Set to exact frontend URL, no trailing slash |
 | DB connection fails | Wrong port or credentials | Use port 6543 (transaction pooler), not 5432 |
 | Migrations not applied | First startup | Restart backend — migrations auto-apply in lifespan |

@@ -177,9 +177,10 @@ def list_purchase_requests(
 
         where = " AND ".join(conds)
         cur.execute(
-            f"SELECT COUNT(*) FROM app.purchase_requests pr WHERE {where}", params
+            f"SELECT COUNT(*) AS cnt FROM app.purchase_requests pr WHERE {where}",
+            params,
         )
-        total = cur.fetchone()[0]
+        total = cur.fetchone()["cnt"]
 
         cur.execute(
             f"{_SELECT} WHERE {where} ORDER BY pr.created_at DESC LIMIT %s OFFSET %s",

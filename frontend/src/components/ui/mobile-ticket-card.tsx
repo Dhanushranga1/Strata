@@ -65,11 +65,7 @@ export function MobileTicketCard({ ticket, className }: MobileTicketCardProps) {
             <StatusBadge
               status={
                 ticket.status as
-                  | 'open'
-                  | 'resolved'
-                  | 'closed'
-                  | 'in_progress'
-                  | 'escalated'
+                  'open' | 'resolved' | 'closed' | 'in_progress' | 'escalated'
               }
             />
           </div>

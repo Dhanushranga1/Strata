@@ -7,8 +7,7 @@ Endpoints (no auth required):
   GET  /api/portal/{slug}/tickets/{ticket_id} → check ticket status (needs submitter_email)
 """
 
-import threading
-import time
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -19,26 +18,55 @@ from .db_sync import get_db_connection
 
 router = APIRouter(prefix="/api/portal", tags=["portal"])
 
-# ─── Simple in-memory rate limiter (per IP, max 5 submissions/hour) ──────────
+# ─── Per-IP rate limiter (max 5 submissions/hour), DB-backed ─────────────────
+#
+# Counted in Postgres so the limit survives deploys/restarts and applies
+# across workers. Only a SHA-256 hash of the IP is stored.
 
-_rate_lock = threading.Lock()
-_rate_store: dict[str, list[float]] = {}  # ip -> [timestamp, ...]
-_RATE_WINDOW = 3600  # seconds
 _RATE_MAX = 5  # submissions per window
+_RATE_WINDOW_HOURS = 1
+
+
+def _client_ip(request: Request) -> str:
+    """Best-effort client IP for rate limiting.
+
+    Behind a proxy, `X-Forwarded-For` is `client, proxy1, ...` with the real
+    peer appended last by the closest proxy. Taking the LAST hop means a
+    client-supplied spoof can only add earlier entries, not change the value
+    the proxy appended.
+    """
+    xff = request.headers.get("X-Forwarded-For", "")
+    hops = [h.strip() for h in xff.split(",") if h.strip()]
+    if hops:
+        return hops[-1]
+    return request.client.host if request.client else "unknown"
 
 
 def _check_rate_limit(ip: str) -> None:
-    now = time.time()
-    with _rate_lock:
-        hits = _rate_store.get(ip, [])
-        hits = [t for t in hits if now - t < _RATE_WINDOW]
-        if len(hits) >= _RATE_MAX:
+    digest = hashlib.sha256(ip.encode()).hexdigest()
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        # Opportunistic cleanup of rows older than a day
+        cur.execute(
+            "DELETE FROM app.portal_rate_limits "
+            "WHERE created_at < NOW() - INTERVAL '24 hours'"
+        )
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM app.portal_rate_limits "
+            "WHERE ip_hash = %s AND created_at > NOW() - INTERVAL '1 hour'",
+            (digest,),
+        )
+        hits = cur.fetchone()["n"]
+        if hits >= _RATE_MAX:
             raise HTTPException(
                 status_code=429,
                 detail="Too many submissions — please wait before trying again.",
             )
-        hits.append(now)
-        _rate_store[ip] = hits
+        cur.execute(
+            "INSERT INTO app.portal_rate_limits (ip_hash) VALUES (%s)",
+            (digest,),
+        )
+        conn.commit()
 
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────
@@ -145,12 +173,7 @@ def get_portal_info(slug: str):
 @router.post("/{slug}/tickets", status_code=201)
 def submit_portal_ticket(slug: str, payload: PortalTicketCreate, request: Request):
     """Submit a support ticket through the public customer portal (no auth required)."""
-    client_ip = (
-        request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        or request.client.host  # type: ignore[union-attr]
-        or "unknown"
-    )
-    _check_rate_limit(client_ip)
+    _check_rate_limit(_client_ip(request))
 
     org = _get_org_by_slug(slug)
     org_id = org["id"]

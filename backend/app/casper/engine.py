@@ -31,6 +31,39 @@ from .tools import ExecutionContext, ToolRegistry, ToolResult, build_default_reg
 logger = logging.getLogger(__name__)
 
 
+def _search_entity_vectors(
+    org_id: str,
+    entity_type: str,
+    q_emb: List[float],
+    top_k: int,
+    min_score: float = 0.25,
+) -> List[Dict[str, Any]]:
+    """Cosine-search entity embeddings in pgvector (FAISS removed in 0031)."""
+    from ..db_sync import get_db_connection
+
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT ee.entity_id::text AS entity_id,
+                   1.0 - (ee.embedding_vec <=> %s::vector) AS score
+            FROM app.entity_embeddings ee
+            WHERE ee.organization_id = %s
+              AND ee.entity_type = %s
+              AND ee.embedding_vec IS NOT NULL
+            ORDER BY ee.embedding_vec <=> %s::vector
+            LIMIT %s
+            """,
+            (str(q_emb), org_id, entity_type, str(q_emb), top_k),
+        )
+        rows = cur.fetchall()
+    return [
+        {"entity_id": row["entity_id"], "score": float(row["score"])}
+        for row in rows
+        if row["score"] is not None and float(row["score"]) >= min_score
+    ]
+
+
 # ── Result types ───────────────────────────────────────────────────────────────
 
 
@@ -170,38 +203,10 @@ class CASPEREngine:
     def _embed_ticket_bg(
         self, ticket_id: str, title: str, description: str, org_id: str
     ) -> None:
-        """Background: embed ticket and store FAISS ID in entity_embeddings table."""
-        try:
-            from ..db import get_db_connection
-            from ..embeddings import embed_texts
-            from ..store import add_to_org_index
-
-            text = f"[ticket] {title}\n{description}"
-            emb = embed_texts([text])[0]
-            faiss_id = add_to_org_index(
-                org_id,
-                emb,
-                {
-                    "entity_type": "ticket",
-                    "entity_id": ticket_id,
-                    "text": text[:500],
-                    "title": title,
-                },
-            )
-            if faiss_id is not None:
-                with get_db_connection() as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        """INSERT INTO app.entity_embeddings
-                               (organization_id, entity_type, entity_id, faiss_id)
-                           VALUES (%s, 'ticket', %s, %s)
-                           ON CONFLICT (organization_id, entity_type, entity_id)
-                           DO UPDATE SET faiss_id = EXCLUDED.faiss_id, last_embedded = NOW()""",
-                        (org_id, ticket_id, faiss_id),
-                    )
-                    conn.commit()
-        except Exception as exc:
-            logger.debug("Background ticket embedding failed: %s", exc)
+        """Background: embed ticket into app.entity_embeddings (pgvector)."""
+        self._store_entity_embedding(
+            "ticket", ticket_id, f"[ticket] {title}\n{description}", org_id
+        )
 
     # ── Chat pipeline ──────────────────────────────────────────────────────────
 
@@ -363,47 +368,41 @@ class CASPEREngine:
     ) -> List[Dict]:
         """
         Semantic search the KB for text related to a given string.
-        Returns lightweight dicts: [{title, snippet, score, faiss_id}]
+        Returns lightweight dicts: [{title, snippet, score, faiss_id, chunk_id}]
         Used on ticket creation to surface relevant articles immediately.
         """
         try:
+            from ..db_sync import get_db_connection
             from ..embeddings import embed_texts
-            from ..store import search_org_vectors
 
             emb = embed_texts([text])[0]
-            scores_raw, ids_raw = search_org_vectors(org_id, emb, k=top_k * 2)
-            candidates = [
-                (float(s), int(fid))
-                for s, fid in zip(scores_raw, ids_raw)
-                if s >= 0.3 and fid >= 0
-            ]
-            if not candidates:
-                return []
-            faiss_ids = [fid for _, fid in candidates[: top_k * 2]]
-            chunks = fetch_chunks_fn(faiss_ids)
-            scored = sorted(
-                [
-                    (
-                        c,
-                        next(
-                            (s for s, fid in candidates if fid == c.get("faiss_id")),
-                            0.0,
-                        ),
-                    )
-                    for c in chunks
-                ],
-                key=lambda x: x[1],
-                reverse=True,
-            )
+            with get_db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT c.id::text AS chunk_id, c.faiss_id, c.text, d.title,
+                           1.0 - (c.embedding_vec <=> %s::vector) AS score
+                    FROM app.chunks c
+                    JOIN app.documents d ON d.id = c.doc_id
+                    WHERE c.organization_id = %s
+                      AND c.embedding_vec IS NOT NULL
+                    ORDER BY c.embedding_vec <=> %s::vector
+                    LIMIT %s
+                    """,
+                    (str(emb), org_id, str(emb), top_k * 2),
+                )
+                rows = cur.fetchall()
             return [
                 {
-                    "title": c.get("title", ""),
-                    "snippet": c.get("text", "")[:200],
-                    "score": round(s, 4),
-                    "faiss_id": c.get("faiss_id"),
+                    "title": row["title"] or "",
+                    "snippet": (row["text"] or "")[:200],
+                    "score": round(float(row["score"]), 4),
+                    "faiss_id": row["faiss_id"],
+                    "chunk_id": row["chunk_id"],
                 }
-                for c, s in scored[:top_k]
-            ]
+                for row in rows
+                if row["score"] is not None and float(row["score"]) >= 0.3
+            ][:top_k]
         except Exception as exc:
             logger.debug("KB correlation failed: %s", exc)
             return []
@@ -437,34 +436,33 @@ class CASPEREngine:
         text: str,
         org_id: str,
     ) -> None:
+        self._store_entity_embedding(entity_type, entity_id, text, org_id)
+
+    def _store_entity_embedding(
+        self,
+        entity_type: str,
+        entity_id: str,
+        text: str,
+        org_id: str,
+    ) -> None:
+        """Embed an entity and upsert its vector into app.entity_embeddings."""
         try:
-            from ..db import get_db_connection
+            from ..db_sync import get_db_connection
             from ..embeddings import embed_texts
-            from ..store import add_to_org_index
 
             emb = embed_texts([text])[0]
-            faiss_id = add_to_org_index(
-                org_id,
-                emb,
-                {
-                    "entity_type": entity_type,
-                    "entity_id": entity_id,
-                    "text": text[:500],
-                    "title": text[:80],
-                },
-            )
-            if faiss_id is not None:
-                with get_db_connection() as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        """INSERT INTO app.entity_embeddings
-                               (organization_id, entity_type, entity_id, faiss_id)
-                           VALUES (%s, %s, %s, %s)
-                           ON CONFLICT (organization_id, entity_type, entity_id)
-                           DO UPDATE SET faiss_id = EXCLUDED.faiss_id, last_embedded = NOW()""",
-                        (org_id, entity_type, entity_id, faiss_id),
-                    )
-                    conn.commit()
+            with get_db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO app.entity_embeddings
+                           (organization_id, entity_type, entity_id, embedding_vec)
+                       VALUES (%s, %s, %s::uuid, %s::vector)
+                       ON CONFLICT (organization_id, entity_type, entity_id)
+                       DO UPDATE SET embedding_vec = EXCLUDED.embedding_vec,
+                                     last_embedded = NOW()""",
+                    (org_id, entity_type, entity_id, str(emb)),
+                )
+                conn.commit()
         except Exception as exc:
             logger.debug(
                 "Background embedding failed (%s %s): %s", entity_type, entity_id, exc
@@ -476,18 +474,33 @@ class CASPEREngine:
             return
 
         def _kb_search(q_emb: List[float], org_id: str, top_k: int) -> List[Dict]:
-            from ..store import search_org_vectors
+            from ..db_sync import get_db_connection
 
-            scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 2)
+            with get_db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT c.id::text AS chunk_id, c.text, d.title,
+                           1.0 - (c.embedding_vec <=> %s::vector) AS score
+                    FROM app.chunks c
+                    JOIN app.documents d ON d.id = c.doc_id
+                    WHERE c.organization_id = %s
+                      AND c.embedding_vec IS NOT NULL
+                    ORDER BY c.embedding_vec <=> %s::vector
+                    LIMIT %s
+                    """,
+                    (str(q_emb), org_id, str(q_emb), top_k),
+                )
+                rows = cur.fetchall()
             return [
                 {
-                    "id": str(fid),
-                    "label": f"KB chunk {fid}",
-                    "score": float(s),
-                    "snippet": "",
+                    "id": row["chunk_id"],
+                    "label": row["title"] or "KB chunk",
+                    "score": float(row["score"]),
+                    "snippet": (row["text"] or "")[:200],
                 }
-                for s, fid in zip(scores_raw, ids_raw)
-                if s >= 0.3 and fid >= 0
+                for row in rows
+                if row["score"] is not None and float(row["score"]) >= 0.3
             ][:top_k]
 
         self.correlator.register_namespace(
@@ -501,39 +514,34 @@ class CASPEREngine:
     def _register_asset_namespace(self) -> None:
         def _asset_search(q_emb: List[float], org_id: str, top_k: int) -> List[Dict]:
             from ..db_sync import get_db_connection
-            from ..store import search_org_vectors
 
-            scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 4)
-            if not ids_raw:
+            hits = _search_entity_vectors(org_id, "asset", q_emb, top_k * 4)
+            if not hits:
                 return []
-            fid_to_score = {
-                fid: float(s)
-                for s, fid in zip(scores_raw, ids_raw)
-                if s >= 0.25 and fid >= 0
-            }
-            if not fid_to_score:
-                return []
+            score_map = {h["entity_id"]: h["score"] for h in hits}
             with get_db_connection() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    """SELECT ee.faiss_id, ee.entity_id::text, a.name, a.category, a.asset_tag
-                       FROM app.entity_embeddings ee
-                       JOIN app.assets a ON a.id = ee.entity_id::uuid
-                       WHERE ee.organization_id = %s AND ee.entity_type = 'asset'
-                       AND ee.faiss_id = ANY(%s)""",
-                    (org_id, list(fid_to_score.keys())),
+                    """SELECT a.id::text AS entity_id, a.name, a.category, a.asset_tag
+                       FROM app.assets a
+                       WHERE a.organization_id = %s AND a.id = ANY(%s::uuid[])""",
+                    (org_id, list(score_map.keys())),
                 )
                 rows = cur.fetchall()
+            labels = {row["entity_id"]: row for row in rows}
             results = []
-            for row in rows:
+            for entity_id, score in score_map.items():
+                row = labels.get(entity_id)
+                if not row:
+                    continue
                 results.append(
                     {
-                        "id": row["entity_id"],
+                        "id": entity_id,
                         "label": f"{row['name']} ({row['asset_tag']})",
-                        "score": fid_to_score.get(row["faiss_id"], 0.0),
-                        "snippet": row["category"],
+                        "score": score,
+                        "snippet": row["category"] or "",
                         "entity_type": "asset",
-                        "href": f"/assets/{row['entity_id']}",
+                        "href": f"/assets/{entity_id}",
                     }
                 )
             results.sort(key=lambda x: x["score"], reverse=True)
@@ -546,42 +554,37 @@ class CASPEREngine:
     def _register_contract_namespace(self) -> None:
         def _contract_search(q_emb: List[float], org_id: str, top_k: int) -> List[Dict]:
             from ..db_sync import get_db_connection
-            from ..store import search_org_vectors
 
-            scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 4)
-            if not ids_raw:
+            hits = _search_entity_vectors(org_id, "contract", q_emb, top_k * 4)
+            if not hits:
                 return []
-            fid_to_score = {
-                fid: float(s)
-                for s, fid in zip(scores_raw, ids_raw)
-                if s >= 0.25 and fid >= 0
-            }
-            if not fid_to_score:
-                return []
+            score_map = {h["entity_id"]: h["score"] for h in hits}
             with get_db_connection() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    """SELECT ee.faiss_id, ee.entity_id::text, c.title, c.status,
+                    """SELECT c.id::text AS entity_id, c.title, c.status,
                               v.name AS vendor_name
-                       FROM app.entity_embeddings ee
-                       JOIN app.contracts c ON c.id = ee.entity_id::uuid
+                       FROM app.contracts c
                        LEFT JOIN app.vendors v ON v.id = c.vendor_id
-                       WHERE ee.organization_id = %s AND ee.entity_type = 'contract'
-                       AND ee.faiss_id = ANY(%s)""",
-                    (org_id, list(fid_to_score.keys())),
+                       WHERE c.organization_id = %s AND c.id = ANY(%s::uuid[])""",
+                    (org_id, list(score_map.keys())),
                 )
                 rows = cur.fetchall()
+            labels = {row["entity_id"]: row for row in rows}
             results = []
-            for row in rows:
-                vendor = f" — {row['vendor_name']}" if row.get("vendor_name") else ""
+            for entity_id, score in score_map.items():
+                row = labels.get(entity_id)
+                if not row:
+                    continue
+                vendor = f" — {row['vendor_name']}" if row["vendor_name"] else ""
                 results.append(
                     {
-                        "id": row["entity_id"],
+                        "id": entity_id,
                         "label": f"{row['title']}{vendor}",
-                        "score": fid_to_score.get(row["faiss_id"], 0.0),
+                        "score": score,
                         "snippet": row["status"],
                         "entity_type": "contract",
-                        "href": f"/contracts/{row['entity_id']}",
+                        "href": f"/contracts/{entity_id}",
                     }
                 )
             results.sort(key=lambda x: x["score"], reverse=True)
@@ -594,40 +597,36 @@ class CASPEREngine:
     def _register_article_namespace(self) -> None:
         def _article_search(q_emb: List[float], org_id: str, top_k: int) -> List[Dict]:
             from ..db_sync import get_db_connection
-            from ..store import search_org_vectors
 
-            scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 4)
-            if not ids_raw:
+            hits = _search_entity_vectors(org_id, "knowbase_article", q_emb, top_k * 4)
+            if not hits:
                 return []
-            fid_to_score = {
-                fid: float(s)
-                for s, fid in zip(scores_raw, ids_raw)
-                if s >= 0.25 and fid >= 0
-            }
-            if not fid_to_score:
-                return []
+            score_map = {h["entity_id"]: h["score"] for h in hits}
             with get_db_connection() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    """SELECT ee.faiss_id, ee.entity_id::text, ka.title, ka.category
-                       FROM app.entity_embeddings ee
-                       JOIN app.knowledge_articles ka ON ka.id = ee.entity_id::uuid
-                       WHERE ee.organization_id = %s AND ee.entity_type = 'knowbase_article'
-                       AND ee.faiss_id = ANY(%s)
-                       AND ka.is_published = TRUE""",
-                    (org_id, list(fid_to_score.keys())),
+                    """SELECT ka.id::text AS entity_id, ka.title, ka.category
+                       FROM app.knowledge_articles ka
+                       WHERE ka.organization_id = %s
+                         AND ka.id = ANY(%s::uuid[])
+                         AND ka.is_published = TRUE""",
+                    (org_id, list(score_map.keys())),
                 )
                 rows = cur.fetchall()
+            labels = {row["entity_id"]: row for row in rows}
             results = []
-            for row in rows:
+            for entity_id, score in score_map.items():
+                row = labels.get(entity_id)
+                if not row:
+                    continue
                 results.append(
                     {
-                        "id": row["entity_id"],
+                        "id": entity_id,
                         "label": row["title"],
-                        "score": fid_to_score.get(row["faiss_id"], 0.0),
-                        "snippet": row.get("category") or "",
+                        "score": score,
+                        "snippet": row["category"] or "",
                         "entity_type": "knowbase_article",
-                        "href": f"/knowbase/{row['entity_id']}",
+                        "href": f"/knowbase/{entity_id}",
                     }
                 )
             results.sort(key=lambda x: x["score"], reverse=True)
@@ -640,40 +639,38 @@ class CASPEREngine:
     def _register_ticket_namespace(self) -> None:
         def _ticket_search(q_emb: List[float], org_id: str, top_k: int) -> List[Dict]:
             from ..db_sync import get_db_connection
-            from ..store import search_org_vectors
 
-            scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 4)
-            if not ids_raw:
+            hits = _search_entity_vectors(
+                org_id, "ticket", q_emb, top_k * 4, min_score=0.3
+            )
+            if not hits:
                 return []
-            fid_to_score = {
-                fid: float(s)
-                for s, fid in zip(scores_raw, ids_raw)
-                if s >= 0.3 and fid >= 0
-            }
-            if not fid_to_score:
-                return []
+            score_map = {h["entity_id"]: h["score"] for h in hits}
             with get_db_connection() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    """SELECT ee.faiss_id, ee.entity_id::text, t.title, t.status
-                       FROM app.entity_embeddings ee
-                       JOIN app.tickets t ON t.id = ee.entity_id::uuid
-                       WHERE ee.organization_id = %s AND ee.entity_type = 'ticket'
-                       AND ee.faiss_id = ANY(%s)
-                       AND t.status IN ('resolved', 'closed')""",
-                    (org_id, list(fid_to_score.keys())),
+                    """SELECT t.id::text AS entity_id, t.title, t.status
+                       FROM app.tickets t
+                       WHERE t.organization_id = %s
+                         AND t.id = ANY(%s::uuid[])
+                         AND t.status IN ('resolved', 'closed')""",
+                    (org_id, list(score_map.keys())),
                 )
                 rows = cur.fetchall()
+            labels = {row["entity_id"]: row for row in rows}
             results = []
-            for row in rows:
+            for entity_id, score in score_map.items():
+                row = labels.get(entity_id)
+                if not row:
+                    continue
                 results.append(
                     {
-                        "id": row["entity_id"],
+                        "id": entity_id,
                         "label": row["title"],
-                        "score": fid_to_score.get(row["faiss_id"], 0.0),
+                        "score": score,
                         "snippet": row["status"],
                         "entity_type": "ticket",
-                        "href": f"/tickets/{row['entity_id']}",
+                        "href": f"/tickets/{entity_id}",
                     }
                 )
             results.sort(key=lambda x: x["score"], reverse=True)

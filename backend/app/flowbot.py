@@ -245,12 +245,12 @@ def flowbot_platform_stats(
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT COUNT(*), SUM(run_count) FROM app.automation_rules WHERE organization_id=%s AND is_active=true",
+            "SELECT COUNT(*) AS active, COALESCE(SUM(run_count), 0) AS runs FROM app.automation_rules WHERE organization_id=%s AND is_active=true",
             (org_id,),
         )
         row = cur.fetchone()
-    active = int(row[0] or 0)
-    runs = int(row[1] or 0)
+    active = int(row["active"] or 0)
+    runs = int(row["runs"] or 0)
     stats = [f"{active} active rule{'s' if active != 1 else ''}"]
     if runs:
         stats.append(f"{runs} actions fired")

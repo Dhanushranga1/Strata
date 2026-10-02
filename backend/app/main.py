@@ -416,57 +416,11 @@ async def lifespan(_app: FastAPI):
     # (FAISS on-disk indices were wiped on every deploy; pgvector persists with the table.)
 
     # Initialise CASPER Foundation Layer — tool registry + entity namespaces
+    # (the asset namespace is registered by casper_engine.startup() itself)
     try:
         from .casper import casper_engine
-        from .casper.correlator import EntityNamespace
 
         casper_engine.startup()
-
-        # Register AssetLog namespace for cross-ticket correlation
-        def _search_assets(q_emb, org_id, top_k):
-            from .db_sync import get_db_connection
-            from .store import search_org_vectors
-
-            scores_raw, ids_raw = search_org_vectors(org_id, q_emb, k=top_k * 3)
-            hits = [
-                (float(s), int(fid))
-                for s, fid in zip(scores_raw, ids_raw)
-                if s >= 0.3 and fid >= 0
-            ]
-            if not hits:
-                return []
-            faiss_ids = [fid for _, fid in hits[: top_k * 2]]
-            with get_db_connection() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    """
-                    SELECT ee.faiss_id, a.id, a.name, a.asset_tag, a.category,
-                           a.specs->>'serial_number' AS serial
-                    FROM app.entity_embeddings ee
-                    JOIN app.assets a ON a.id = ee.entity_id
-                    WHERE ee.organization_id = %s AND ee.entity_type = 'asset'
-                      AND ee.faiss_id = ANY(%s)
-                """,
-                    (org_id, faiss_ids),
-                )
-                rows = cur.fetchall()
-            score_map = {fid: s for s, fid in hits}
-            return [
-                {
-                    "id": str(r["id"]),
-                    "label": f"{r['name']} ({r['asset_tag']})",
-                    "score": score_map.get(r["faiss_id"], 0.3),
-                    "snippet": f"{r['category']} · SN:{r.get('serial') or 'N/A'}",
-                }
-                for r in rows
-            ][:top_k]
-
-        casper_engine.correlator.register_namespace(
-            EntityNamespace(
-                name="asset",
-                search_fn=_search_assets,
-            )
-        )
     except Exception as exc:
         logger.warning("[startup] CASPEREngine startup failed (non-fatal): %s", exc)
 

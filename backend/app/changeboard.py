@@ -123,11 +123,11 @@ def change_platform_stats(
         counts = {r["status"]: int(r["count"]) for r in cur.fetchall()}
 
         cur.execute(
-            """SELECT COUNT(*) FROM app.change_blackouts
+            """SELECT COUNT(*) AS cnt FROM app.change_blackouts
                WHERE organization_id = %s AND NOW() BETWEEN start_at AND end_at""",
             (org_id,),
         )
-        active_blackouts = int(cur.fetchone()[0] or 0)
+        active_blackouts = int(cur.fetchone()["cnt"] or 0)
 
     pending = counts.get("pending_approval", 0)
     in_prog = counts.get("in_progress", 0)
@@ -252,8 +252,8 @@ def list_changes(
     where = " AND ".join(conds)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM app.changes c WHERE {where}", params)
-        total = cur.fetchone()[0]
+        cur.execute(f"SELECT COUNT(*) AS cnt FROM app.changes c WHERE {where}", params)
+        total = cur.fetchone()["cnt"]
         cur.execute(
             f"{_SELECT} WHERE {where} ORDER BY c.created_at DESC LIMIT %s OFFSET %s",
             params + [limit, offset],
@@ -282,11 +282,11 @@ def create_change(
         with get_db_connection() as conn:
             cur = conn.cursor()
             cur.execute(
-                """SELECT COUNT(*) FROM app.change_blackouts
+                """SELECT COUNT(*) AS cnt FROM app.change_blackouts
                    WHERE organization_id = %s AND NOW() BETWEEN start_at AND end_at""",
                 (org_id,),
             )
-            blackout_active = int(cur.fetchone()[0] or 0) > 0
+            blackout_active = int(cur.fetchone()["cnt"] or 0) > 0
 
     with get_db_connection() as conn:
         cur = conn.cursor()
@@ -415,11 +415,11 @@ def approve_change(
         with get_db_connection() as conn:
             cur = conn.cursor()
             cur.execute(
-                """SELECT COUNT(*) FROM app.change_blackouts
+                """SELECT COUNT(*) AS cnt FROM app.change_blackouts
                    WHERE organization_id = %s AND NOW() BETWEEN start_at AND end_at""",
                 (org_id,),
             )
-            if int(cur.fetchone()[0] or 0) > 0:
+            if int(cur.fetchone()["cnt"] or 0) > 0:
                 raise HTTPException(
                     409,
                     "Cannot approve high/emergency change during an active blackout window",

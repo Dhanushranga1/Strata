@@ -143,20 +143,15 @@ If you see this, the backend is running. Then open your Vercel URL and you shoul
 
 > **Read this section before inviting anyone to use the system.**
 
-### 3.1 — The Knowledge Base Must Be Built After Every Deployment
+### 3.1 — The Knowledge Base Persists Across Deployments
 
-**This is the most important operational fact about TicketPilot.**
-
-The AI assistant works by searching your uploaded documents (the "Knowledge Base") to find answers. These documents are stored on the server's local disk, not in the database. When Render or Railway deploys a new version of the app, the disk is wiped clean and **all previously uploaded documents are gone from the AI's memory**.
-
-The database still knows *which* documents were uploaded (title, date, etc.) but the AI cannot search them anymore.
+The AI assistant searches your uploaded documents (the "Knowledge Base") using embeddings stored in Postgres (`app.chunks.embedding_vec`, pgvector). Vectors and document metadata live in the database, so **deploys and restarts do not erase the KB** — no re-upload needed.
 
 **What this means for you:**
-- After every deployment or server restart, re-upload your KB documents
-- You will know the KB is empty if the AI responds with low confidence scores (below 50%) on questions it used to answer well
-- The backend logs will show this warning on startup: `FAISS data directory does not exist — no KB indices loaded`
+- Re-upload only if you actually changed or removed a document
+- Low confidence (below 50%) usually means the embedding API key is missing or the doc was never ingested — check Settings → AI
 
-**How to re-upload documents:** See Part 4, Section 4.2.
+**How to upload documents:** See Part 4, Section 4.2.
 
 ### 3.2 — Create Your First Admin Account
 
@@ -254,9 +249,8 @@ The AI is only as good as the documents you upload. Keep the knowledge base curr
 2. Find the document and click **Delete**
 3. Confirm the deletion — this is permanent
 
-**After re-uploading documents (post-deployment):**
-- After any deployment or server restart, re-upload your most important documents
-- The AI needs at least 3–5 substantial documents before it can give confident answers
+**After uploading documents:**
+- The AI benefits from 3–5 substantial documents before it can give confident answers (all docs embed into pgvector and persist across deploys)
 - Test the AI by clicking **AI Assist** on any ticket and asking a question you know the answer to
 
 ### 4.3 — What Admins Do (Analytics)
@@ -309,7 +303,7 @@ The AI score is computed from 7 factors:
 | Documents are in wrong format or have bad text extraction | Re-upload as plain text or well-formatted PDF |
 | Question is about a topic not covered in any document | Upload a document that covers that topic |
 | Question contains names/emails (PII) that disrupted the query | Rephrase the question without PII |
-| Knowledge base was wiped after deployment | Re-upload documents (see Part 3.1) |
+| KB stats show zero chunks | Check embedding key, then re-ingest documents (vectors persist in Postgres) |
 
 ### The Escalation Trigger
 
@@ -398,19 +392,19 @@ This is a known limitation. A self-service "Forgot Password" link is planned for
 
 ---
 
-### Issue 8 — "A document shows in the list but the AI ignores it after a redeploy"
+### Issue 8 — "A document shows in the list but the AI ignores it"
 
-**Cause:** This is the FAISS persistence issue described in Part 3.1. The document metadata is in the database but the search index was wiped.
+**Cause:** The document has no stored embeddings — usually the embedding API key was missing at ingest time. (Redeploys do not wipe vectors; they are stored in Postgres via pgvector.)
 
-**Fix:** Delete and re-upload the document. The database record and the search index will both be rebuilt.
+**Fix:** Set an embedding key in Settings → AI, then delete and re-ingest the document so vectors are generated.
 
 ---
 
-### Issue 9 — "Render logs show 'FAISS data directory does not exist'"
+### Issue 9 — "Vector search returns nothing after deploy"
 
-**Cause:** This is expected on a fresh deployment. It's a warning, not an error. It means the KB is empty.
+**Cause:** Vectors persist in Postgres; an empty result means the KB has no embedded chunks (nothing ingested, or embedding key missing).
 
-**Fix:** Upload your KB documents via the Knowledge Base page. The warning will not appear on the next startup once documents have been indexed.
+**Fix:** Check Settings → AI for a valid embedding key, then upload/re-ingest documents via the Knowledge Base page and confirm `/api/kb/stats` shows chunks.
 
 ---
 
@@ -435,20 +429,9 @@ Replace the email address. The user must log out and back in after this change.
 
 Run these checks after any deployment to confirm the AI is working.
 
-### Check 1 — Backend Startup Log
+### Check 1 — KB Stats After Deploy
 
-Open **Render → your service → Logs** immediately after a deploy. Look for one of these lines:
-
-```
-# Good — documents are indexed
-INFO  FAISS: found indices for 1 organisation(s): ['org-uuid-here']
-
-# Warning — KB is empty, action required
-WARNING  FAISS data directory './data/faiss' does not exist — no KB indices loaded.
-         AI responses will have low confidence until documents are re-uploaded.
-```
-
-If you see the warning, upload documents before going live.
+Call `GET /api/kb/stats` (or check the Knowledge Base page). Non-zero `documents`/`chunks` means the KB is intact — vectors live in Postgres and survive deploys. If zero, upload documents before going live.
 
 ### Check 2 — AI Response Test
 
@@ -457,7 +440,7 @@ If you see the warning, upload documents before going live.
 3. Click **AI Assist** and type a question that your KB documents cover
 4. The confidence score should be above 60%
 
-If confidence is below 40% on a question clearly covered in your documents, the KB did not load correctly. Delete and re-upload the relevant document.
+If confidence is below 40% on a question clearly covered in your documents, check the embedding key in Settings → AI, then re-ingest the relevant document.
 
 ### Check 3 — API Health Endpoint
 
@@ -482,7 +465,7 @@ These are features that are not yet built. Your team should know about them befo
 | No password reset (self-service) | Users who forget passwords must contact an admin | Admin resets via Supabase dashboard (see Issue 4) |
 | No real-time updates | New messages do not appear automatically — must refresh the page | Refresh the browser to see new messages |
 | No email notifications | Users are not notified of replies via email | Users must check the app directly |
-| KB documents lost after each deployment | AI must be re-trained after every deploy | Re-upload documents after deployments |
+| KB vectors persist in Postgres (pgvector) | None — deploys do not erase the KB | No action needed after deploys |
 | No multi-factor authentication | Accounts protected by password only | Use strong passwords; MFA planned for v1.1 |
 | AI has no conversation memory | Each AI query is independent — the AI does not remember previous questions in the same ticket | Provide full context in each AI query |
 | Sessions expire after 1 hour | Users are logged out automatically; unsaved work may be lost | Save responses before the hour mark; refresh the page to log back in |
@@ -492,8 +475,7 @@ These are features that are not yet built. Your team should know about them befo
 ## Part 9 — Maintenance Schedule
 
 ### After Every Deployment
-- [ ] Check Render logs for the FAISS startup message
-- [ ] Re-upload KB documents if the warning is present
+- [ ] Hit `/api/health` and `/api/kb/stats` (vectors persist in Postgres — no re-upload)
 - [ ] Test AI assist with 2–3 known questions
 - [ ] Confirm login works for at least one rep account
 
@@ -544,7 +526,6 @@ These are features that are not yet built. Your team should know about them befo
 | `WEB_ORIGIN` | Yes | Your Vercel frontend URL (for CORS) |
 | `ENVIRONMENT` | Recommended | Set to `production` |
 | `LOG_LEVEL` | Optional | `INFO` (default) or `DEBUG` for verbose logs |
-| `VECTOR_INDEX_DIR` | Optional | Path to FAISS index storage (default: `./data/faiss`) |
 | `RAG_TOP_K` | Optional | Number of KB chunks retrieved per query (default: 6) |
 | `RAG_MIN_SCORE` | Optional | Minimum similarity threshold for chunks (default: 0.25) |
 | `CHUNK_SIZE_CHARS` | Optional | Document chunk size in characters (default: 2400) |

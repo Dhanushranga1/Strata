@@ -456,8 +456,6 @@ def ticket_platform_stats(request: Request, user: User = Depends(get_current_use
                     (org_id,),
                 )
                 rows = cur.fetchall()
-                cols = [d[0] for d in cur.description]
-                rows = [dict(zip(cols, r)) for r in rows]
             except Exception:
                 conn.rollback()
                 cur.execute(
@@ -472,8 +470,7 @@ def ticket_platform_stats(request: Request, user: User = Depends(get_current_use
                 """,
                     (org_id,),
                 )
-                cols = [d[0] for d in cur.description]
-                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                rows = cur.fetchall()
 
     closed = {"resolved", "closed"}
     open_count = sum(r["ticket_count"] for r in rows if r["status"] not in closed)
@@ -2072,7 +2069,7 @@ def chat_with_ai(
 # ── Tags ─────────────────────────────────────────────────────────────────────
 
 
-@router.patch("/tickets/{ticket_id}/tags", response_model=TicketDetail)
+@router.patch("/tickets/{ticket_id}/tags", response_model=TicketWithMessages)
 def update_tags(
     ticket_id: str,
     payload: TagsRequest,

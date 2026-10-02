@@ -679,7 +679,7 @@ async def get_rep_performance(
                     AVG(
                         EXTRACT(EPOCH FROM (
                             (SELECT MIN(created_at) FROM app.messages 
-                             WHERE ticket_id = t.id AND sender_id = u.user_id AND organization_id = $1)
+                             WHERE ticket_id = t.id AND sender_id = u.id AND organization_id = $1)
                             - t.created_at
                         )) / 3600
                     ), 0
@@ -1008,7 +1008,7 @@ async def admin_update_org_plan(
     if plan_id not in valid_plans:
         raise HTTPException(400, f"Invalid plan. Must be one of: {sorted(valid_plans)}")
 
-    from ..entitlements import _cache as _ent_cache
+    from .entitlements import _cache as _ent_cache
 
     conn = await _get_db()
     try:

@@ -26,10 +26,7 @@ import { useOrganization } from '@/contexts/OrganizationContext';
 interface ActivityItem {
   id: string;
   type:
-    | 'ticket_created'
-    | 'ticket_resolved'
-    | 'message_sent'
-    | 'status_changed';
+    'ticket_created' | 'ticket_resolved' | 'message_sent' | 'status_changed';
   ticket_id: string;
   user: string;
   detail: string;

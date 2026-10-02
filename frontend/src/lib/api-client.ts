@@ -163,6 +163,20 @@ export async function apiCall<T = unknown>(
   return responseData as T;
 }
 
+/** Human-readable message from an unknown thrown value. */
+export function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === 'object' && err !== null) {
+    const detail = (err as { detail?: unknown }).detail;
+    if (typeof detail === 'string' && detail) return detail;
+    const response = (err as { response?: { data?: { detail?: unknown } } })
+      .response;
+    const nested = response?.data?.detail;
+    if (typeof nested === 'string' && nested) return nested;
+  }
+  return fallback;
+}
+
 /**
  * Convenience methods
  */

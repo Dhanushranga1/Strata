@@ -105,15 +105,12 @@ DATABASE_URL=postgresql://postgres:your-password@db.xxxxxxxxxxxxx.supabase.co:54
 # Google API Configuration
 GOOGLE_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-# Knowledge Base Configuration
+# Knowledge Base Configuration (vectors stored in Postgres/pgvector)
 CHUNK_SIZE_CHARS=2400
 CHUNK_OVERLAP_CHARS=400
-VECTOR_INDEX_DIR=./data/faiss
-VECTOR_MAP_DIR=./data/maps
 
 # Optional: Adjust these for production
-# FAISS_INDEX_TYPE=IndexFlatIP
-# EMBEDDING_MODEL=text-embedding-004
+# EMBEDDING_MODEL=gemini-embedding-001
 ```
 
 ### Step 3.2: Frontend Environment (.env.local)
@@ -202,14 +199,8 @@ pip install -r requirements.txt
 python test_phase2.py
 ```
 
-### Step 5.2: Create Data Directories
-```bash
-# Create directories for FAISS storage
-mkdir -p data/faiss data/maps
-
-# Set proper permissions
-chmod 755 data data/faiss data/maps
-```
+### Step 5.2: (No data directories needed)
+Vectors live in Postgres via pgvector (`app.chunks.embedding_vec`) — no local index directories to create.
 
 ### Step 5.3: Test Backend Startup
 ```bash
@@ -350,13 +341,10 @@ curl "http://localhost:8000/api/kb/search?q=test document&k=3" \
 - Check JWT token is valid and not expired
 - Ensure Authorization header is properly formatted
 
-#### Issue: "FAISS import errors"
+#### Issue: "Vector search returns nothing"
 **Solutions**:
-```bash
-# Reinstall FAISS
-pip uninstall faiss-cpu
-pip install faiss-cpu==1.12.0
-```
+- Confirm embeddings were generated (embedding API key set in Settings → AI, or `GOOGLE_API_KEY`/`EMBEDDING_API_KEY` in `.env`)
+- Re-ingest the document — vectors are stored in `app.chunks.embedding_vec` (pgvector)
 
 #### Issue: "Text embedding fails"
 **Solutions**:

@@ -4,7 +4,7 @@ SME IT operations platform — tickets, KB, assets, contracts, procurement, and 
 
 ## Monorepo layout
 - `frontend/` — Next.js 15, React 19, TypeScript, Tailwind, Radix UI, HeroUI
-- `backend/` — FastAPI, Python 3.11, asyncpg + psycopg3, FAISS, provider-agnostic AI (Gemini/Groq/OpenAI-compat/Jina)
+- `backend/` — FastAPI, Python 3.11, asyncpg + psycopg3, pgvector, provider-agnostic AI (Gemini/Groq/OpenAI-compat/Jina)
 - No root package.json/lockfile; all JS deps in `frontend/`
 - `backend/app/modules/` is **empty** (Strata modules AssetLog/ContractVault/etc. not implemented yet). Specs live in `docs/modules/` — read those before building a new module.
 - `docs/` has many guides (`DEPLOYMENT.md`, `CASPER_RAG_RESEARCH.md`, `SECURITY_GUIDE.md`); `plan.md` is the live dev roadmap.
@@ -49,11 +49,11 @@ Backend env templates: `backend/.env.dev.example` / `.env.prod.example` → `bac
 - `black --check --diff app/` / `isort --check-only --diff app/` / `mypy app/ --ignore-missing-imports` / `bandit -r app/`
 - mypy is **strict**: `disallow_untyped_defs = true` in `backend/pyproject.toml` — new code needs full annotations or `make lint` fails. Black/isort line length 88.
 
-Integration test (both servers running): `python scripts/rag_validation_suite.py` (lives in `scripts/`, not repo root — CI's integration job invokes it from the root, so that CI step is broken).
+Integration test (both servers running): `python scripts/rag_validation_suite.py` (resolves its JWT helper via `__file__`). CI's integration job is `continue-on-error` — the pgvector container lacks Supabase's `auth` schema, and the suite predates `X-Organization-ID`, so results are advisory only.
 
 ## Database
 - Supabase PostgreSQL, **`app.` schema** (NOT `public`)
-- Migrations in `backend/migrations/`, numbered `0001`–`0030` — **auto-apply on startup** via `app/migration_runner.py` (idempotent, tracked in `app.schema_migrations`). No manual SQL Editor step.
+- Migrations in `backend/migrations/`, numbered `0001`–`0035` — **auto-apply on startup** via `app/migration_runner.py` (idempotent, tracked in `app.schema_migrations`). No manual SQL Editor step.
 - Duplicate numbers exist by design — 0005/0028/0029/0030 each have two files (e.g. `0028_ai_runs_org_id` + `0028_entitlements`). Plus `fixes/` (one-off patches) and `rollback_migrations.sql`.
 - Connection uses **transaction pooler** port **6543**, not 5432.
 
@@ -68,11 +68,10 @@ Integration test (both servers running): `python scripts/rag_validation_suite.py
 ## Architecture quirks
 - Two DB pools: asyncpg `db.py` (async) + psycopg3 `db_sync.py` (sync)
 - Two role systems: global `app.user_roles` (admin/rep/customer) + per-org `app.organization_members` (owner/admin/rep/member). **Global `admin` = PLATFORM admin (cross-org `/api/admin/*` access) — granted ONLY manually via SQL (README:136); self-signup gets `customer`, org invites grant at most global `rep`.**
-- FAISS index per org on ephemeral filesystem — **wiped on every deploy**, re-upload KB docs
+- **pgvector only — no FAISS.** Vectors live in `app.chunks.embedding_vec` (`vector(1536)`, migrations 0031/0035) and persist with the DB — deploys do NOT wipe the KB, no re-upload needed. `app.faiss_snapshots` tables remain but are unused
 - Org context via `X-Organization-ID` header, processed in `org_middleware.py`; org-scoped routers call `require_org_context`
 - DB pool circuit breaker: opens after **3** consecutive failures → 30s cooldown → half-open retry (fast-fail so callers can serve stale cache)
-- Background tasks: overdue scan (15 min), pool keepalive (4 min), FAISS rebuild + snapshot load (startup)
-- Startup also rebuilds FAISS from embeddings stored in `app.chunks` (snapshot first, fall back to per-vector rebuild)
+- Background tasks: overdue scan (15 min), pool keepalive (4 min). No startup vector rebuild — pgvector reads the DB
 
 ## Entitlements / plan gating
 - New open-core gating: plans `community` / `starter` / `business` / `enterprise` in `backend/app/entitlements/plans.py`
@@ -80,7 +79,7 @@ Integration test (both servers running): `python scripts/rag_validation_suite.py
 - Frontend: `useEntitlements` hook (`src/hooks/useEntitlements.ts`) + `src/lib/plans.ts` — **gate new UI behind entitlements, not hardcoded checks**
 
 ## RAG / AI pipeline
-- 2400 char chunks, 400 overlap → embed → FAISS `IndexFlatIP` per org → MMR re-ranking (auto-disabled when KB < 50 chunks) → LLM with structured JSON → CASPER confidence scoring (intent-adaptive, KB-density-calibrated)
+- 2400 char chunks, 400 overlap → embed → pgvector cosine search over `app.chunks.embedding_vec` (per org) → MMR re-ranking (auto-disabled when KB < 50 chunks) → LLM with structured JSON → CASPER confidence scoring (intent-adaptive, KB-density-calibrated)
 - **AI is provider-agnostic** (`app/ai.py`, `app/embeddings.py`): provider auto-detected from model name prefix (`gemini-*` → Google, `claude-*` → Anthropic, else OpenAI-compat/Groq; embeddings: google/openai/jina)
 - Model + API keys are **runtime-configurable**: DB `app.ai_settings` (single row, `LIMIT 1`, global) overrides env, editable via admin UI `/admin/settings/ai` (BYOK). Defaults: `gemini-3.5-flash`, `gemini-embedding-001` (1536-dim via output_dimensionality; DB column vector(1536) after migration 0035). Don't use `gemini-2.x-*` gen models — Google blocks them for new API keys (404). Empty embedding key falls back to the generation key. Clear `invalidate_cache()` if you change the table directly
 - Tuning env: `RAG_TOP_K` (6), `RAG_MIN_SCORE` (0.25), `RAG_MAX_CONTEXT_CHARS` (12000), `MMR_LAMBDA` (0.7), `CONFIDENCE_THRESHOLD` (0.55), `CONFIDENCE_MIN_CHUNKS` (2)
@@ -97,7 +96,7 @@ Integration test (both servers running): `python scripts/rag_validation_suite.py
 ## Gotchas
 - CI workflow `.github/workflows/ci-development.yml` sets **stale env var names** for backend tests: `SUPABASE_SERVICE_KEY` and `JWT_SECRET`. Code reads `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_JWT_SECRET`. Backend tests still pass because conftest.py sets the correct names + mocks Supabase; don't rely on CI's vars for real runs.
 - `organizations.py.backup` in `backend/app/` is committed junk — ignore it.
-- Pre-deploy: FAISS indices wiped on redeploy → re-upload KB docs; `SUPABASE_SERVICE_ROLE_KEY` required for invite emails (otherwise invite links returned in response body).
+- Pre-deploy: KB vectors live in Postgres (pgvector) — KB survives redeploys, no re-upload. `SUPABASE_SERVICE_ROLE_KEY` required for invite emails (otherwise invite links returned in response body).
 
 ## Frontend conventions
 - `@/` alias → `src/` (tsconfig.json + next.config.ts webpack alias + jest moduleNameMapper)

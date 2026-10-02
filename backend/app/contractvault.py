@@ -189,26 +189,28 @@ def list_vendors(
 ):
     org_id = require_org_context(request)
     offset = (page - 1) * limit
-    conditions = ["organization_id = %s"]
+    conditions = ["v.organization_id = %s"]
     params: list = [org_id]
 
     if search:
         conditions.append(
-            "(name ILIKE %s OR support_email ILIKE %s OR account_manager ILIKE %s)"
+            "(v.name ILIKE %s OR v.support_email ILIKE %s OR v.account_manager ILIKE %s)"
         )
         s = f"%{search}%"
         params += [s, s, s]
     if category:
-        conditions.append("category = %s")
+        conditions.append("v.category = %s")
         params.append(category)
     if preferred is not None:
-        conditions.append("is_preferred = %s")
+        conditions.append("v.is_preferred = %s")
         params.append(preferred)
 
     where = " AND ".join(conditions)
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute(f"SELECT COUNT(*) AS total FROM app.vendors WHERE {where}", params)
+        cur.execute(
+            f"SELECT COUNT(*) AS total FROM app.vendors v WHERE {where}", params
+        )
         total = cur.fetchone()["total"]
         cur.execute(
             f"""

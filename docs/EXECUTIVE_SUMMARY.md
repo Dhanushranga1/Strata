@@ -17,7 +17,7 @@ Strata unifies the full IT operations lifecycle on one platform:
 | Module | What it does |
 |--------|-------------|
 | **TicketPilot** | AI-assisted support tickets, SLA tracking, canned responses, CSAT |
-| **KnowBase** | Searchable knowledge articles with FAISS-backed AI retrieval |
+| **KnowBase** | Searchable knowledge articles with pgvector-backed AI retrieval |
 | **AssetLog** | Hardware/software inventory, QR codes, warranty alerts |
 | **ContractVault** | Vendor directory, contract renewals, document links |
 | **ProcureFlow** | Purchase requests → approvals → delivery → AssetLog |
@@ -34,14 +34,14 @@ TicketPilot (core) is implemented and shipping; the remaining modules are on the
 
 ## Key Differentiators
 
-- **AI-first, grounded in your own data.** The CASPER AI assistant answers from the organization's own knowledge base via a RAG pipeline — chunked docs embedded and searched with FAISS, re-ranked, then generated with citations and confidence scoring. It escalates to a human when confidence is low.
+- **AI-first, grounded in your own data.** The CASPER AI assistant answers from the organization's own knowledge base via a RAG pipeline — chunked docs embedded and searched with pgvector, re-ranked, then generated with citations and confidence scoring. It escalates to a human when confidence is low.
 - **BYOK AI.** Model and API keys are runtime-configurable in the admin UI, not hardcoded. The AI layer is provider-agnostic — Gemini, Claude, Groq, or any OpenAI-compatible endpoint — so customers bring their own keys.
 - **Multi-tenant by design.** Strict per-organization data isolation, org scoping on every request, and role systems at both the platform and organization level.
 - **Open-core monetization.** Community plan is free; Starter, Business, and Enterprise unlock AI, KB, advanced modules, and analytics. Feature gating is enforced end-to-end.
 
 ## Architecture
 
-- **Backend:** FastAPI (Python 3.11), asyncpg + psycopg3, provider-agnostic AI layer, FAISS vector search, Supabase Postgres (transaction-pooler) for storage and JWT auth.
+- **Backend:** FastAPI (Python 3.11), asyncpg + psycopg3, provider-agnostic AI layer, pgvector search, Supabase Postgres (transaction-pooler) for storage and JWT auth.
 - **Frontend:** Next.js 15, React 19, TypeScript, Tailwind, Radix UI + HeroUI.
 - **Deployment:** Backend on Render, frontend on Vercel; migrations auto-apply on startup; self-hostable via Docker Compose.
 - **Security:** JWT auth, RLS on the database, PII scrubbing before the LLM, rate limiting, audit logging, and per-org data isolation.

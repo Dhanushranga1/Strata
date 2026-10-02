@@ -85,7 +85,7 @@ Find your UUID in Supabase **Auth → Users**.
 
 1. Log in as admin → go to **Knowledge Base** in sidebar
 2. Upload PDF, TXT, MD, or DOCX files
-3. Wait for "Indexed" status — documents are chunked and embedded into FAISS
+3. Wait for "Indexed" status — documents are chunked and embedded into pgvector (stored in the DB)
 
 ## Manual setup (without Makefile)
 
